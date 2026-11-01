@@ -37,7 +37,8 @@ struct ModelSettingsView: View {
                         Text("Base URL").font(.subheadline).foregroundStyle(.secondary)
                         TextField(
                             "", text: $baseURL,
-                            prompt: Text("https://api.example.com/v1").foregroundStyle(Color(uiColor: .placeholderText))
+                            prompt: Text(verbatim: "https://api.example.com/v1")
+                                .foregroundStyle(Color(uiColor: .placeholderText))
                         )
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .textContentType(.URL)
