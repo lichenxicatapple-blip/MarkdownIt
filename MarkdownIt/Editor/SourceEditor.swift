@@ -44,6 +44,11 @@ final class SourceTextView: UITextView {
         onPaste?()
         super.paste(sender)
     }
+
+    override func paste(itemProviders: [NSItemProvider]) {
+        onPaste?()
+        super.paste(itemProviders: itemProviders)
+    }
 }
 
 /// A persistent native editor; hiding it for preview does not reset its working history.

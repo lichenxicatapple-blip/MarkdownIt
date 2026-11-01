@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct MarkdownItApp: App {
@@ -17,6 +18,10 @@ struct MarkdownItApp: App {
                     defaults.removePersistentDomain(forName: name)
                 }
                 try? ModelKeychain.write("")
+                if ProcessInfo.processInfo.arguments.contains("--ui-test-paste-fixture") {
+                    UIPasteboard.general.setObjects(
+                        ["Pasted **text**." as NSString], localOnly: true, expirationDate: nil)
+                }
                 if ProcessInfo.processInfo.arguments.contains("--ui-test-model-fixture") {
                     defaults.set("http://127.0.0.1:1/v1", forKey: "model.baseURL")
                     defaults.set("ui-test-model", forKey: "model.id")

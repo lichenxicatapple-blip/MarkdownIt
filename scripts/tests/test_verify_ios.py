@@ -291,6 +291,7 @@ class FullTestExecution(unittest.TestCase):
                 )
                 self.assertEqual(result["passed"], expected)
                 command = run_tests.call_args.args[0]
+                self.assertEqual(command[command.index("-collect-test-diagnostics") + 1], "never")
                 self.assertEqual(
                     [arg for arg in command if arg.startswith("-only-testing:")],
                     ["-only-testing:MarkdownItTests", "-only-testing:MarkdownItUITests"],
@@ -310,6 +311,31 @@ class FullTestExecution(unittest.TestCase):
         self.assertEqual(
             results, [{"family": "iPhone", "passed": False}, {"family": "iPad", "passed": True}]
         )
+
+    def test_failed_boot_migration_is_not_treated_as_a_ready_test_environment(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(
+                verify_ios,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    [], 0, "Status=3\nData Migration Failed\n"
+                ),
+            ),
+            patch.object(verify_ios, "run_tests") as run_tests,
+            self.assertRaisesRegex(ValueError, "data migration failed"),
+        ):
+            verify_ios.verify_family(
+                "iPhone",
+                runtime={"name": "iOS 26.5", "identifier": "runtime"},
+                devices=[{"name": "MarkdownIt iPhone", "udid": "phone", "state": "Booted"}],
+                specification=Path("full.xctestrun"),
+                output=Path(directory),
+                suite="all",
+                prefix="MarkdownIt",
+                cancel=threading.Event(),
+            )
+        run_tests.assert_not_called()
 
     def test_infrastructure_failure_does_not_omit_the_other_family(self):
         def execute(family, **options):
@@ -338,3 +364,87 @@ class FullTestExecution(unittest.TestCase):
             finally:
                 timer.cancel()
         self.assertEqual(code, 130)
+
+    def test_animation_stall_keeps_the_first_operation_across_output_chunks(self):
+        output = (
+            "Test Case '-[ReaderUITests testConversation]' started.\n"
+            "    t =    19.14s     Wait for dev.catli.MarkdownIt to idle\n"
+            "    t =    79.17s App animations complete notification not received, "
+            "will attempt to continue.\n"
+        )
+        # Pipe reads may split both test names and the warning at any byte.
+        for split in range(len(output)):
+            with self.subTest(split=split):
+                progress = verify_ios.TestProgress()
+                first = progress.feed(output[:split])
+                second = progress.feed(output[split:])
+                context = first or second
+                self.assertEqual(context["test"], "-[ReaderUITests testConversation]")
+                self.assertIn("19.14s", context["action"])
+                self.assertIn("79.17s", context["warning"])
+
+    def test_animation_stall_is_sampled_before_interrupt_and_cannot_pass(self):
+        script = """
+import signal, time
+def stop(*_):
+    print('process interrupted', flush=True)
+    raise SystemExit(0)
+signal.signal(signal.SIGINT, stop)
+print("Test Case '-[ReaderUITests testConversation]' started.", flush=True)
+print('    t =    19.14s     Wait for dev.catli.MarkdownIt to idle', flush=True)
+print('App animations complete notification not received, will attempt to continue.', flush=True)
+time.sleep(30)
+print('incorrectly continued', flush=True)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "stall.log"
+            captured = []
+
+            def capture(context):
+                self.assertIn("App animations complete", log.read_text())
+                self.assertNotIn("process interrupted", log.read_text())
+                captured.append(context)
+
+            code = verify_ios.run_tests([sys.executable, "-c", script], log, on_stall=capture)
+            self.assertEqual(code, 1)
+            self.assertEqual(len(captured), 1)
+            self.assertEqual(captured[0]["test"], "-[ReaderUITests testConversation]")
+            self.assertIn("process interrupted", log.read_text())
+            self.assertNotIn("incorrectly continued", log.read_text())
+
+    def test_short_animation_waits_and_successful_tests_are_not_stalls(self):
+        progress = verify_ios.TestProgress()
+        self.assertIsNone(
+            progress.feed(
+                "Test Case '-[ReaderUITests testConversation]' started.\n"
+                "    t =     1.00s Wait for dev.catli.MarkdownIt to idle\n"
+                "Test Case '-[ReaderUITests testConversation]' passed (2.0 seconds).\n"
+            )
+        )
+
+    def test_stall_sampling_is_bounded_and_only_targets_this_apps_processes(self):
+        listing = (
+            "123\t0\tUIKitApplication:dev.catli.MarkdownIt[app]\n"
+            "456\t0\tUIKitApplication:dev.catli.MarkdownItUITests.xctrunner[runner]\n"
+            "789\t0\tUIKitApplication:com.apple.mobilesafari[other]\n"
+            "-\t0\tUIKitApplication:dev.catli.MarkdownIt[not-running]\n"
+        )
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(
+                verify_ios.subprocess,
+                "run",
+                side_effect=[
+                    subprocess.CompletedProcess([], 0, listing),
+                    subprocess.CompletedProcess([], 0),
+                    subprocess.CompletedProcess([], 0),
+                ],
+            ) as run,
+        ):
+            output = Path(directory)
+            context = {"test": "testConversation", "action": "Wait for app to idle"}
+            verify_ios.stall_details("device", output, context)
+            self.assertEqual(json.loads((output / "device-stall.json").read_text()), context)
+            samples = run.call_args_list[1:]
+            self.assertEqual([call.args[0][1] for call in samples], ["123", "456"])
+            self.assertTrue(all(call.kwargs["timeout"] == 8 for call in samples))

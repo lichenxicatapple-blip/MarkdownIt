@@ -42,11 +42,15 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    private func navigationReader(markdown: String? = nil) async throws -> (ReaderSession, ReaderBridge, UIWindow, URL)
-    {
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+    private func navigationReader(markdown: String? = nil) async throws -> (ReaderSession, ReaderBridge, URL) {
+        let defaultsName = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        addTeardownBlock { defaults.removePersistentDomain(forName: defaultsName) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
+        let session = ReaderSession(defaults: defaults)
+        addTeardownBlock { @MainActor in await session.closeDocument() }
         let text: String
         if let markdown {
             text = markdown
@@ -62,7 +66,17 @@ final class WebReaderTests: XCTestCase {
         try Data(text.utf8).write(to: url)
         await session.grant(root)
         await session.open(url)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
         let bridge = ReaderBridge(session: session)
+        addTeardownBlock { @MainActor in
+            bridge.detach()
+            window.isHidden = true
+            if previousKeyWindow?.isHidden == false { previousKeyWindow?.makeKey() }
+        }
         // A real MediaQueryList, isolated to this test page, exposes preference changes.
         bridge.webView.configuration.userContentController.addUserScript(
             WKUserScript(
@@ -73,16 +87,12 @@ final class WebReaderTests: XCTestCase {
                       window.matchMedia = value => value === query ? window.readerTestMotion : original(value);
                     })();
                     """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene)
-        let controller = UIViewController()
-        window.rootViewController = controller
         window.makeKeyAndVisible()
         bridge.webView.frame = controller.view.bounds
         controller.view.addSubview(bridge.webView)
         try await waitUntil { bridge.ready && session.rendererReady }
         if try await diagnostics(bridge)["outline"] as? Bool != true { _ = try await bridge.call("toggleOutline") }
-        return (session, bridge, window, root)
+        return (session, bridge, root)
     }
 
     @MainActor
@@ -443,12 +453,7 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testSwitchingDocumentsSavesNativeBufferWithoutAWebSourceRead() async throws {
-        let (session, bridge, window, root) = try await navigationReader()
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (session, bridge, root) = try await navigationReader()
         let original = try XCTUnwrap(session.document)
         let history = session.recentDocuments.documents
         let incoming = root.appendingPathComponent("next.md")
@@ -469,12 +474,7 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testCloseCommitsMarkedNativeTextBeforeSaving() async throws {
-        let (session, bridge, window, root) = try await navigationReader()
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (session, bridge, _) = try await navigationReader()
         let url = try XCTUnwrap(session.document?.fileURL)
         let editor = bridge.sourceEditor.textView
         let text = "# 最新内容\n\n尚在输入法组合中的原生文本。\n"
@@ -488,12 +488,7 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testSourceHistoryGroupsTypingAndKeepsPasteAndAgentTransactionsSeparate() async throws {
-        let (session, bridge, window, root) = try await navigationReader()
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (session, bridge, _) = try await navigationReader()
         let original = try XCTUnwrap(session.document?.text)
         _ = try await bridge.call("toggleMode")
         try await waitForMode("source", bridge: bridge)
@@ -510,11 +505,10 @@ final class WebReaderTests: XCTestCase {
         XCTAssertEqual(undone, original)
         XCTAssertTrue(session.canRedoSource)
         _ = bridge.moveSourceHistory(forward: true)
-        let afterPaste = original + "hi\nPasted **text**.\n"
-        let clipboard = UIPasteboard.general.items
-        defer { UIPasteboard.general.items = clipboard }
-        UIPasteboard.general.string = "\nPasted **text**.\n"
-        editor.paste(nil)
+        editor.insertText("x")
+        let afterPaste = original + "hix\nPasted **text**.\n"
+        let provider = NSItemProvider(object: "\nPasted **text**.\n" as NSString)
+        editor.paste(itemProviders: [provider])
         try await waitUntil { session.document?.text == afterPaste }
         let afterAgent = afterPaste.replacingOccurrences(of: "Pasted **text**.", with: "Rewritten **text**.")
             .replacingOccurrences(of: "# Navigation", with: "# Changed title")
@@ -524,7 +518,7 @@ final class WebReaderTests: XCTestCase {
         XCTAssertEqual(batchUndone, afterPaste, "All edits in one Agent batch undo together")
         _ = bridge.moveSourceHistory(forward: false)
         let pasteUndone = try await diagnostics(bridge)["source"] as? String
-        XCTAssertEqual(pasteUndone, original + "hi", "Paste remains a separate operation")
+        XCTAssertEqual(pasteUndone, original + "hix", "Paste remains separate from adjacent typing")
         _ = try await bridge.call("toggleMode")
         try await waitForMode("preview", bridge: bridge)
         _ = try await bridge.call("toggleMode")
@@ -546,12 +540,7 @@ final class WebReaderTests: XCTestCase {
             + String(repeating: "Reading content before the target.\n\n", count: 45)
             + "#### 4.3.2 头部裁剪\n\n"
             + String(repeating: "Reading content after the target.\n\n", count: 30)
-        let (session, bridge, window, root) = try await navigationReader(markdown: markdown)
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (session, bridge, _) = try await navigationReader(markdown: markdown)
         let resolved =
             try await bridge.webView.evaluateJavaScript(
                 """
@@ -643,12 +632,7 @@ final class WebReaderTests: XCTestCase {
 
             [^note]: Footnote content.
             """
-        let (_, bridge, window, root) = try await navigationReader(markdown: markdown)
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (_, bridge, _) = try await navigationReader(markdown: markdown)
         let result =
             try await bridge.webView.evaluateJavaScript(
                 """
@@ -691,12 +675,7 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testOutlineAvailabilityFollowsDocumentEditsAndPreservesEmptyHeadings() async throws {
-        let (session, bridge, window, root) = try await navigationReader()
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (session, bridge, _) = try await navigationReader()
         XCTAssertTrue(session.hasOutline)
         let originalHeadings = try await diagnostics(bridge)["headings"] as? [String]
         XCTAssertEqual(originalHeadings?.first, "Navigation", "The leading H1 belongs in the outline")
@@ -750,12 +729,7 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testOutlineNavigationPreservesContentAndDestination() async throws {
-        let (_, bridge, window, root) = try await navigationReader()
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (_, bridge, _) = try await navigationReader()
         let result = try await bridge.webView.callAsyncJavaScript(
             """
             return await new Promise(resolve => {
@@ -809,12 +783,7 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testOutlineCentersCurrentChapterAndRetargetsSmoothlyWithoutOverridingManualBrowse() async throws {
-        let (_, bridge, window, root) = try await navigationReader()
-        defer {
-            bridge.detach()
-            window.isHidden = true
-            try? FileManager.default.removeItem(at: root)
-        }
+        let (_, bridge, _) = try await navigationReader()
         let result = try await bridge.webView.callAsyncJavaScript(
             """
             const body = document.querySelector('.mdv-outline-body');

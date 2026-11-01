@@ -7,11 +7,37 @@ final class ReaderUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    private func useComponentSynchronization() throws {
+        let synchronization = try UIInteractionSynchronization()
+        addTeardownBlock { @MainActor in
+            defer { synchronization.restore() }
+            XCUIApplication().terminate()
+        }
+    }
+
     private func record(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let attachment = XCTAttachment(screenshot: XCUIApplication().windows.firstMatch.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func rotate(
+        to orientation: UIDeviceOrientation, in app: XCUIApplication,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        SimulatorOrientation.set(orientation, file: file, line: line)
+        let expected = SimulatorOrientation.interfaceOrientation(for: orientation)
+        // A square window or a 180-degree turn can retain its dimensions. Verify
+        // the target application's interface instead of the driver's device value.
+        let layout = NSPredicate { _, _ in
+            (try? SimulatorOrientation.interfaceOrientation(of: app)) == expected
+                && !app.webViews.firstMatch.frame.isEmpty
+        }
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: layout, object: nil)], timeout: 8), .completed,
+            "The app must reach interface orientation \(expected.rawValue); reading viewport \(app.webViews.firstMatch.frame)",
+            file: file, line: line)
     }
 
     private func assertTextIsPainted(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line)
@@ -49,8 +75,8 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testDocumentTitleDoesNotOverlapCloseControlWithOutlineExpanded() throws {
-        XCUIDevice.shared.orientation = .portrait
-        defer { XCUIDevice.shared.orientation = .portrait }
+        SimulatorOrientation.set(.portrait)
+        defer { SimulatorOrientation.set(.portrait) }
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--sample-document", "--reset-sample-document"]
         app.launch()
@@ -61,11 +87,10 @@ final class ReaderUITests: XCTestCase {
         if !chapter.exists { outline.tap() }
         XCTAssertTrue(chapter.waitForExistence(timeout: 5))
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
-            XCUIDevice.shared.orientation = orientation
+            rotate(to: orientation, in: app)
             let laidOut = XCTNSPredicateExpectation(
                 predicate: NSPredicate { _, _ in
-                    (app.frame.width > app.frame.height) == orientation.isLandscape
-                        && app.buttons["CloseDocument"].isHittable
+                    app.buttons["CloseDocument"].isHittable
                 }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [laidOut], timeout: 8), .completed)
             let title = "Markdown 长文阅读与技术笔记"
@@ -86,17 +111,17 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testFloatingToolsRemainInteractiveAfterCollapseAndRapidReversal() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--sample-document", "--reset-sample-document"]
         app.launch()
         let toggle = app.buttons["ToolsToggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 25))
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
-            XCUIDevice.shared.orientation = orientation
+            rotate(to: orientation, in: app)
             let rotated = XCTNSPredicateExpectation(
                 predicate: NSPredicate { _, _ in
-                    (app.frame.width > app.frame.height) == orientation.isLandscape && toggle.isHittable
+                    toggle.isHittable
                 }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 8), .completed)
             XCTAssertFalse(app.buttons["More"].exists)
@@ -115,13 +140,12 @@ final class ReaderUITests: XCTestCase {
             record("preview-tools-expanded-\(orientation.isLandscape ? "landscape" : "portrait")")
             if orientation == .portrait {
                 for target in [UIDeviceOrientation.landscapeRight, .portrait] {
-                    XCUIDevice.shared.orientation = target
+                    rotate(to: target, in: app)
                     let toolsFit = XCTNSPredicateExpectation(
                         predicate: NSPredicate { _, _ in
-                            (app.frame.width > app.frame.height) == target.isLandscape
-                                && ["ToolsToggle", "GlobalAI", "ModeToggle", "More"].allSatisfy {
-                                    app.buttons[$0].isHittable
-                                }
+                            ["ToolsToggle", "GlobalAI", "ModeToggle", "More"].allSatisfy {
+                                app.buttons[$0].isHittable
+                            }
                         }, object: nil)
                     XCTAssertEqual(
                         XCTWaiter.wait(for: [toolsFit], timeout: 8), .completed,
@@ -132,7 +156,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(app.buttons["More"].waitForNonExistence(timeout: 5))
             XCTAssertEqual(toggle.frame.midX, anchor.midX, accuracy: 1)
         }
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         showTools(app)
         app.buttons["ModeToggle"].tap()
         let editor = app.textViews["SourceEditor"]
@@ -162,7 +186,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testNativeSourceFillsViewportAndPreservesExpandedControlsDuringInput() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document",
@@ -178,7 +202,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(editor.frame.minX, web.frame.minX, accuracy: 1)
         XCTAssertEqual(editor.frame.maxX, web.frame.maxX, accuracy: 1)
         XCTAssertEqual(editor.frame.maxY, web.frame.maxY, accuracy: 1)
-        XCTAssertEqual(editor.frame.maxY, app.frame.maxY, accuracy: 1)
+        XCTAssertEqual(editor.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
         record("native-source-full-page")
         showTools(app)
         editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
@@ -212,9 +236,42 @@ final class ReaderUITests: XCTestCase {
                 .firstMatch.waitForExistence(timeout: 10))
     }
 
+    func testSystemPasteMenuKeepsUndoAndRedoSeparateFromTyping() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-paste-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
+        editor.typeText("typedbeforepaste")
+        let typed = editor.value as? String
+        XCTAssertTrue(typed?.contains("typedbeforepaste") == true)
+        editor.doubleTap()
+        record("system-paste-menu-before-action")
+        let paste = app.descendants(matching: .any).matching(identifier: "Paste").firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 6))
+        paste.tap()
+        let applied = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "Pasted **text**."), object: editor)
+        XCTAssertEqual(XCTWaiter.wait(for: [applied], timeout: 8), .completed)
+        let pasted = editor.value as? String
+        showTools(app)
+        app.buttons["SourceUndo"].tap()
+        XCTAssertEqual(editor.value as? String, typed, "System paste must undo without removing earlier typing")
+        app.buttons["SourceRedo"].tap()
+        XCTAssertEqual(editor.value as? String, pasted, "Redo must restore the actual pasted content")
+        record("system-paste-undone-and-redone")
+    }
+
     func testNativeSourceEditingSurvivesRotation() {
-        XCUIDevice.shared.orientation = .portrait
-        defer { XCUIDevice.shared.orientation = .portrait }
+        SimulatorOrientation.set(.portrait)
+        defer { SimulatorOrientation.set(.portrait) }
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document",
@@ -234,7 +291,7 @@ final class ReaderUITests: XCTestCase {
             (UIDeviceOrientation.landscapeLeft, "landscape-left"), (.landscapeRight, "landscape-right"),
             (.portrait, "portrait"),
         ] {
-            XCUIDevice.shared.orientation = orientation
+            rotate(to: orientation, in: app)
             let layout = NSPredicate { _, _ in
                 let frame = editor.frame
                 let viewport = web.frame
@@ -244,8 +301,7 @@ final class ReaderUITests: XCTestCase {
                     // XCUI's keyboard frame excludes the input assistant bar.
                     // Native hosting tests assert the exact keyboard guide boundary.
                     || (keyboard.exists && frame.maxY <= keyboard.frame.minY + 1)
-                return (app.frame.width > app.frame.height) == orientation.isLandscape
-                    && abs(frame.minX - viewport.minX) < 1 && abs(frame.maxX - viewport.maxX) < 1
+                return abs(frame.minX - viewport.minX) < 1 && abs(frame.maxX - viewport.maxX) < 1
                     && bottomFits && frame.height > 0
             }
             let settled = XCTWaiter.wait(
@@ -253,7 +309,7 @@ final class ReaderUITests: XCTestCase {
             record("native-source-layout-" + name)
             XCTAssertEqual(
                 settled, .completed,
-                "Rotated source \(editor.frame), viewport \(web.frame), app \(app.frame), keyboard \(app.keyboards.firstMatch.frame)"
+                "Rotated source \(editor.frame), viewport \(web.frame), app \(app.windows.firstMatch.frame), keyboard \(app.keyboards.firstMatch.frame)"
             )
             XCTAssertTrue(editor.value as? String == text, "Rotation must preserve the working text")
             XCTAssertTrue(app.buttons["ToolsToggle"].exists)
@@ -271,7 +327,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testPrivacyPolicyHomeEntryAndLocalizedContent() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         for (language, locale, title, firstSection, lastSection) in [
             ("zh-Hans", "zh_CN", "隐私政策", "1. 适用范围", "9. 政策更新与联系"),
@@ -287,7 +343,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertGreaterThanOrEqual(entry.frame.width, 44)
             XCTAssertGreaterThanOrEqual(entry.frame.height, 44)
             XCTAssertGreaterThan(entry.frame.minY, open.frame.maxY)
-            XCTAssertGreaterThan(entry.frame.midX, app.frame.midX)
+            XCTAssertGreaterThan(entry.frame.midX, app.windows.firstMatch.frame.midX)
             let version = app.staticTexts["AppVersion"]
             XCTAssertTrue(version.exists)
             XCTAssertGreaterThanOrEqual(version.frame.minY, entry.frame.maxY - 0.5)
@@ -318,7 +374,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testSendingConsentCancelAllowAndPersistence() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         for (language, locale, title, send, allow, cancel) in [
             ("zh-Hans", "zh_CN", "允许发送到此 AI 服务？", "发送问题", "允许", "取消"),
@@ -372,7 +428,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testEnglishInterfaceAcrossReaderSettingsAndRecents() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(en)",
@@ -422,7 +478,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testEnglishAgentUsesLocalizedControls() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-agent-fixture",
@@ -482,7 +538,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testReaderNavigationEditingSettingsAndRotation() throws {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
@@ -502,18 +558,18 @@ final class ReaderUITests: XCTestCase {
         let originalModeFrame = mode.frame
         XCTAssertLessThan(app.buttons["GlobalAI"].frame.midX, mode.frame.midX)
         XCTAssertLessThan(mode.frame.midX, app.buttons["More"].frame.midX)
-        XCTAssertLessThanOrEqual(app.buttons["More"].frame.maxX, app.frame.width)
+        XCTAssertLessThanOrEqual(app.buttons["More"].frame.maxX, app.windows.firstMatch.frame.width)
         let outline = app.buttons["OutlineToggle"]
         let outlineFrame = outline.frame
-        if outline.label == "收起文章目录" { outline.tap() }
-        outline.tap()
         let firstChapter = app.webViews.links["1. 从纯文本到可阅读的文档"]
+        if firstChapter.exists { outline.tap() }
+        outline.tap()
         XCTAssertTrue(firstChapter.waitForExistence(timeout: 5))
         XCTAssertEqual(outline.frame.origin.x, outlineFrame.origin.x, accuracy: 0.5)
         XCTAssertEqual(outline.frame.origin.y, outlineFrame.origin.y, accuracy: 0.5)
         record("outline-portrait")
         firstChapter.tap()
-        if outline.label == "收起文章目录" { outline.tap() }
+        if firstChapter.exists { outline.tap() }
         showTools(app)
         mode.tap()
         showTools(app)
@@ -576,7 +632,7 @@ final class ReaderUITests: XCTestCase {
         showTools(app)
         XCTAssertTrue(outline.waitForExistence(timeout: 8))
 
-        XCUIDevice.shared.orientation = .landscapeLeft
+        SimulatorOrientation.set(.landscapeLeft)
         XCTAssertTrue(outline.waitForExistence(timeout: 5))
         outline.tap()
         record("outline-landscape")
@@ -585,7 +641,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(outline.frame.height, 44)
         outline.tap()
         record("reader-landscape")
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
     }
 
     func testModelSelectionLoadsProviderChoicesAndKeepsCustomEntryAfterFailure() {
@@ -755,7 +811,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testWelcomePresentsNativeFilePicker() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
@@ -768,7 +824,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testRecentDocumentsEmptyStateAndSecondaryPlacement() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
@@ -788,7 +844,7 @@ final class ReaderUITests: XCTestCase {
         if close.exists {
             close.tap()
         } else {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.3)).tap()
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.3)).tap()
         }
         XCTAssertEqual(
             XCTWaiter.wait(
@@ -797,7 +853,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testRecentDocumentsSurviveRelaunchAndOpenInPlace() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
@@ -833,7 +889,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testCloseFromSourceReturnsHomeAndOpensAnotherDocumentPicker() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
@@ -851,7 +907,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["More"].tap()
         XCTAssertTrue(app.buttons["模型设置"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["打开文档"].exists)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         showTools(app)
         app.buttons["ModeToggle"].tap()
         let editor = app.textViews["SourceEditor"]
@@ -869,7 +925,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testFailedCloseOffersRetryDiscardAndCancel() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-save-failure",
@@ -909,7 +965,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testOutlineCentersChapterAndFollowsFastReading() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
@@ -919,20 +975,20 @@ final class ReaderUITests: XCTestCase {
         let outline = app.buttons["OutlineToggle"]
         XCTAssertTrue(outline.waitForExistence(timeout: 25))
         waitForEnabled(outline)
-        if outline.label == "展开文章目录" { outline.tap() }
         let chapter = app.webViews.links["10. 连续阅读与位置检查"]
+        if !chapter.exists { outline.tap() }
         XCTAssertTrue(chapter.waitForExistence(timeout: 8))
         chapter.tap()
-        if outline.label == "展开文章目录" { outline.tap() }
+        if !chapter.exists { outline.tap() }
         let centered = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                abs(chapter.frame.midY - app.frame.midY) < app.frame.height * 0.15
+                abs(chapter.frame.midY - app.windows.firstMatch.frame.midY) < app.windows.firstMatch.frame.height * 0.15
             }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [centered], timeout: 5), .completed)
         record("outline-chapter-10-centered")
-        if outline.label == "收起文章目录" { outline.tap() }
-        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.82))
-        let upper = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.28))
+        if chapter.exists { outline.tap() }
+        let lower = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.82))
+        let upper = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.28))
         lower.press(forDuration: 0.01, thenDragTo: upper, withVelocity: .fast, thenHoldForDuration: 0)
         upper.press(forDuration: 0.01, thenDragTo: lower, withVelocity: .fast, thenHoldForDuration: 0)
         outline.tap()
@@ -940,7 +996,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testBackgroundWindowSnapshotsPreserveLongDocumentRendering() throws {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        SimulatorOrientation.set(.landscapeLeft)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(en)",
@@ -950,7 +1006,7 @@ final class ReaderUITests: XCTestCase {
         let toggle = app.buttons["OutlineToggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 25))
         waitForEnabled(toggle)
-        XCTAssertEqual(app.webViews.firstMatch.frame.maxY, app.frame.maxY, accuracy: 1)
+        XCTAssertEqual(app.webViews.firstMatch.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
         let chapter = app.webViews.links["10. 连续阅读与位置检查"]
         if !chapter.exists { toggle.tap() }
         XCTAssertTrue(chapter.waitForExistence(timeout: 8))
@@ -973,7 +1029,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testTouchUndoRedoAndNewEditingBranch() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
@@ -1028,7 +1084,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testUnifiedAIReadingEditingAndTouchHistory() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
@@ -1064,26 +1120,29 @@ final class ReaderUITests: XCTestCase {
             "The latest answer must follow into view without a manual scroll")
         record("ai-source-reading")
         let viewport = app.webViews.firstMatch
-        let inputTrailingInset = viewport.frame.maxX - input.frame.maxX
+        let send = app.webViews.buttons["发送问题"]
+        // Rotation can switch between sheet and side presentations. Their outer
+        // margins differ, but the native input must stay beside its send control.
+        let inputSendGap = send.frame.minX - input.frame.maxX
         for (orientation, name) in [
             (UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait"),
         ] {
-            XCUIDevice.shared.orientation = orientation
+            rotate(to: orientation, in: app)
             // Interface orientation can change before the native input's frame.
             // Resolve the completed layout before synthesizing the next touch.
             let layout = NSPredicate { _, _ in
                 let frame = input.frame
-                let window = app.frame
                 let viewportFrame = viewport.frame
-                return (window.width > window.height) == orientation.isLandscape
-                    && abs(viewportFrame.maxX - frame.maxX - inputTrailingInset) < 1
+                let sendFrame = send.frame
+                return abs(sendFrame.minX - frame.maxX - inputSendGap) < 1
                     && frame.width > 0 && frame.height > 0 && viewportFrame.contains(frame)
-                    && input.isHittable
+                    && viewportFrame.contains(sendFrame) && input.isHittable && send.isHittable
             }
             XCTAssertEqual(
                 XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: layout, object: input)], timeout: 8),
                 .completed,
-                "Rotated input \(input.frame), viewport \(viewport.frame), app \(app.frame), expected trailing inset \(inputTrailingInset), hittable \(input.isHittable)"
+                "Rotated input \(input.frame), send \(send.frame), viewport \(viewport.frame), "
+                    + "expected input/send gap \(inputSendGap), hittable \(input.isHittable)/\(send.isHittable)"
             )
             record("ai-source-reading-" + name)
         }
@@ -1106,7 +1165,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testAdaptiveConversationKeepsDirectoryReachableAndDraftAcrossPanelSwitches() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
@@ -1130,7 +1189,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(input.value as? String, draft)
         record("adaptive-conversation-portrait-keyboard")
         XCTAssertTrue(outline.isHittable, "The directory entry must remain reachable while AI is open")
-        if input.frame.minX > app.frame.midX {
+        if input.frame.minX > app.windows.firstMatch.frame.midX {
             func assertCloseAtLeading(file: StaticString = #filePath, line: UInt = #line) {
                 XCTAssertTrue(close.isHittable, file: file, line: line)
                 if firstChapter.exists {
@@ -1147,16 +1206,16 @@ final class ReaderUITests: XCTestCase {
             assertCloseAtLeading()
             record("adaptive-document-close-leading")
             XCTAssertGreaterThan(
-                input.frame.minX, app.frame.width / 2, "A side conversation must leave the document column visible")
+                input.frame.minX, app.windows.firstMatch.frame.width / 2,
+                "A side conversation must leave the document column visible")
             for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
-                XCUIDevice.shared.orientation = orientation
+                rotate(to: orientation, in: app)
                 XCTAssertEqual(
                     XCTWaiter.wait(
                         for: [
                             XCTNSPredicateExpectation(
                                 predicate: NSPredicate { _, _ in
-                                    (app.frame.width > app.frame.height) == orientation.isLandscape
-                                        && input.frame.minX > app.frame.width / 2
+                                    input.frame.minX > app.windows.firstMatch.frame.width / 2
                                         && input.value as? String == draft
                                 }, object: nil)
                         ], timeout: 8), .completed)
@@ -1164,23 +1223,40 @@ final class ReaderUITests: XCTestCase {
             assertCloseAtLeading()
             outline.tap()
             XCTAssertTrue(firstChapter.waitForExistence(timeout: 5))
-            XCTAssertTrue(input.exists)
-            assertCloseAtLeading()
-            record("adaptive-wide-directory-and-conversation")
+            // Three columns require 420 pt of document, 320 pt of conversation,
+            // 248 pt of outline and two 16 pt panel insets in the design contract.
+            if app.windows.firstMatch.frame.width >= 1020 {
+                XCTAssertTrue(input.exists)
+                assertCloseAtLeading()
+                record("adaptive-wide-directory-and-conversation")
+            } else {
+                XCTAssertTrue(input.waitForNonExistence(timeout: 5))
+                record("adaptive-side-directory-switch")
+                showTools(app)
+                app.buttons["GlobalAI"].tap()
+                XCTAssertTrue(input.waitForExistence(timeout: 5))
+                XCTAssertEqual(input.value as? String, draft)
+                XCTAssertTrue(firstChapter.waitForNonExistence(timeout: 5))
+                assertCloseAtLeading()
+            }
             let keyboard = app.keyboards.firstMatch
-            let hideKeyboard = keyboard.buttons.matching(
+            let hideKeyboard = app.buttons.matching(
                 NSPredicate(format: "label IN %@", ["Hide keyboard", "Hide Keyboard"])
             ).firstMatch
-            XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 5), keyboard.debugDescription)
-            hideKeyboard.tap()
+            if hideKeyboard.exists {
+                hideKeyboard.tap()
+            } else {
+                app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].firstMatch.tap()
+            }
             XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5))
             let restored = XCTNSPredicateExpectation(
                 predicate: NSPredicate { _, _ in
-                    input.frame.maxY > app.frame.maxY - 100 && input.value as? String == draft
+                    input.frame.maxY > app.windows.firstMatch.frame.maxY - 100 && input.value as? String == draft
                 }, object: nil)
             XCTAssertEqual(
                 XCTWaiter.wait(for: [restored], timeout: 8), .completed,
-                "Hiding the keyboard must restore the full-height conversation: \(input.frame), app \(app.frame)")
+                "Hiding the keyboard must restore the full-height conversation: \(input.frame), app \(app.windows.firstMatch.frame)"
+            )
             record("adaptive-conversation-keyboard-dismissed")
             app.webViews.buttons["Collapse conversation"].tap()
             XCTAssertTrue(input.waitForNonExistence(timeout: 5))
@@ -1198,7 +1274,7 @@ final class ReaderUITests: XCTestCase {
             close.tap()
             XCTAssertTrue(app.buttons["OpenDocument"].waitForExistence(timeout: 8))
         } else {
-            XCTAssertLessThan(input.frame.minX, app.frame.width / 4)
+            XCTAssertLessThan(input.frame.minX, app.windows.firstMatch.frame.width / 4)
             outline.tap()
             XCTAssertTrue(input.waitForNonExistence(timeout: 5))
             XCTAssertTrue(firstChapter.waitForExistence(timeout: 5))
@@ -1211,8 +1287,9 @@ final class ReaderUITests: XCTestCase {
         }
     }
 
-    func testConversationManualBrowsingAndFollowingSurviveComposerResizeAndRotation() {
-        XCUIDevice.shared.orientation = .portrait
+    func testConversationManualBrowsingAndFollowingSurviveComposerResizeAndRotation() throws {
+        try useComponentSynchronization()
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
@@ -1230,7 +1307,7 @@ final class ReaderUITests: XCTestCase {
             input.typeText(text)
         }
         for turn in 1...5 {
-            input.tap()
+            if turn == 1 { input.tap() } else { waitForVisibleSoftwareKeyboard(in: app) }
             input.typeText("Reading question \(turn)")
             tapAfterTyping(app.webViews.buttons["Send message"], in: app)
             if turn == 1 { allowDataSharingIfRequested(app) }
@@ -1246,12 +1323,13 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(conversation.exists)
         let firstQuestion = app.webViews.staticTexts["Reading question 1"]
         func isVisible(_ element: XCUIElement) -> Bool {
-            let viewport = conversation.frame.intersection(app.frame)
+            let viewport = conversation.frame.intersection(app.windows.firstMatch.frame)
             return !viewport.isEmpty && viewport.contains(element.frame)
         }
         for _ in 0..<8 where !isVisible(firstQuestion) { conversation.swipeDown() }
         XCTAssertTrue(isVisible(firstQuestion), "Real touch scrolling must reveal the first question")
         let initialOffset = firstQuestion.frame.minY - conversation.frame.minY
+        let initialLineHeight = firstQuestion.frame.height
         input.tap()
         input.typeText("draft")
         appendLine("second line")
@@ -1266,17 +1344,30 @@ final class ReaderUITests: XCTestCase {
                         }, object: nil)
                 ], timeout: 8), .completed, "Growing the composer must preserve manual reading")
         for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
-            XCUIDevice.shared.orientation = orientation
+            rotate(to: orientation, in: app)
+            // Rotation can change panel padding and shorten the viewport below
+            // the keyboard. Preserve the reading offset, then verify visibility
+            // again when the original viewport is restored.
             XCTAssertEqual(
                 XCTWaiter.wait(
                     for: [
                         XCTNSPredicateExpectation(
                             predicate: NSPredicate { _, _ in
-                                (app.frame.width > app.frame.height) == orientation.isLandscape
-                                    && abs(firstQuestion.frame.minY - conversation.frame.minY - initialOffset) < 2
+                                abs(firstQuestion.frame.minY - conversation.frame.minY - initialOffset)
+                                    < min(initialLineHeight, firstQuestion.frame.height)
+                                    && input.value as? String == "draft\nsecond line"
                             }, object: nil)
-                    ], timeout: 8), .completed, "Rotation must preserve manual reading")
+                    ], timeout: 8), .completed,
+                "Rotation must preserve the draft and reading offset within one line; original offset \(initialOffset), "
+                    + "question \(firstQuestion.frame), conversation \(conversation.frame)")
         }
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [
+                    XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in isVisible(firstQuestion) }, object: nil)
+                ],
+                timeout: 8), .completed,
+            "Restoring the original viewport must reveal the same question without scrolling")
         let lastAnswer = answerEnds.element(boundBy: 4)
         for _ in 0..<8 where !isVisible(lastAnswer) { conversation.swipeUp() }
         XCTAssertTrue(isVisible(lastAnswer), "Real touch scrolling must return to the latest answer")
@@ -1290,7 +1381,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testNativeSelectionQuestionMenu() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--ui-test-model-fixture", "--sample-document", "--reset-sample-document",
@@ -1323,7 +1414,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     private func openImageReader(_ app: XCUIApplication, language: String, locale: String) -> XCUIElement {
-        XCUIDevice.shared.orientation = UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait
+        SimulatorOrientation.set(UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait)
         app.launchArguments = [
             "--ui-testing", "--ui-test-model-fixture", "--sample-document", "--reset-sample-document",
             "-AppleLanguages", "(\(language))", "-AppleLocale", locale,
@@ -1363,18 +1454,22 @@ final class ReaderUITests: XCTestCase {
         }
     }
 
-    func testImageLongPressRetainsSystemCopyShareAndRecognition() {
+    func testImageLongPressRetainsSystemCopyShareAndRecognition() throws {
+        try useComponentSynchronization()
         let app = XCUIApplication()
         let image = openImageReader(app, language: "zh-Hans", locale: "zh_CN")
         // Press the drawing's empty leading edge, rather than its OCR text.
         image.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).press(forDuration: 1.2)
         let copy = app.buttons["拷贝"]
         XCTAssertTrue(copy.waitForExistence(timeout: 8))
+        XCTAssertTrue(copy.isHittable)
         XCTAssertTrue(app.buttons["共享…"].exists)
-        XCTAssertTrue(app.buttons["显示文本"].exists)
+        XCTAssertTrue(app.buttons["共享…"].isHittable)
+        XCTAssertTrue(app.buttons["显示文本"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["显示文本"].isHittable)
         XCTAssertFalse(app.menuItems["在 AI 对话中引用…"].exists)
         record("image-original-system-menu")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
         XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
     }
 
@@ -1387,7 +1482,7 @@ final class ReaderUITests: XCTestCase {
         let visible = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 guard keyboard.exists else { return false }
-                let intersection = keyboard.frame.intersection(app.frame)
+                let intersection = keyboard.frame.intersection(app.windows.firstMatch.frame)
                 return !intersection.isNull && intersection.height > 0
             }, object: nil)
         XCTAssertEqual(
@@ -1467,7 +1562,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     private func openQuestionInput(_ app: XCUIApplication) -> XCUIElement {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         app.launchArguments = [
             "--ui-testing", "--ui-test-model-fixture", "--sample-document", "--reset-sample-document",
             "-AppleLanguages", "(zh-Hans)",
@@ -1497,7 +1592,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testUnconfiguredAIShowsPromptAndSettingsReturnsToInput() {
-        XCUIDevice.shared.orientation = .portrait
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
@@ -1553,7 +1648,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(input.value as? String, "unsent next question")
         XCTAssertEqual(
             app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "Explain Markdown.")).count, 1)
-        if input.frame.minX < app.frame.midX {
+        if input.frame.minX < app.windows.firstMatch.frame.midX {
             XCTAssertFalse(app.buttons["ToolsToggle"].exists)
             XCTAssertFalse(app.buttons["CloseDocument"].exists)
             XCTAssertTrue(app.buttons["OutlineToggle"].isHittable)

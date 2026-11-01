@@ -214,7 +214,7 @@
       }
       input.style.height = 'auto';
       const style = getComputedStyle(input);
-      input.style.height = Math.min(parseFloat(style.maxHeight), Math.max(parseFloat(style.minHeight), input.scrollHeight)) + 'px';
+      input.style.height = Math.max(parseFloat(style.minHeight), input.scrollHeight) + 'px';
     }
     function keepAtBottom() {
       if (followBottom && isOpen) scroll.scrollTop = scroll.scrollHeight;

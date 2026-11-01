@@ -121,6 +121,7 @@ jobs:
           name: native-results
           path: |
             ${{ runner.temp }}/native-tests/*.log
+            ${{ runner.temp }}/native-tests/*-stall.json
             ${{ runner.temp }}/native-tests/results.json
           retention-days: 7
           if-no-files-found: ignore

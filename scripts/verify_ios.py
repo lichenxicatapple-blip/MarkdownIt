@@ -129,9 +129,34 @@ def compatible_runtime(family, runtimes):
     return max(compatible, key=lambda item: tuple(map(int, item["version"].split("."))))
 
 
-def run_tests(arguments, log, inactivity_timeout=600, cancel=None, label=None):
+class TestProgress:
+    """Retain the first failed XCTest synchronization boundary, including split output."""
+
+    def __init__(self):
+        self.pending = ""
+        self.test = None
+        self.action = None
+
+    def feed(self, text):
+        self.pending += text
+        lines = self.pending.split("\n")
+        self.pending = lines.pop()
+        for line in lines:
+            started = re.search(r"Test Case '(.+)' started\.", line)
+            if started:
+                self.test = started[1]
+                self.action = None
+            if "App animations complete notification not received" in line:
+                return {"test": self.test, "action": self.action, "warning": line.strip()}
+            if re.search(r"t =\s*[\d.]+s\s", line):
+                self.action = line.strip()
+        return None
+
+
+def run_tests(arguments, log, inactivity_timeout=600, cancel=None, label=None, on_stall=None):
     """Stream Xcode output while preserving a complete log and detecting silence."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    progress = TestProgress()
     with (
         log.open("wb") as stream,
         subprocess.Popen(
@@ -173,7 +198,17 @@ def run_tests(arguments, log, inactivity_timeout=600, cancel=None, label=None):
                 last_output = time.monotonic()
                 stream.write(chunk)
                 stream.flush()
-                display(decoder.decode(chunk))
+                text = decoder.decode(chunk)
+                display(text)
+                stalled = progress.feed(text)
+                if stalled is not None and on_stall is not None:
+                    print(
+                        "XCTest failed to synchronize animations; capturing the first stalled "
+                        "operation before interrupting this failed run.",
+                        flush=True,
+                    )
+                    on_stall(stalled)
+                    return 1
             display(decoder.decode(b"", final=True))
             try:
                 code = process.wait(timeout=30)
@@ -201,6 +236,36 @@ def run_tests(arguments, log, inactivity_timeout=600, cancel=None, label=None):
                     stream.write(remaining)
                     stream.flush()
                     display(decoder.decode(remaining, final=True))
+
+
+def stall_details(device, output, context):
+    """Sample the live app and runner before cancellation destroys the failed state."""
+    (output / f"{device}-stall.json").write_text(json.dumps(context, indent=2) + "\n")
+    try:
+        processes = subprocess.run(
+            ["xcrun", "simctl", "spawn", device, "launchctl", "list"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout
+        for line in processes.splitlines():
+            columns = line.split()
+            if (
+                len(columns) < 3
+                or not columns[0].isdigit()
+                or "UIKitApplication:dev.catli.MarkdownIt" not in columns[2]
+            ):
+                continue
+            pid = columns[0]
+            subprocess.run(
+                ["/usr/bin/sample", pid, "2", "-file", str(output / f"{device}-{pid}.sample.log")],
+                capture_output=True,
+                timeout=8,
+                check=False,
+            )
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"Unable to sample the stalled test: {type(error).__name__}", flush=True)
 
 
 def failure_details(bundle, device, output):
@@ -315,7 +380,10 @@ def verify_family(
     print(f"{family}: preparing simulator {identifier} on {runtime['name']}", flush=True)
     if device["state"] != "Booted":
         run(["xcrun", "simctl", "boot", identifier])
-    run(["xcrun", "simctl", "bootstatus", identifier, "-b"])
+    boot = run(["xcrun", "simctl", "bootstatus", identifier, "-b"], capture_output=True, text=True)
+    print(boot.stdout, end="", flush=True)
+    if "Data Migration Failed" in boot.stdout:
+        raise ValueError("Simulator data migration failed; the test environment is not ready")
     preparation_seconds = time.monotonic() - started
     print(f"{family}: simulator ready after {preparation_seconds:.1f}s", flush=True)
     bundle = output / f"{family}.xcresult"
@@ -344,11 +412,14 @@ def verify_family(
             "NO",
             "-test-timeouts-enabled",
             "YES",
+            "-collect-test-diagnostics",
+            "never",
             *[f"-only-testing:{target}" for target in selected],
         ],
         log,
         cancel=cancel,
         label=family,
+        on_stall=lambda context: stall_details(identifier, output, context),
     )
     execution_seconds = time.monotonic() - started
     counts = test_summary(

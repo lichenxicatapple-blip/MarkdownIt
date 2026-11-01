@@ -193,7 +193,8 @@
       ],
       "invariants": [
         "One draft and its next-turn reference share the native input bridge.",
-        "The reference sits above one input capsule; native text and the Web send button have separate hit regions within it."
+        "The reference sits above one input capsule; native text and the Web send button have separate hit regions within it.",
+        "Long drafts scroll within the native input after reaching a viewport-relative height limit, preserving readable conversation space."
       ],
       "specification": "design/README.md#引用与输入"
     },

@@ -30,9 +30,12 @@ class AgentReaderTestCase: XCTestCase {
     ) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("agent-test.md")
         try Data(text.utf8).write(to: url)
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaultsName = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        addTeardownBlock { defaults.removePersistentDomain(forName: defaultsName) }
         defaults.set(baseURL, forKey: "model.baseURL")
         defaults.set(model, forKey: "model.id")
         defaults.set(api.rawValue, forKey: "model.apiProtocol")
@@ -40,17 +43,25 @@ class AgentReaderTestCase: XCTestCase {
             defaults: defaults,
             modelClient: modelClient,
             modelKey: modelKey)
+        addTeardownBlock { @MainActor in await session.closeDocument() }
         if dataSharingAllowed, let service = try? ModelDataConsent.service(for: session.configuration) {
             session.dataConsent.allow(service)
         }
         await session.grant(root)
         await session.open(url)
         _ = try XCTUnwrap(session.document, session.errorMessage ?? "The fixture document must open before rendering")
-        let bridge = ReaderBridge(session: session)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
         let window = UIWindow(windowScene: scene)
         let controller = UIViewController()
         window.rootViewController = controller
+        let bridge = ReaderBridge(session: session)
+        // Register cleanup before readiness can throw, not after a successful setup.
+        addTeardownBlock { @MainActor in
+            bridge.detach()
+            window.isHidden = true
+            if previousKeyWindow?.isHidden == false { previousKeyWindow?.makeKey() }
+        }
         window.makeKeyAndVisible()
         bridge.webView.frame = controller.view.bounds
         bridge.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -62,12 +73,6 @@ class AgentReaderTestCase: XCTestCase {
                 throw NSError(domain: "ReaderFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: error])
             }
             return session.rendererReady && bridge.ready
-        }
-        addTeardownBlock { @MainActor in
-            bridge.detach()
-            window.isHidden = true
-            _ = await session.document?.closeSavingChanges()
-            try? FileManager.default.removeItem(at: root)
         }
         return (session, bridge, window, url)
     }
