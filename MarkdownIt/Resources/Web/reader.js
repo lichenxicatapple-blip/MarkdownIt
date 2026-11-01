@@ -267,9 +267,9 @@
       const viewport = window.visualViewport;
       const top = viewport?.offsetTop || 0;
       const bottom = top + (viewport?.height || innerHeight);
-      const center = (top + bottom) / 2;
-      visible.forEach(heading => { if (heading.getBoundingClientRect().top <= center) current = heading; });
-      // Keep the final visible section reachable even when it cannot reach the center.
+      const focus = top + (bottom - top) / 3;
+      visible.forEach(heading => { if (heading.getBoundingClientRect().top <= focus) current = heading; });
+      // Keep the final visible section reachable even when it cannot reach the focus line.
       const last = visible.at(-1);
       if (last && window.scrollY + bottom >= document.documentElement.scrollHeight - 2 && last.getBoundingClientRect().top < bottom) current = last;
       return current;

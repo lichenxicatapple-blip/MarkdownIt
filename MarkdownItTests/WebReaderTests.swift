@@ -782,7 +782,7 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testOutlineTracksTheSectionAtTheReadingViewportCenter() async throws {
+    func testOutlineTracksTheSectionAtTheReadingViewportFocus() async throws {
         let markdown =
             "# Reading\n\n"
             + (1...12).map { index in
@@ -795,20 +795,20 @@ final class WebReaderTests: XCTestCase {
             const samples = [];
             for (const index of [4, 5, 4]) {
               const heading = headings[index];
-              window.scrollTo({ top: window.scrollY + heading.getBoundingClientRect().top - innerHeight / 2 + 12, behavior: 'instant' });
+              window.scrollTo({ top: window.scrollY + heading.getBoundingClientRect().top - innerHeight / 3 + 12, behavior: 'instant' });
               for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
               samples.push({ expected: heading.textContent,
                 current: document.querySelector('[aria-current="location"]')?.textContent,
                 start: heading.getBoundingClientRect().top,
-                end: headings[index + 1].getBoundingClientRect().top, center: innerHeight / 2 });
+                end: headings[index + 1].getBoundingClientRect().top, focus: innerHeight / 3 });
             }
             return samples;
             """, arguments: [:], in: nil, contentWorld: .page)
         let samples = try XCTUnwrap(result as? [[String: Any]])
         XCTAssertEqual(samples.count, 3)
         for sample in samples {
-            XCTAssertLessThan(try XCTUnwrap(sample["start"] as? Double), try XCTUnwrap(sample["center"] as? Double))
-            XCTAssertGreaterThan(try XCTUnwrap(sample["end"] as? Double), try XCTUnwrap(sample["center"] as? Double))
+            XCTAssertLessThan(try XCTUnwrap(sample["start"] as? Double), try XCTUnwrap(sample["focus"] as? Double))
+            XCTAssertGreaterThan(try XCTUnwrap(sample["end"] as? Double), try XCTUnwrap(sample["focus"] as? Double))
             XCTAssertEqual(sample["current"] as? String, sample["expected"] as? String)
         }
     }
