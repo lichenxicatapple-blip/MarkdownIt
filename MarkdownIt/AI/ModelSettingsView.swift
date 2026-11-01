@@ -11,9 +11,8 @@ struct ModelSettingsView: View {
     @FocusState private var customModelFocused: Bool
     @State private var key = ""
     @State private var apiProtocol: ModelAPIProtocol = .responses
-    @State private var attemptedSave = false
-    @State private var saveError: String?
     @State private var confirmingReset = false
+    @State private var errorMessage: String?
 
     init(session: ReaderSession, onSaved: @escaping () -> Void = {}) {
         self.session = session
@@ -22,6 +21,7 @@ struct ModelSettingsView: View {
         _model = State(initialValue: session.configuration.model)
         _apiProtocol = State(initialValue: session.configuration.apiProtocol)
         _key = State(initialValue: session.apiKey)
+        _errorMessage = State(initialValue: session.modelSettingsError)
     }
 
     var body: some View {
@@ -34,6 +34,8 @@ struct ModelSettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("ModelAPIProtocol")
+                    // No API-token content type exists. AutoFill also inspects
+                    // adjacent fields, so all connection inputs use code semantics.
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Base URL").font(.subheadline).foregroundStyle(.secondary)
                         TextField(
@@ -42,15 +44,12 @@ struct ModelSettingsView: View {
                                 .foregroundStyle(Color(uiColor: .placeholderText))
                         )
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .textContentType(.URL)
+                        .textContentType(.oneTimeCode)
                         .accessibilityLabel("Base URL").accessibilityIdentifier("ModelBaseURL")
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("API Key").font(.subheadline).foregroundStyle(.secondary)
                         SecureField("", text: $key).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            // iOS has no API-token content type. Code semantics
-                            // preserve secure entry without login-password saving;
-                            // an empty type still invokes heuristics on iOS 26.
                             .textContentType(.oneTimeCode)
                             .keyboardType(.asciiCapable)
                             .accessibilityLabel("API Key").accessibilityIdentifier("ModelAPIKey")
@@ -75,20 +74,19 @@ struct ModelSettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Model ID").font(.subheadline).foregroundStyle(.secondary)
                             TextField("", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
-                                .textContentType(UITextContentType(rawValue: ""))
+                                .textContentType(.oneTimeCode)
                                 .focused($customModelFocused)
                                 .accessibilityLabel("Model ID").accessibilityIdentifier("ModelID")
                         }
                     }
                 } footer: {
-                    Text("Your API key is stored only in this device’s Keychain.")
-                }
-                if let error = validationError ?? saveError ?? session.modelSettingsError {
-                    Section { Text(error).foregroundStyle(.red).accessibilityIdentifier("ModelSettingsError") }
+                    Text("Connection information will be stored only in this device’s Keychain.")
                 }
                 Section {
-                    Button("Reset", role: .destructive) { confirmingReset = true }
-                        .accessibilityIdentifier("ResetModelSettings")
+                    Button("Reset", role: .destructive) {
+                        confirmingReset = true
+                    }
+                    .accessibilityIdentifier("ResetModelSettings")
                 }
             }
             .navigationTitle("Model Settings").navigationBarTitleDisplayMode(.inline)
@@ -103,46 +101,33 @@ struct ModelSettingsView: View {
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        attemptedSave = true
-                        saveError = nil
-                        guard validationError == nil else { return }
-                        do {
-                            try session.saveConfiguration(draftConfiguration, key: key)
-                            onSaved()
-                            dismiss()
-                        } catch { saveError = error.localizedDescription }
-                    }
-                    .accessibilityIdentifier("SettingsDone")
+                    Button("Done", action: saveSettings)
+                        .accessibilityIdentifier("SettingsDone")
                 }
             }
         }
-        .alert("Reset Model Settings?", isPresented: $confirmingReset) {
-            Button("Cancel", role: .cancel) {}
-            Button("Reset", role: .destructive) {
-                do {
-                    try session.resetModelSettings()
-                    baseURL = ""
-                    model = ""
-                    key = ""
-                    apiProtocol = .responses
-                    customModel = false
-                    customModelFocused = false
-                    attemptedSave = false
-                    saveError = nil
-                } catch { saveError = error.localizedDescription }
-            }
-            .accessibilityIdentifier("ConfirmResetModelSettings")
-        } message: {
-            Text("The saved connection settings and API key will be removed.")
+        .alert(
+            errorMessage ?? "",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        }
+        .background {
+            ReaderAlert(
+                isPresented: $confirmingReset, title: String(localized: "Reset Model Settings?"),
+                message: String(localized: "The saved connection settings and API key will be removed."),
+                actions: [
+                    .init(id: "cancel", title: String(localized: "Cancel"), style: .cancel) {},
+                    .init(id: "reset", title: String(localized: "Reset"), style: .destructive, perform: resetSettings),
+                ]
+            )
+            .accessibilityHidden(true)
         }
         .onAppear { session.modelCatalog.prefetch(baseURL: baseURL, key: key) }
         .onChange(of: baseURL) { _, _ in prefetchAfterInput() }
-        .onChange(of: key) { _, _ in
-            prefetchAfterInput()
-            saveError = nil
-        }
-        .onChange(of: draftConfiguration) { _, _ in saveError = nil }
+        .onChange(of: key) { _, _ in prefetchAfterInput() }
         .onDisappear {
             session.modelCatalog.cancel()
             key = ""
@@ -155,16 +140,34 @@ struct ModelSettingsView: View {
             model: model.trimmingCharacters(in: .whitespacesAndNewlines), apiProtocol: apiProtocol)
     }
 
-    private var validationError: String? {
-        guard attemptedSave else { return nil }
+    private func saveSettings() {
         do {
-            try draftConfiguration.validateForSaving()
-            return nil
+            try session.saveConfiguration(draftConfiguration, key: key)
+            onSaved()
+            dismiss()
         } catch ModelConfigurationError.missingModel where customModel {
-            return String(localized: "Enter a Model ID.")
+            showError(String(localized: "Enter a Model ID."))
+        } catch let error as ModelConfigurationError {
+            showError(error.localizedDescription)
         } catch {
-            return error.localizedDescription
+            showError(String(localized: "Unable to save connection information."))
         }
+    }
+
+    private func resetSettings() {
+        do {
+            try session.resetModelSettings()
+            baseURL = ""
+            model = ""
+            key = ""
+            apiProtocol = .responses
+            customModel = false
+            customModelFocused = false
+        } catch { showError(String(localized: "Unable to reset connection information.")) }
+    }
+
+    private func showError(_ message: String) {
+        errorMessage = message
     }
 
     private func prefetchAfterInput() {

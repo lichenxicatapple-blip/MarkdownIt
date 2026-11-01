@@ -442,6 +442,23 @@
         }
       }
     },
+    "Connection information will be stored only in this device’s Keychain." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connection information will be stored only in this device’s Keychain."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接信息将会仅保存在本机钥匙串。"
+          }
+        }
+      }
+    },
     "Content exceeds the model’s context limit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2495,6 +2512,40 @@
         }
       }
     },
+    "Unable to reset connection information." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to reset connection information."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法重置连接信息。"
+          }
+        }
+      }
+    },
+    "Unable to save connection information." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to save connection information."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存连接信息。"
+          }
+        }
+      }
+    },
     "Unable to undo this edit." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2627,23 +2678,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用 AI 时，当前文档全文、你的提问、本次对话，以及你选中或模型读取的图片将发送至 %@。\n\n允许后，不再对此服务询问。"
-          }
-        }
-      }
-    },
-    "Your API key is stored only in this device’s Keychain." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your API key is stored only in this device’s Keychain."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API Key 仅保存在本机钥匙串。"
           }
         }
       }

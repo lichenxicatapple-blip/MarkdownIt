@@ -279,7 +279,8 @@
         "MarkdownIt/AI/ModelSettingsStore.swift"
       ],
       "invariants": [
-        "One native modal owns settings navigation and blocks the underlying reader. Complete connection settings share one Keychain record; confirmed Reset clears the saved connection immediately and uses native destructive styling."
+        "One native modal owns settings navigation and blocks the underlying reader. Complete connection settings share one Keychain record; confirmed Reset clears the saved connection immediately and uses native destructive styling.",
+        "Validation and storage errors use native alerts, preserve the draft and leave no error row in the form; Reset executes after confirmation dismissal."
       ],
       "specification": "design/README.md#模型设置与系统提示"
     },

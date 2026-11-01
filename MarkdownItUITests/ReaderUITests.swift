@@ -694,10 +694,11 @@ final class ReaderUITests: XCTestCase {
 
         app.buttons["ResetModelSettings"].tap()
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
-        confirmation.buttons["ConfirmResetModelSettings"].firstMatch.tap()
+        confirmation.buttons["重置"].tap()
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
         XCTAssertTrue((key.value as? String ?? "").isEmpty)
         XCTAssertEqual(app.buttons["ModelPicker"].value as? String, "")
-        XCTAssertFalse(app.staticTexts["ModelSettingsError"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
         record("model-settings-reset-complete")
         // Reset is committed immediately; dismissing the form cannot resurrect it.
         app.buttons["取消"].tap()
@@ -714,10 +715,11 @@ final class ReaderUITests: XCTestCase {
         record("model-settings-reset-persists-after-relaunch")
     }
 
-    func testModelSettingsNamesTheInvalidFieldAndClearsErrorsAfterCorrection() {
+    func testModelSettingsShowsFieldSpecificAlertsAndPreservesTheDraft() {
+        SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
-            "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-agent-fixture",
+            "--ui-testing", "--sample-document", "--reset-sample-document",
             "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
         ]
         app.launch()
@@ -727,38 +729,75 @@ final class ReaderUITests: XCTestCase {
         app.buttons["模型设置"].tap()
         let picker = app.buttons["ModelPicker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 6))
+        let base = app.textFields["ModelBaseURL"]
+        let key = app.secureTextFields["ModelAPIKey"]
+        let url = "http://127.0.0.1:1/v1"
+        base.tap()
+        base.typeText(url)
+        tapAfterTyping(key, in: app)
+        key.typeText("ui-test-only-key")
+        tapAfterTyping(app.buttons["SettingsDone"], in: app)
+        let missingModel = app.alerts["请选择模型。"]
+        XCTAssertTrue(missingModel.waitForExistence(timeout: 5))
+        XCTAssertEqual(missingModel.buttons.count, 1)
+        record("model-settings-missing-model")
+        missingModel.buttons["好"].tap()
+        XCTAssertTrue(missingModel.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(base.value as? String, url)
+        XCTAssertFalse((key.value as? String ?? "").isEmpty)
+        XCTAssertEqual(picker.value as? String, "")
+
         picker.tap()
-        app.buttons["CustomModelEntry"].tap()
+        let customEntry = app.buttons["CustomModelEntry"]
+        XCTAssertTrue(customEntry.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts["保存密码？"].exists)
+        customEntry.tap()
         let model = app.textFields["ModelID"]
         XCTAssertTrue(model.waitForExistence(timeout: 5))
+        app.buttons["SettingsDone"].tap()
+        let missingID = app.alerts["请输入模型 ID。"]
+        XCTAssertTrue(missingID.waitForExistence(timeout: 5))
+        missingID.buttons["好"].tap()
+        XCTAssertTrue(missingID.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(base.value as? String, url)
         model.tap()
-        model.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (model.value as? String ?? "").count))
-        tapAfterTyping(app.buttons["SettingsDone"], in: app)
-        let error = app.staticTexts["ModelSettingsError"]
-        XCTAssertTrue(error.waitForExistence(timeout: 5))
-        XCTAssertEqual(error.label, "请输入模型 ID。")
-        record("model-settings-missing-model")
+        model.typeText("ui-test-model")
 
-        picker.tap()
-        let choice = app.buttons["ModelChoice.catalog-only-model"]
-        XCTAssertTrue(choice.waitForExistence(timeout: 6))
-        choice.tap()
-        XCTAssertEqual(picker.value as? String, "catalog-only-model")
-        XCTAssertFalse(error.exists, "Choosing a model must clear its validation error without another save")
-
-        let base = app.textFields["ModelBaseURL"]
+        waitForVisibleSoftwareKeyboard(in: app)
         base.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         base.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (base.value as? String ?? "").count))
-        XCTAssertTrue(error.waitForExistence(timeout: 5))
-        XCTAssertEqual(error.label, "请输入 Base URL。")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Editing must not present validation alerts")
+        tapAfterTyping(app.buttons["SettingsDone"], in: app)
+        let missingURL = app.alerts["请输入 Base URL。"]
+        XCTAssertTrue(missingURL.waitForExistence(timeout: 5))
+        missingURL.buttons["好"].tap()
+        XCTAssertTrue(missingURL.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(model.value as? String, "ui-test-model")
+        base.tap()
         base.typeText("not-a-url")
-        XCTAssertEqual(error.label, "Base URL 格式不正确。")
+        tapAfterTyping(app.buttons["SettingsDone"], in: app)
+        let invalidURL = app.alerts["Base URL 格式不正确。"]
+        XCTAssertTrue(invalidURL.waitForExistence(timeout: 5))
+        record("model-settings-invalid-url")
+        invalidURL.buttons["好"].tap()
+        XCTAssertTrue(invalidURL.waitForNonExistence(timeout: 5))
+        base.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         base.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "not-a-url".count))
-        base.typeText("https://ui-fixture.markdownit.invalid/v1")
-        XCTAssertFalse(error.exists, "A corrected URL must clear its validation error")
+        base.typeText(url)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
         record("model-settings-validation-corrected")
         tapAfterTyping(app.buttons["SettingsDone"], in: app)
-        XCTAssertFalse(app.textFields["ModelBaseURL"].exists)
+        XCTAssertTrue(base.waitForNonExistence(timeout: 5))
+        showTools(app)
+        app.buttons["More"].tap()
+        app.buttons["模型设置"].tap()
+        XCTAssertTrue(base.waitForExistence(timeout: 6))
+        XCTAssertEqual(base.value as? String, url)
+        XCTAssertEqual(picker.value as? String, "ui-test-model")
+        XCTAssertFalse((key.value as? String ?? "").isEmpty)
+        XCTAssertTrue(app.staticTexts["连接信息将会仅保存在本机钥匙串。"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        record("model-settings-connection-footer")
     }
 
     func testModelSelectionLoadsProviderChoicesAndKeepsCustomEntryAfterFailure() {
