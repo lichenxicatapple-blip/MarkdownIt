@@ -75,7 +75,8 @@ final class ResourceAccessTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: project) }
         let file = notes.appendingPathComponent("阅读.md")
         try Data("# Local images\n".utf8).write(to: file)
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         await session.open(file)
         let token = session.documentToken
         session.resources.onPermissionDenied?(token, "images/本地图片.png")

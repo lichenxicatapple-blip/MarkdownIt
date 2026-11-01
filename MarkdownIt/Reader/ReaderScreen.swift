@@ -218,7 +218,7 @@ struct ReaderScreen: View {
         .background {
             ReaderAlert(
                 isPresented: $session.needsModelConfiguration,
-                title: String(localized: "Model Not Configured"),
+                title: String(localized: "AI Model Not Configured"),
                 actions: [
                     .init(id: "cancel", title: String(localized: "Cancel"), style: .cancel) {
                         session.finishAgentConfiguration(saved: false)
@@ -467,6 +467,7 @@ struct ReaderScreen: View {
             defer { modelSettingsOpening = false }
             guard await session.closeAgent() else { return }
             guard session.document != nil, session.documentToken == token, !session.isClosingDocument else { return }
+            if session.modelSettingsError != nil { session.reloadModelSettings() }
             modelSettingsPresented = true
         }
     }

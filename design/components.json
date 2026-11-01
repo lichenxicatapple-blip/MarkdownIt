@@ -274,10 +274,11 @@
       "id": "ModelSettings",
       "nativeOwners": [
         "MarkdownIt/AI/ModelSettingsView.swift",
-        "MarkdownIt/AI/ModelSelectionView.swift"
+        "MarkdownIt/AI/ModelSelectionView.swift",
+        "MarkdownIt/AI/ModelSettingsStore.swift"
       ],
       "invariants": [
-        "One native modal owns settings navigation and blocks the underlying reader."
+        "One native modal owns settings navigation and blocks the underlying reader. Complete connection settings share one Keychain record; confirmed Reset clears the saved connection immediately and uses native destructive styling."
       ],
       "specification": "design/README.md#模型设置与系统提示"
     },

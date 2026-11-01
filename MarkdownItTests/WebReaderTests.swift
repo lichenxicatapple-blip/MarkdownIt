@@ -49,7 +49,7 @@ final class WebReaderTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
-        let session = ReaderSession(defaults: defaults)
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
         addTeardownBlock { @MainActor in await session.closeDocument() }
         let text: String
         if let markdown {
@@ -238,7 +238,8 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testReaderContainerFillsScreenWhileNativeEditorFollowsKeyboardGuide() async throws {
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -313,7 +314,8 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testShortDocumentFillsViewportWithoutClippingOutlineOrAddingEmptyScrollArea() async throws {
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -386,7 +388,8 @@ final class WebReaderTests: XCTestCase {
 
     @MainActor
     func testLocalImagePermissionTargetsCommonFolderAndReloadsWithoutReopeningDocument() async throws {
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let notes = root.appendingPathComponent("文档", isDirectory: true)
         let images = notes.appendingPathComponent("images", isDirectory: true)
@@ -439,7 +442,8 @@ final class WebReaderTests: XCTestCase {
         let url = root.appendingPathComponent("early-save.md")
         let text = "# Original\n\n尚未完成 Web 渲染时，保存仍必须保留原文。\n"
         try Data(text.utf8).write(to: url)
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         await session.open(url)
         let bridge = ReaderBridge(session: session)
         defer { bridge.detach() }
@@ -967,7 +971,8 @@ final class WebReaderTests: XCTestCase {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         defaults.set("https://reader.example.test/v1", forKey: "model.baseURL")
         defaults.set("fixture-model", forKey: "model.id")
-        let session = ReaderSession(defaults: defaults, modelKey: { "fixture-key" })
+        let session = ReaderSession(
+            defaults: defaults, modelKey: { "fixture-key" }, modelSettings: isolatedModelSettings())
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let sample = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("Sample"))
         try FileManager.default.copyItem(at: sample, to: root)

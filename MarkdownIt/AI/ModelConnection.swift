@@ -1,7 +1,6 @@
 import Foundation
-import Security
 
-enum ModelAPIProtocol: String, CaseIterable, Sendable {
+enum ModelAPIProtocol: String, CaseIterable, Codable, Sendable {
     case responses
     case chatCompletions
 
@@ -15,7 +14,7 @@ enum ModelAPIProtocol: String, CaseIterable, Sendable {
     var path: String { self == .responses ? "responses" : "chat/completions" }
 }
 
-struct ModelConfiguration: Equatable, Sendable {
+struct ModelConfiguration: Codable, Equatable, Sendable {
     var baseURL = ""
     var model = ""
     var apiProtocol: ModelAPIProtocol = .responses
@@ -91,55 +90,6 @@ enum ModelError: LocalizedError {
         case .contextPreparation: String(localized: "Unable to prepare the conversation. Try again.")
         case .rateLimited: String(localized: "Too many requests. Try again later.")
         case .service(let code, let message): String(localized: "The model service returned HTTP \(code). \(message)")
-        }
-    }
-}
-
-enum ModelKeychain {
-    static var service: String {
-        #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
-                return "dev.catli.MarkdownIt.model.ui-testing"
-            }
-        #endif
-        return "dev.catli.MarkdownIt.model"
-    }
-    static func read(service: String = ModelKeychain.service) -> String {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "api-key",
-            kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var value: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &value) == errSecSuccess,
-            let data = value as? Data
-        else { return "" }
-        return String(decoding: data, as: UTF8.self)
-    }
-    static func write(_ value: String, service: String = ModelKeychain.service) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "api-key",
-        ]
-        let data = Data(value.utf8)
-        let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if update == errSecSuccess { return }
-        guard update == errSecItemNotFound else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(update)) }
-        var item = query
-        item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let result = SecItemAdd(item as CFDictionary, nil)
-        guard result == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(result)) }
-    }
-
-    static func delete(service: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "api-key",
-        ]
-        let result = SecItemDelete(query as CFDictionary)
-        guard result == errSecSuccess || result == errSecItemNotFound else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(result))
         }
     }
 }

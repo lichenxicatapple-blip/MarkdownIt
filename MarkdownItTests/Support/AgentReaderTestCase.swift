@@ -4,6 +4,18 @@ import XCTest
 
 @testable import MarkdownIt
 
+extension XCTestCase {
+    func isolatedModelSettings() -> ModelSettingsStore {
+        let store = ModelSettingsStore(service: "dev.catli.MarkdownIt.model.unit-testing." + UUID().uuidString)
+        addTeardownBlock {
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: store.service))
+            try store.reset(clearingLegacyIn: defaults)
+            defaults.removePersistentDomain(forName: store.service)
+        }
+        return store
+    }
+}
+
 /// A rendered document fixture with explicit transport and credential dependencies.
 @MainActor
 class AgentReaderTestCase: XCTestCase {
@@ -42,7 +54,7 @@ class AgentReaderTestCase: XCTestCase {
         let session = ReaderSession(
             defaults: defaults,
             modelClient: modelClient,
-            modelKey: modelKey)
+            modelKey: modelKey, modelSettings: isolatedModelSettings())
         addTeardownBlock { @MainActor in await session.closeDocument() }
         if dataSharingAllowed, let service = try? ModelDataConsent.service(for: session.configuration) {
             session.dataConsent.allow(service)

@@ -137,6 +137,12 @@ final class ModelCatalogCache {
         debouncing = false
     }
 
+    func reset() {
+        cancel()
+        connection = nil
+        cached = nil
+    }
+
     func contextWindow(model: String, baseURL: String, key: String) -> Int? {
         guard let next = try? Self.connection(baseURL: baseURL, key: key), connection == next else { return nil }
         return cached?.first { $0.id == model.trimmingCharacters(in: .whitespacesAndNewlines) }?.contextWindow

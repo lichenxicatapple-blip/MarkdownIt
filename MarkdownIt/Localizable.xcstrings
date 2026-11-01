@@ -9,6 +9,23 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "AI Model Not Configured" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI Model Not Configured"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未配置 AI 模型"
+          }
+        }
+      }
+    },
     "AI conversation" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1054,23 +1071,6 @@
         }
       }
     },
-    "Model Not Configured" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Model Not Configured"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚未配置模型"
-          }
-        }
-      }
-    },
     "Model Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1509,6 +1509,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请求内容过大"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置"
+          }
+        }
+      }
+    },
+    "Reset Model Settings?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Model Settings?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置模型设置？"
           }
         }
       }
@@ -2125,6 +2157,22 @@
         }
       }
     },
+    "The saved connection settings and API key will be removed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The saved connection settings and API key will be removed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将清除已保存的连接配置和 API Key。"
+          }
+        }
+      }
+    },
     "The undo has not been saved." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2393,6 +2441,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法整理对话，请重试。"
+          }
+        }
+      }
+    },
+    "Unable to read model settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to read model settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取模型设置。"
           }
         }
       }

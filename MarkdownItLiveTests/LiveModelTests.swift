@@ -34,12 +34,27 @@ final class LiveModelTests: AgentReaderTestCase {
 
     private func isolatedCredential(_ key: String) throws -> String {
         let service = "dev.catli.MarkdownIt.model.live-testing." + UUID().uuidString
-        addTeardownBlock { try ModelKeychain.delete(service: service) }
-        try ModelKeychain.write(key, service: service)
+        let store = ModelSettingsStore(service: service)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: service))
+        addTeardownBlock {
+            try store.reset(clearingLegacyIn: defaults)
+            defaults.removePersistentDomain(forName: service)
+        }
+        try store.save(SavedModelSettings(apiKey: key), replacingLegacyIn: defaults)
         XCTAssertTrue(
-            ModelKeychain.read(service: service) == key,
+            try store.load(migrating: defaults).apiKey == key,
             "The live credential must be read through an isolated Keychain service")
         return service
+    }
+
+    private func readCredential(_ service: String) -> String {
+        do {
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: service))
+            return try ModelSettingsStore(service: service).load(migrating: defaults).apiKey
+        } catch {
+            XCTFail("Unable to read the isolated test credential: \(error.localizedDescription)")
+            return ""
+        }
     }
 
     private func liveCompleted(_ bridge: ReaderBridge, count: Int = 2) async throws {
@@ -109,7 +124,7 @@ final class LiveModelTests: AgentReaderTestCase {
                 + "结论校验：海星9527。\n"
             let (session, bridge, _, _) = try await makeReader(
                 longDocument, api: api, baseURL: live.baseURL, model: live.model,
-                modelClient: client, modelKey: { ModelKeychain.read(service: keychainService) })
+                modelClient: client, modelKey: { self.readCredential(keychainService) })
             _ = try await bridge.call("toggleAgent")
             try await send("搜索文末的“结论校验”，告诉我完整校验值。只读取，不修改。", bridge: bridge)
             try await liveCompleted(bridge)
@@ -132,7 +147,7 @@ final class LiveModelTests: AgentReaderTestCase {
         for api in protocols {
             let (session, bridge, _, url) = try await makeReader(
                 original, api: api, baseURL: live.baseURL, model: live.model,
-                modelClient: ModelClient(), modelKey: { ModelKeychain.read(service: keychainService) })
+                modelClient: ModelClient(), modelKey: { self.readCredential(keychainService) })
             _ = try await bridge.call("toggleAgent")
             try await send("用一句话总结读书会安排，句末原样写出校验值。", bridge: bridge)
             try await liveCompleted(bridge)
@@ -240,7 +255,7 @@ final class LiveModelTests: AgentReaderTestCase {
                     snapshot, intent: "question", appLanguage: item.fallback)
                 let result = try await ModelClient().stream(
                     configuration: ModelConfiguration(baseURL: live.baseURL, model: live.model, apiProtocol: api),
-                    key: XCTUnwrap(ModelKeychain.read(service: service)), messages: messages,
+                    key: XCTUnwrap(self.readCredential(service)), messages: messages,
                     onText: { _ in })
                 let evidence = XCTAttachment(
                     string: "Model: \(live.model)\nProtocol: \(api.title)\nFallback: \(item.fallback)"
@@ -267,7 +282,7 @@ final class LiveModelTests: AgentReaderTestCase {
             let markdown = "# Field note\n\n![Observation](pictures/observation.png)\n"
             let (_, bridge, _, url) = try await makeReader(
                 markdown, api: api, baseURL: live.baseURL, model: live.model,
-                modelClient: ModelClient(), modelKey: { ModelKeychain.read(service: service) })
+                modelClient: ModelClient(), modelKey: { self.readCredential(service) })
             let folder = url.deletingLastPathComponent().appendingPathComponent("pictures")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let image = visionOracle(redCircles: 3, blueSquares: 1)
@@ -298,7 +313,7 @@ final class LiveModelTests: AgentReaderTestCase {
             let markdown = "# Observations\n\n![First observation](observation.png)\n\n![Unrelated](unavailable.png)\n"
             let (session, bridge, _, url) = try await makeReader(
                 markdown, api: api, baseURL: live.baseURL, model: live.model,
-                modelClient: ModelClient(), modelKey: { ModelKeychain.read(service: service) })
+                modelClient: ModelClient(), modelKey: { self.readCredential(service) })
             try visionOracle(redCircles: 3, blueSquares: 1).write(
                 to: url.deletingLastPathComponent().appendingPathComponent("observation.png"))
             _ = try await bridge.call("toggleAgent")

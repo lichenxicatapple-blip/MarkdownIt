@@ -88,7 +88,7 @@ final class RecentDocumentTests: XCTestCase {
         try Data("# Local document\n".utf8).write(to: file)
         let recent = RecentDocument(
             id: UUID(), file: try invalidBookmark(file), identity: file, folders: [])
-        let session = ReaderSession(defaults: defaults)
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
         let opened = try await session.openRecent(recent)
         XCTAssertTrue(opened)
         XCTAssertEqual(session.document?.text, "# Local document\n")
@@ -148,7 +148,7 @@ final class RecentDocumentTests: XCTestCase {
             defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: root)
         }
-        let session = ReaderSession(defaults: defaults)
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
         let first = root.appendingPathComponent("first.md")
         let second = root.appendingPathComponent("second.md")
         try Data("# First\n".utf8).write(to: first)

@@ -25,7 +25,8 @@ final class ReaderSession: ObservableObject {
     @Published var modelSettingsRequested = false
     @Published private(set) var isClosingDocument = false
     @Published var closeSaveFailed = false
-    @Published var configuration: ModelConfiguration
+    @Published var configuration = ModelConfiguration()
+    @Published private(set) var modelSettingsError: String?
     weak var bridge: ReaderBridge?
     let resources = LocalResourceHandler()
     let agentImages = AgentImages()
@@ -40,7 +41,9 @@ final class ReaderSession: ObservableObject {
     let recentDocuments: RecentDocumentsStore
     let dataConsent: ModelDataConsent
     lazy var agentDocuments = AgentDocumentTools(session: self)
-    private let modelKey: @MainActor () -> String
+    private let modelKey: (@MainActor () -> String)?
+    private let modelSettings: ModelSettingsStore
+    private var savedAPIKey = ""
     private var opening = false
     private var failedCloseToken: String?
     private var pendingAgentEntry: (id: String, token: String)?
@@ -50,20 +53,18 @@ final class ReaderSession: ObservableObject {
     init(
         defaults: UserDefaults = .standard, modelClient: ModelClient = ModelClient(),
         modelCatalog: ModelCatalog = ModelCatalog(),
-        modelKey: @escaping @MainActor () -> String = { ModelKeychain.read() }
+        modelKey: (@MainActor () -> String)? = nil,
+        modelSettings: ModelSettingsStore = ModelSettingsStore()
     ) {
         self.defaults = defaults
         dataConsent = ModelDataConsent(defaults: defaults)
         recentDocuments = RecentDocumentsStore(defaults: defaults)
         self.modelKey = modelKey
+        self.modelSettings = modelSettings
         agentTransport = AgentModelTransport(client: modelClient)
         self.modelCatalog = ModelCatalogCache { baseURL, key in
             try await modelCatalog.models(baseURL: baseURL, key: key)
         }
-        configuration = ModelConfiguration(
-            baseURL: defaults.string(forKey: "model.baseURL") ?? "",
-            model: defaults.string(forKey: "model.id") ?? "",
-            apiProtocol: ModelAPIProtocol(rawValue: defaults.string(forKey: "model.apiProtocol") ?? "") ?? .responses)
         if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             grantedRoots.append(documents)
         }
@@ -75,6 +76,7 @@ final class ReaderSession: ObservableObject {
             self.deniedResourcePath = source
             self.requestResourcePermissionIfReady()
         }
+        reloadModelSettings()
     }
 
     deinit {
@@ -358,11 +360,21 @@ final class ReaderSession: ObservableObject {
     }
 
     var isModelConfigured: Bool {
-        (try? configuration.endpoint()) != nil && !modelKey().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        modelSettingsError == nil && (try? configuration.endpoint()) != nil
+            && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    var apiKey: String { modelKey?() ?? savedAPIKey }
 
     func requestAgentEntry(id: String, token: String) {
         guard token == documentToken else { return }
+        if modelSettingsError != nil {
+            reloadModelSettings()
+            if let modelSettingsError {
+                errorMessage = modelSettingsError
+                return
+            }
+        }
         pendingAgentEntry = (id, token)
         if isModelConfigured { finishAgentConfiguration(saved: true) } else { needsModelConfiguration = true }
     }
@@ -438,7 +450,7 @@ final class ReaderSession: ObservableObject {
             }
             return
         }
-        let key = modelKey()
+        let key = apiKey
         agentTransport.start(
             id: id, token: token, snapshot: snapshot, intent: intent, configuration: configuration, key: key,
             contextWindow: modelCatalog.contextWindow(
@@ -506,11 +518,30 @@ final class ReaderSession: ObservableObject {
 
     func saveConfiguration(_ value: ModelConfiguration, key: String) throws {
         try value.validateForSaving()
-        try ModelKeychain.write(key)
+        try modelSettings.save(
+            SavedModelSettings(configuration: value, apiKey: key), replacingLegacyIn: defaults)
+        savedAPIKey = key
         configuration = value
-        defaults.set(value.baseURL, forKey: "model.baseURL")
-        defaults.set(value.model, forKey: "model.id")
-        defaults.set(value.apiProtocol.rawValue, forKey: "model.apiProtocol")
+        modelSettingsError = nil
+    }
+
+    func resetModelSettings() throws {
+        try modelSettings.reset(clearingLegacyIn: defaults)
+        savedAPIKey = ""
+        configuration = ModelConfiguration()
+        modelSettingsError = nil
+        modelCatalog.reset()
+    }
+
+    func reloadModelSettings() {
+        do {
+            let saved = try modelSettings.load(migrating: defaults)
+            savedAPIKey = saved.apiKey
+            configuration = saved.configuration
+            modelSettingsError = nil
+        } catch {
+            modelSettingsError = String(localized: "Unable to read model settings.")
+        }
     }
 
     #if DEBUG

@@ -54,7 +54,7 @@ final class LocalizationTests: XCTestCase {
             let defaultsName = UUID().uuidString
             let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
             defer { defaults.removePersistentDomain(forName: defaultsName) }
-            let session = ReaderSession(defaults: defaults)
+            let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
             await session.grant(root)
             await session.open(file)
             let bridge = ReaderBridge(session: session)

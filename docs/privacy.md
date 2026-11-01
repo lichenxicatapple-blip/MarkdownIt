@@ -4,7 +4,7 @@
 
 ## 中文
 
-**更新日期：** 2026-10-30\
+**更新日期：** 2026-11-01\
 **发布者：** CHENXI LI（个人开发者）\
 **联系邮箱：** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -22,7 +22,7 @@ MarkdownIt! 是本地 Markdown 阅读与编辑工具，不要求注册账号，�
 | --- | --- |
 | 你选择的文档及授权范围内的图片等资源 | 用于阅读、渲染和编辑。文档在原位置保存；应用按系统授予的范围访问文件，不会自动将这些文件上传给开发者。 |
 | 最近打开记录 | 在设备上保存最近 10 份不同文档的名称、位置、文件与资源目录的系统授权书签，用于重新打开。记录不包含正文副本；书签不能绕过系统权限。 |
-| 模型设置 | 服务地址、模型名称和接口偏好保存在应用的本地设置中，用于建立你指定的连接。 |
+| 模型设置 | 服务地址、模型名称、接口偏好与 API Key 作为完整连接配置保存在本机钥匙串，用于建立你指定的连接。 |
 | AI 发送授权 | 在设备上保存已允许服务地址的摘要标识。对同一服务不重复询问；切换模型或更新密钥不改变该授权。 |
 | API Key | 保存在本机钥匙串，采用设备解锁时可访问、仅限本设备的保护等级。密钥由原生网络层用于认证，不交给文档渲染网页，也不作为 AI 对话正文发送。 |
 
@@ -74,7 +74,7 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 - 原文档和图片由你在其保存位置管理、移动或删除。删除应用不会自动删除保存在其他位置的原文档。
 - 最近打开记录最多保留 10 项，较旧记录随新记录加入而移除。删除应用可清除其本地设置、发送授权和最近记录；
   系统备份、文件提供程序及钥匙串可能按系统规则独立保留信息。
-- 你可以在模型设置中清空 API Key 并保存，以清除应用保存的密钥值，也可在服务提供者处撤销密钥。
+- 你可以在模型设置中使用“重置”清除钥匙串中的完整连接配置及旧版密钥记录，也可清空 API Key 并保存，或在服务提供者处撤销密钥。
   不应仅依赖卸载应用来清除钥匙串中的密钥。
 - 你可以不使用 AI，或停止正在进行的生成。停止操作不能撤回服务已经收到的内容。
   对第三方已收到数据的访问或删除请求，需要向该服务提供者提出。
@@ -100,7 +100,7 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 
 ## English
 
-**Last updated:** 2026-10-30\
+**Last updated:** 2026-11-01\
 **Publisher:** CHENXI LI (individual developer)\
 **Contact:** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -120,7 +120,7 @@ document storage, synchronization or AI relay servers.
 | --- | --- |
 | Documents you select and resources such as images within authorized locations | Used for reading, rendering and editing. Documents are saved in place and accessed within system-granted permissions. They are not automatically uploaded to the developer. |
 | Recent documents | The names, locations and system access bookmarks for up to 10 distinct documents and their authorized resource folders are stored on your device for reopening. These records contain no copy of the document text. Bookmarks cannot override system permissions. |
-| Model settings | The service address, model name and interface preference are stored in the app’s local settings to establish your chosen connection. |
+| Model settings | The service address, model name, interface preference and API key are stored together in the device’s Keychain to establish your chosen connection. |
 | AI sending permission | Digest identifiers of allowed service addresses are stored on your device. Permission is remembered for each service; changing its model or API key does not change that permission. |
 | API key | Stored in the device’s Keychain using protection that allows access while the device is unlocked and restricts the item to that device. The native network layer uses the key for authentication. It is not provided to document-rendering web content or sent as AI conversation text. |
 
@@ -196,8 +196,8 @@ or unrelated private documents.
   are added. Deleting the app can remove its local settings, sending permissions and recent records. System
   backups, file providers and the Keychain may retain information independently under
   their own rules.
-- You can clear the API key field in model settings and save to clear the stored key
-  value, or revoke the key with its provider. Do not rely solely on uninstalling the app
+- You can use Reset in model settings to remove the complete connection settings and legacy key records from the Keychain,
+  clear the API key field and save, or revoke the key with its provider. Do not rely solely on uninstalling the app
   to clear a key from the Keychain.
 - You can choose not to use AI or stop an ongoing generation. Stopping cannot retract
   content already received by a service. Requests concerning access to or deletion of

@@ -13,7 +13,7 @@ final class DocumentTests: XCTestCase {
             defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: root)
         }
-        let session = ReaderSession(defaults: defaults)
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
         let original = root.appendingPathComponent("original.md")
         try Data("# Original\n".utf8).write(to: original)
         await session.open(original)
@@ -62,7 +62,7 @@ final class DocumentTests: XCTestCase {
         XCTAssertEqual(
             Set(try XCTUnwrap(tags["public.filename-extension"] as? [String])),
             Set(MarkdownDocument.supportedFilenameExtensions))
-        let session = ReaderSession(defaults: defaults)
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
         for (index, ext) in ["md", "MD", "markdown", "mArKdOwN", "mdown", "mkd"].enumerated() {
             let url = root.appendingPathComponent("document-\(index).\(ext)")
             try Data("# Markdown\n".utf8).write(to: url)
@@ -78,7 +78,8 @@ final class DocumentTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".md")
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("# Original\n".utf8).write(to: url)
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         await session.open(url)
         let token = session.documentToken
         let document = try XCTUnwrap(session.document)
@@ -117,7 +118,7 @@ final class DocumentTests: XCTestCase {
         let second = root.appendingPathComponent("second.md")
         try Data("# First\n".utf8).write(to: first)
         try Data("# Second\n".utf8).write(to: second)
-        let session = ReaderSession(defaults: defaults)
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
         await session.open(first)
         let original = try XCTUnwrap(session.document)
         let token = session.documentToken
@@ -144,7 +145,8 @@ final class DocumentTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".md")
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("# Original\n".utf8).write(to: url)
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         await session.open(url)
         let document = try XCTUnwrap(session.document)
         let token = session.documentToken
@@ -172,7 +174,8 @@ final class DocumentTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".md")
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("# Original\n".utf8).write(to: url)
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         await session.open(url)
         let document = try XCTUnwrap(session.document)
         let token = session.documentToken
@@ -207,7 +210,8 @@ final class DocumentTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         let original = Data("# Windows document\r\n\r\n原文。\r\n".utf8)
         try original.write(to: url)
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         await session.open(url)
         XCTAssertEqual(session.document?.text, "# Windows document\n\n原文。\n")
         session.sourceChanged("# Windows document\n\n原文。\n", token: session.documentToken)
@@ -247,7 +251,8 @@ final class DocumentTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("test.md")
         try Data("# Original\n".utf8).write(to: url)
-        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let session = ReaderSession(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         await session.grant(root)
         await session.open(url)
         let originalToken = session.documentToken

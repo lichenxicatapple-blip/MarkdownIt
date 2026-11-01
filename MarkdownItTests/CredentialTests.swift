@@ -1,3 +1,4 @@
+import Security
 import XCTest
 
 @testable import MarkdownIt
@@ -49,17 +50,141 @@ final class CredentialTests: XCTestCase {
         }
     }
 
-    func testKeychainRoundTrip() throws {
-        let service = "dev.catli.MarkdownIt.model.unit-testing." + UUID().uuidString
-        addTeardownBlock { try ModelKeychain.delete(service: service) }
-        XCTAssertTrue(ModelKeychain.read(service: service).isEmpty)
-        try ModelKeychain.write("keychain-test-only", service: service)
-        XCTAssertEqual(ModelKeychain.read(service: service), "keychain-test-only")
-        try ModelKeychain.write("updated-test-only", service: service)
-        XCTAssertEqual(ModelKeychain.read(service: service), "updated-test-only")
-        try ModelKeychain.delete(service: service)
-        XCTAssertTrue(ModelKeychain.read(service: service).isEmpty)
-        try ModelKeychain.delete(service: service)
+    private func temporaryDefaults() throws -> UserDefaults {
+        let name = "dev.catli.MarkdownIt.settings-testing." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        addTeardownBlock {
+            let cleanup = try XCTUnwrap(UserDefaults(suiteName: name))
+            cleanup.removePersistentDomain(forName: name)
+        }
+        return defaults
+    }
+
+    private func seed(_ data: Data, account: String, store: ModelSettingsStore) throws {
+        let status = SecItemAdd(
+            [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: store.service,
+                kSecAttrAccount as String: account,
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            ] as CFDictionary, nil)
+        XCTAssertEqual(status, errSecSuccess)
+        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+    }
+
+    private func assertItemMissing(
+        account: String, store: ModelSettingsStore, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let status = SecItemCopyMatching(
+            [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: store.service,
+                kSecAttrAccount as String: account,
+            ] as CFDictionary, nil)
+        XCTAssertEqual(status, errSecItemNotFound, file: file, line: line)
+    }
+
+    @MainActor
+    func testCompleteConnectionRestoresWithoutLocalPreferencesAndResetRemovesIt() throws {
+        let store = isolatedModelSettings()
+        let defaults = try temporaryDefaults()
+        let settings = SavedModelSettings(
+            configuration: .init(
+                baseURL: "https://example.test/v1", model: "chosen-model", apiProtocol: .chatCompletions),
+            apiKey: "keychain-test-only")
+        let session = ReaderSession(defaults: defaults, modelSettings: store)
+        XCTAssertFalse(session.isModelConfigured)
+        try session.saveConfiguration(settings.configuration, key: settings.apiKey)
+        XCTAssertEqual(try store.load(migrating: defaults), settings)
+        XCTAssertNil(defaults.object(forKey: "model.baseURL"))
+        XCTAssertNil(defaults.object(forKey: "model.id"))
+        XCTAssertNil(defaults.object(forKey: "model.apiProtocol"))
+
+        // A new preferences container models a reinstall without touching normal credentials.
+        let restored = ReaderSession(defaults: try temporaryDefaults(), modelSettings: store)
+        XCTAssertEqual(restored.configuration, settings.configuration)
+        XCTAssertEqual(restored.apiKey, settings.apiKey)
+        XCTAssertTrue(restored.isModelConfigured)
+        XCTAssertNil(restored.modelSettingsError)
+        restored.requestAgentEntry(id: "restored", token: restored.documentToken)
+        XCTAssertFalse(restored.needsModelConfiguration)
+
+        try restored.resetModelSettings()
+        XCTAssertEqual(restored.configuration, ModelConfiguration())
+        XCTAssertTrue(restored.apiKey.isEmpty)
+        XCTAssertFalse(restored.isModelConfigured)
+        assertItemMissing(account: "connection", store: store)
+        assertItemMissing(account: "api-key", store: store)
+        let reopened = ReaderSession(defaults: defaults, modelSettings: store)
+        XCTAssertFalse(reopened.isModelConfigured)
+        XCTAssertTrue(reopened.apiKey.isEmpty)
+        try reopened.saveConfiguration(.init(), key: "")
+        assertItemMissing(account: "connection", store: store)
+    }
+
+    func testLegacySettingsMigrateTogetherAndDoNotReplaceTheNewConnection() throws {
+        let store = isolatedModelSettings()
+        let defaults = try temporaryDefaults()
+        defaults.set("https://legacy.example.test/v1", forKey: "model.baseURL")
+        defaults.set("legacy-model", forKey: "model.id")
+        defaults.set("chatCompletions", forKey: "model.apiProtocol")
+        defaults.set("untouched", forKey: "unrelated.preference")
+        try seed(Data("legacy-test-only-key".utf8), account: "api-key", store: store)
+        let expected = SavedModelSettings(
+            configuration: .init(
+                baseURL: "https://legacy.example.test/v1", model: "legacy-model", apiProtocol: .chatCompletions),
+            apiKey: "legacy-test-only-key")
+        XCTAssertEqual(try store.load(migrating: defaults), expected)
+        assertItemMissing(account: "api-key", store: store)
+        XCTAssertNil(defaults.object(forKey: "model.baseURL"))
+        XCTAssertNil(defaults.object(forKey: "model.id"))
+        XCTAssertNil(defaults.object(forKey: "model.apiProtocol"))
+        XCTAssertEqual(defaults.string(forKey: "unrelated.preference"), "untouched")
+
+        defaults.set("https://stale.example.test/v1", forKey: "model.baseURL")
+        try seed(Data("stale-test-only-key".utf8), account: "api-key", store: store)
+        XCTAssertEqual(try store.load(migrating: defaults), expected)
+        assertItemMissing(account: "api-key", store: store)
+        XCTAssertNil(defaults.object(forKey: "model.baseURL"))
+    }
+
+    func testResetClearsCurrentAndLegacyItemsWithoutAffectingOtherServices() throws {
+        let store = isolatedModelSettings()
+        let other = isolatedModelSettings()
+        let defaults = try temporaryDefaults()
+        let expected = SavedModelSettings(
+            configuration: .init(baseURL: "https://other.test/v1", model: "other"), apiKey: "other-test-only")
+        try other.save(expected, replacingLegacyIn: defaults)
+        try store.save(SavedModelSettings(apiKey: "reset-test-only"), replacingLegacyIn: defaults)
+        try seed(Data("legacy-test-only".utf8), account: "api-key", store: store)
+        defaults.set("old-model", forKey: "model.id")
+        defaults.set("untouched", forKey: "unrelated.preference")
+        try store.reset(clearingLegacyIn: defaults)
+        try store.reset(clearingLegacyIn: defaults)
+        assertItemMissing(account: "connection", store: store)
+        assertItemMissing(account: "api-key", store: store)
+        XCTAssertEqual(try store.load(migrating: defaults), SavedModelSettings())
+        XCTAssertEqual(try other.load(migrating: defaults), expected)
+        XCTAssertEqual(defaults.string(forKey: "unrelated.preference"), "untouched")
+    }
+
+    @MainActor
+    func testUnreadableSettingsAreReportedRatherThanTreatedAsUnconfigured() throws {
+        let store = isolatedModelSettings()
+        let defaults = try temporaryDefaults()
+        defaults.set("preserved-model", forKey: "model.id")
+        try seed(Data("invalid-settings-json".utf8), account: "connection", store: store)
+        XCTAssertThrowsError(try store.load(migrating: defaults))
+        XCTAssertEqual(defaults.string(forKey: "model.id"), "preserved-model")
+        let session = ReaderSession(defaults: defaults, modelSettings: store)
+        XCTAssertNotNil(session.modelSettingsError)
+        session.requestAgentEntry(id: "unreadable", token: session.documentToken)
+        XCTAssertFalse(session.needsModelConfiguration)
+        XCTAssertEqual(session.errorMessage, session.modelSettingsError)
+        try session.resetModelSettings()
+        XCTAssertNil(session.modelSettingsError)
+        XCTAssertEqual(try store.load(migrating: defaults), SavedModelSettings())
     }
     func testTextOnlyConsentDoesNotAuthorizeSharingImagePixels() throws {
         let name = UUID().uuidString

@@ -446,7 +446,7 @@ final class ReaderUITests: XCTestCase {
 
         showTools(app)
         app.buttons["GlobalAI"].tap()
-        XCTAssertTrue(app.alerts["Model Not Configured"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts["AI Model Not Configured"].waitForExistence(timeout: 5))
         app.alerts.buttons["Open Settings"].tap()
         XCTAssertTrue(app.navigationBars["Model Settings"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["API Type"].exists)
@@ -642,6 +642,74 @@ final class ReaderUITests: XCTestCase {
         outline.tap()
         record("reader-landscape")
         SimulatorOrientation.set(.portrait)
+    }
+
+    func testModelSettingsRestoresCompleteConnectionAndResetIsExplicit() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        let arguments = ["--ui-testing", "--sample-document", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchArguments = arguments + ["--reset-sample-document", "--ui-test-agent-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        func openSettings() {
+            showTools(app)
+            app.buttons["More"].tap()
+            app.buttons["模型设置"].tap()
+            XCTAssertTrue(app.textFields["ModelBaseURL"].waitForExistence(timeout: 6))
+        }
+        openSettings()
+        app.buttons["ModelPicker"].tap()
+        let choice = app.buttons["ModelChoice.catalog-only-model"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 6))
+        choice.tap()
+        app.buttons["SettingsDone"].tap()
+        app.terminate()
+        app.launchArguments = arguments + ["--ui-test-keep-state"]
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        XCTAssertTrue(app.textViews["QuestionInput"].waitForExistence(timeout: 6))
+        XCTAssertFalse(app.alerts["尚未配置 AI 模型"].exists)
+        app.webViews.buttons["收起对话"].tap()
+        openSettings()
+        let base = app.textFields["ModelBaseURL"]
+        let key = app.secureTextFields["ModelAPIKey"]
+        XCTAssertEqual(base.value as? String, "https://ui-fixture.markdownit.invalid/v1")
+        XCTAssertEqual(app.buttons["ModelPicker"].value as? String, "catalog-only-model")
+        XCTAssertFalse((key.value as? String ?? "").isEmpty)
+        record("model-settings-reset-action")
+
+        app.buttons["ResetModelSettings"].tap()
+        let confirmation = app.alerts["重置模型设置？"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirmation.staticTexts["将清除已保存的连接配置和 API Key。"].exists)
+        record("model-settings-reset-confirmation")
+        confirmation.buttons["取消"].tap()
+        XCTAssertEqual(base.value as? String, "https://ui-fixture.markdownit.invalid/v1")
+        XCTAssertEqual(app.buttons["ModelPicker"].value as? String, "catalog-only-model")
+        XCTAssertFalse((key.value as? String ?? "").isEmpty)
+
+        app.buttons["ResetModelSettings"].tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["ConfirmResetModelSettings"].firstMatch.tap()
+        XCTAssertTrue((key.value as? String ?? "").isEmpty)
+        XCTAssertEqual(app.buttons["ModelPicker"].value as? String, "")
+        XCTAssertFalse(app.staticTexts["ModelSettingsError"].exists)
+        record("model-settings-reset-complete")
+        // Reset is committed immediately; dismissing the form cannot resurrect it.
+        app.buttons["取消"].tap()
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        XCTAssertTrue(app.alerts["尚未配置 AI 模型"].waitForExistence(timeout: 5))
+        app.alerts.buttons["取消"].tap()
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        XCTAssertTrue(app.alerts["尚未配置 AI 模型"].waitForExistence(timeout: 5))
+        record("model-settings-reset-persists-after-relaunch")
     }
 
     func testModelSettingsNamesTheInvalidFieldAndClearsErrorsAfterCorrection() {
@@ -1649,7 +1717,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
         showTools(app)
         app.buttons["GlobalAI"].tap()
-        let alert = app.alerts["尚未配置模型"]
+        let alert = app.alerts["尚未配置 AI 模型"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         XCTAssertFalse(app.textViews["QuestionInput"].exists)
         record("unconfigured-ai-prompt")

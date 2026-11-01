@@ -10,34 +10,39 @@ struct MarkdownItApp: App {
         var defaults = UserDefaults.standard
         var modelClient = ModelClient()
         var modelCatalog = ModelCatalog()
+        let modelSettings = ModelSettingsStore()
         #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                 let name = "dev.catli.MarkdownIt.ui-testing"
                 defaults = UserDefaults(suiteName: name) ?? .standard
                 if !ProcessInfo.processInfo.arguments.contains("--ui-test-keep-state") {
                     defaults.removePersistentDomain(forName: name)
+                    try? modelSettings.reset(clearingLegacyIn: defaults)
                 }
-                try? ModelKeychain.write("")
                 if ProcessInfo.processInfo.arguments.contains("--ui-test-paste-fixture") {
                     UIPasteboard.general.setObjects(
                         ["Pasted **text**." as NSString], localOnly: true, expirationDate: nil)
                 }
                 if ProcessInfo.processInfo.arguments.contains("--ui-test-model-fixture") {
-                    defaults.set("http://127.0.0.1:1/v1", forKey: "model.baseURL")
-                    defaults.set("ui-test-model", forKey: "model.id")
-                    try? ModelKeychain.write("ui-test-only-key")
+                    try? modelSettings.save(
+                        SavedModelSettings(
+                            configuration: ModelConfiguration(baseURL: "http://127.0.0.1:1/v1", model: "ui-test-model"),
+                            apiKey: "ui-test-only-key"), replacingLegacyIn: defaults)
                 }
                 if ProcessInfo.processInfo.arguments.contains("--ui-test-agent-fixture") {
-                    defaults.set("https://ui-fixture.markdownit.invalid/v1", forKey: "model.baseURL")
-                    defaults.set("ui-test-model", forKey: "model.id")
                     modelClient = DebugModelFixture.client()
                     modelCatalog = DebugModelFixture.catalog()
-                    try? ModelKeychain.write("ui-test-only-key")
+                    try? modelSettings.save(
+                        SavedModelSettings(
+                            configuration: ModelConfiguration(
+                                baseURL: "https://ui-fixture.markdownit.invalid/v1", model: "ui-test-model"),
+                            apiKey: "ui-test-only-key"), replacingLegacyIn: defaults)
                 }
             }
         #endif
         _session = StateObject(
-            wrappedValue: ReaderSession(defaults: defaults, modelClient: modelClient, modelCatalog: modelCatalog))
+            wrappedValue: ReaderSession(
+                defaults: defaults, modelClient: modelClient, modelCatalog: modelCatalog, modelSettings: modelSettings))
     }
 
     var body: some Scene {

@@ -13,6 +13,7 @@ struct ModelSettingsView: View {
     @State private var apiProtocol: ModelAPIProtocol = .responses
     @State private var attemptedSave = false
     @State private var saveError: String?
+    @State private var confirmingReset = false
 
     init(session: ReaderSession, onSaved: @escaping () -> Void = {}) {
         self.session = session
@@ -20,7 +21,7 @@ struct ModelSettingsView: View {
         _baseURL = State(initialValue: session.configuration.baseURL)
         _model = State(initialValue: session.configuration.model)
         _apiProtocol = State(initialValue: session.configuration.apiProtocol)
-        _key = State(initialValue: ModelKeychain.read())
+        _key = State(initialValue: session.apiKey)
     }
 
     var body: some View {
@@ -82,8 +83,12 @@ struct ModelSettingsView: View {
                 } footer: {
                     Text("Your API key is stored only in this device’s Keychain.")
                 }
-                if let error = validationError ?? saveError {
+                if let error = validationError ?? saveError ?? session.modelSettingsError {
                     Section { Text(error).foregroundStyle(.red).accessibilityIdentifier("ModelSettingsError") }
+                }
+                Section {
+                    Button("Reset", role: .destructive) { confirmingReset = true }
+                        .accessibilityIdentifier("ResetModelSettings")
                 }
             }
             .navigationTitle("Model Settings").navigationBarTitleDisplayMode(.inline)
@@ -111,6 +116,25 @@ struct ModelSettingsView: View {
                     .accessibilityIdentifier("SettingsDone")
                 }
             }
+        }
+        .alert("Reset Model Settings?", isPresented: $confirmingReset) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) {
+                do {
+                    try session.resetModelSettings()
+                    baseURL = ""
+                    model = ""
+                    key = ""
+                    apiProtocol = .responses
+                    customModel = false
+                    customModelFocused = false
+                    attemptedSave = false
+                    saveError = nil
+                } catch { saveError = error.localizedDescription }
+            }
+            .accessibilityIdentifier("ConfirmResetModelSettings")
+        } message: {
+            Text("The saved connection settings and API key will be removed.")
         }
         .onAppear { session.modelCatalog.prefetch(baseURL: baseURL, key: key) }
         .onChange(of: baseURL) { _, _ in prefetchAfterInput() }
