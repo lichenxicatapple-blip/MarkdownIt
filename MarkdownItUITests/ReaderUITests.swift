@@ -644,6 +644,53 @@ final class ReaderUITests: XCTestCase {
         SimulatorOrientation.set(.portrait)
     }
 
+    func testModelSettingsNamesTheInvalidFieldAndClearsErrorsAfterCorrection() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-agent-fixture",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["More"].tap()
+        app.buttons["模型设置"].tap()
+        let picker = app.buttons["ModelPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 6))
+        picker.tap()
+        app.buttons["CustomModelEntry"].tap()
+        let model = app.textFields["ModelID"]
+        XCTAssertTrue(model.waitForExistence(timeout: 5))
+        model.tap()
+        model.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (model.value as? String ?? "").count))
+        tapAfterTyping(app.buttons["SettingsDone"], in: app)
+        let error = app.staticTexts["ModelSettingsError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertEqual(error.label, "请输入模型 ID。")
+        record("model-settings-missing-model")
+
+        picker.tap()
+        let choice = app.buttons["ModelChoice.catalog-only-model"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 6))
+        choice.tap()
+        XCTAssertEqual(picker.value as? String, "catalog-only-model")
+        XCTAssertFalse(error.exists, "Choosing a model must clear its validation error without another save")
+
+        let base = app.textFields["ModelBaseURL"]
+        base.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        base.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (base.value as? String ?? "").count))
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertEqual(error.label, "请输入 Base URL。")
+        base.typeText("not-a-url")
+        XCTAssertEqual(error.label, "Base URL 格式不正确。")
+        base.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "not-a-url".count))
+        base.typeText("https://ui-fixture.markdownit.invalid/v1")
+        XCTAssertFalse(error.exists, "A corrected URL must clear its validation error")
+        record("model-settings-validation-corrected")
+        tapAfterTyping(app.buttons["SettingsDone"], in: app)
+        XCTAssertFalse(app.textFields["ModelBaseURL"].exists)
+    }
+
     func testModelSelectionLoadsProviderChoicesAndKeepsCustomEntryAfterFailure() {
         let app = XCUIApplication()
         app.launchArguments = [

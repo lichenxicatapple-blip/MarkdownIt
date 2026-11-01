@@ -680,6 +680,40 @@
         }
       }
     },
+    "Enter a Base URL." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a Base URL."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入 Base URL。"
+          }
+        }
+      }
+    },
+    "Enter a Model ID." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a Model ID."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入模型 ID。"
+          }
+        }
+      }
+    },
     "Enter a valid Base URL and Model ID in Model Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -693,6 +727,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请在模型设置中填写有效的 Base URL 和模型 ID。"
+          }
+        }
+      }
+    },
+    "Enter a valid Base URL." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a valid Base URL."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Base URL 格式不正确。"
           }
         }
       }
@@ -1611,6 +1662,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择"
+          }
+        }
+      }
+    },
+    "Select a model." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a model."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择模型。"
           }
         }
       }

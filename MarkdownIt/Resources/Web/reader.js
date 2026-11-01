@@ -263,10 +263,15 @@
     function currentReadingHeading() {
       const visible = headings.filter(heading => heading.getClientRects().length);
       let current = visible[0];
-      visible.forEach(heading => { if (heading.getBoundingClientRect().top <= 110) current = heading; });
-      // The last section may never reach the top threshold at the document end.
+      if (window.scrollY <= 0) return current;
+      const viewport = window.visualViewport;
+      const top = viewport?.offsetTop || 0;
+      const bottom = top + (viewport?.height || innerHeight);
+      const center = (top + bottom) / 2;
+      visible.forEach(heading => { if (heading.getBoundingClientRect().top <= center) current = heading; });
+      // Keep the final visible section reachable even when it cannot reach the center.
       const last = visible.at(-1);
-      if (last && window.scrollY > 0 && window.scrollY + innerHeight >= document.documentElement.scrollHeight - 2 && last.getBoundingClientRect().top < innerHeight) current = last;
+      if (last && window.scrollY + bottom >= document.documentElement.scrollHeight - 2 && last.getBoundingClientRect().top < bottom) current = last;
       return current;
     }
     function stopOutlineFollow() {
@@ -1354,7 +1359,7 @@
     requestAnimationFrame(() => { app.dataset.ready = 'true'; postNative({type:'ready'}); });
     window.lucide.createIcons();
     let scrollQueued = false;
-    window.addEventListener('scroll', () => {
+    function updateReadingHeading() {
       if (scrollQueued || reader.hidden || !app.getClientRects().length || Date.now() < jumpUntil) return;
       scrollQueued = true;
       requestAnimationFrame(() => {
@@ -1362,6 +1367,9 @@
         if (current) markHeading(current.id);
         scrollQueued = false;
       });
-    }, { passive: true });
+    }
+    window.addEventListener('scroll', updateReadingHeading, { passive: true });
+    window.addEventListener('resize', updateReadingHeading, { passive: true });
+    window.visualViewport?.addEventListener('resize', updateReadingHeading, { passive: true });
   });
 })();

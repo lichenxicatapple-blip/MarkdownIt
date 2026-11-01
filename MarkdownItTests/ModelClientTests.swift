@@ -554,6 +554,19 @@ final class ModelClientTests: XCTestCase {
         }
     }
 
+    func testEndpointValidationIdentifiesTheInvalidField() {
+        for (baseURL, model, expected) in [
+            ("", "", ModelConfigurationError.missingBaseURL),
+            ("", "chosen-model", .missingBaseURL),
+            ("not-a-url", "", .invalidBaseURL),
+            ("https://example.test/v1", "  ", .missingModel),
+        ] {
+            XCTAssertThrowsError(try ModelConfiguration(baseURL: baseURL, model: model).endpoint()) { error in
+                XCTAssertEqual(error as? ModelConfigurationError, expected)
+            }
+        }
+    }
+
     func testEndpointValidationAndPathComposition() throws {
         XCTAssertEqual(
             try ModelConfiguration(baseURL: "https://example.test/v1/", model: "x").endpoint().path,

@@ -21,19 +21,27 @@ struct ModelConfiguration: Equatable, Sendable {
     var apiProtocol: ModelAPIProtocol = .responses
 
     func endpoint() throws -> URL {
-        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelError.configuration }
-        return try endpoint(path: apiProtocol.path)
+        let url = try endpoint(path: apiProtocol.path)
+        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ModelConfigurationError.missingModel
+        }
+        return url
     }
 
     func modelsEndpoint() throws -> URL { try endpoint(path: "models") }
 
+    func validateForSaving() throws {
+        if !baseURL.isEmpty || !model.isEmpty { _ = try endpoint() }
+    }
+
     private func endpoint(path suffix: String) throws -> URL {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw ModelConfigurationError.missingBaseURL }
         guard let url = URL(string: trimmed), let scheme = url.scheme,
             ["https", "http"].contains(scheme.lowercased()), url.host != nil,
             url.user == nil, url.password == nil, url.query == nil, url.fragment == nil
         else {
-            throw ModelError.configuration
+            throw ModelConfigurationError.invalidBaseURL
         }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         var path = components.percentEncodedPath
@@ -44,8 +52,20 @@ struct ModelConfiguration: Equatable, Sendable {
             break
         }
         components.percentEncodedPath = path + "/" + suffix
-        guard let endpoint = components.url else { throw ModelError.configuration }
+        guard let endpoint = components.url else { throw ModelConfigurationError.invalidBaseURL }
         return endpoint
+    }
+}
+
+enum ModelConfigurationError: LocalizedError, Equatable {
+    case missingBaseURL, invalidBaseURL, missingModel
+
+    var errorDescription: String? {
+        switch self {
+        case .missingBaseURL: String(localized: "Enter a Base URL.")
+        case .invalidBaseURL: String(localized: "Enter a valid Base URL.")
+        case .missingModel: String(localized: "Select a model.")
+        }
     }
 }
 

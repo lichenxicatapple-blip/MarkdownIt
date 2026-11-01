@@ -505,7 +505,7 @@ final class ReaderSession: ObservableObject {
     }
 
     func saveConfiguration(_ value: ModelConfiguration, key: String) throws {
-        if !value.baseURL.isEmpty || !value.model.isEmpty { _ = try value.endpoint() }
+        try value.validateForSaving()
         try ModelKeychain.write(key)
         configuration = value
         defaults.set(value.baseURL, forKey: "model.baseURL")

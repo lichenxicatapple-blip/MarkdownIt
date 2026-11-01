@@ -782,6 +782,38 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testOutlineTracksTheSectionAtTheReadingViewportCenter() async throws {
+        let markdown =
+            "# Reading\n\n"
+            + (1...12).map { index in
+                "## Section \(index)\n\n" + String(repeating: "A short section with readable content.\n\n", count: 4)
+            }.joined(separator: "\n")
+        let (_, bridge, _) = try await navigationReader(markdown: markdown)
+        let result = try await bridge.webView.callAsyncJavaScript(
+            """
+            const headings = [...document.querySelectorAll('.mdv-article h2')];
+            const samples = [];
+            for (const index of [4, 5, 4]) {
+              const heading = headings[index];
+              window.scrollTo({ top: window.scrollY + heading.getBoundingClientRect().top - innerHeight / 2 + 12, behavior: 'instant' });
+              for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+              samples.push({ expected: heading.textContent,
+                current: document.querySelector('[aria-current="location"]')?.textContent,
+                start: heading.getBoundingClientRect().top,
+                end: headings[index + 1].getBoundingClientRect().top, center: innerHeight / 2 });
+            }
+            return samples;
+            """, arguments: [:], in: nil, contentWorld: .page)
+        let samples = try XCTUnwrap(result as? [[String: Any]])
+        XCTAssertEqual(samples.count, 3)
+        for sample in samples {
+            XCTAssertLessThan(try XCTUnwrap(sample["start"] as? Double), try XCTUnwrap(sample["center"] as? Double))
+            XCTAssertGreaterThan(try XCTUnwrap(sample["end"] as? Double), try XCTUnwrap(sample["center"] as? Double))
+            XCTAssertEqual(sample["current"] as? String, sample["expected"] as? String)
+        }
+    }
+
+    @MainActor
     func testOutlineCentersCurrentChapterAndRetargetsSmoothlyWithoutOverridingManualBrowse() async throws {
         let (_, bridge, _) = try await navigationReader()
         let result = try await bridge.webView.callAsyncJavaScript(

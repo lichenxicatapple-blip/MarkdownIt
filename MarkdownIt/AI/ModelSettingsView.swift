@@ -11,7 +11,8 @@ struct ModelSettingsView: View {
     @FocusState private var customModelFocused: Bool
     @State private var key = ""
     @State private var apiProtocol: ModelAPIProtocol = .responses
-    @State private var error: String?
+    @State private var attemptedSave = false
+    @State private var saveError: String?
 
     init(session: ReaderSession, onSaved: @escaping () -> Void = {}) {
         self.session = session
@@ -34,10 +35,13 @@ struct ModelSettingsView: View {
                     .accessibilityIdentifier("ModelAPIProtocol")
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Base URL").font(.subheadline).foregroundStyle(.secondary)
-                        TextField("", text: $baseURL, prompt: Text("https://api.example.com/v1"))
-                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .textContentType(.URL)
-                            .accessibilityLabel("Base URL").accessibilityIdentifier("ModelBaseURL")
+                        TextField(
+                            "", text: $baseURL,
+                            prompt: Text("https://api.example.com/v1").foregroundStyle(Color(uiColor: .placeholderText))
+                        )
+                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .textContentType(.URL)
+                        .accessibilityLabel("Base URL").accessibilityIdentifier("ModelBaseURL")
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("API Key").font(.subheadline).foregroundStyle(.secondary)
@@ -77,7 +81,9 @@ struct ModelSettingsView: View {
                 } footer: {
                     Text("Your API key is stored only in this device’s Keychain.")
                 }
-                if let error { Section { Text(error).foregroundStyle(.red) } }
+                if let error = validationError ?? saveError {
+                    Section { Text(error).foregroundStyle(.red).accessibilityIdentifier("ModelSettingsError") }
+                }
             }
             .navigationTitle("Model Settings").navigationBarTitleDisplayMode(.inline)
             .background {
@@ -92,15 +98,14 @@ struct ModelSettingsView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
+                        attemptedSave = true
+                        saveError = nil
+                        guard validationError == nil else { return }
                         do {
-                            try session.saveConfiguration(
-                                ModelConfiguration(
-                                    baseURL: baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    model: model.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    apiProtocol: apiProtocol), key: key)
+                            try session.saveConfiguration(draftConfiguration, key: key)
                             onSaved()
                             dismiss()
-                        } catch { self.error = error.localizedDescription }
+                        } catch { saveError = error.localizedDescription }
                     }
                     .accessibilityIdentifier("SettingsDone")
                 }
@@ -108,10 +113,32 @@ struct ModelSettingsView: View {
         }
         .onAppear { session.modelCatalog.prefetch(baseURL: baseURL, key: key) }
         .onChange(of: baseURL) { _, _ in prefetchAfterInput() }
-        .onChange(of: key) { _, _ in prefetchAfterInput() }
+        .onChange(of: key) { _, _ in
+            prefetchAfterInput()
+            saveError = nil
+        }
+        .onChange(of: draftConfiguration) { _, _ in saveError = nil }
         .onDisappear {
             session.modelCatalog.cancel()
             key = ""
+        }
+    }
+
+    private var draftConfiguration: ModelConfiguration {
+        ModelConfiguration(
+            baseURL: baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            model: model.trimmingCharacters(in: .whitespacesAndNewlines), apiProtocol: apiProtocol)
+    }
+
+    private var validationError: String? {
+        guard attemptedSave else { return nil }
+        do {
+            try draftConfiguration.validateForSaving()
+            return nil
+        } catch ModelConfigurationError.missingModel where customModel {
+            return String(localized: "Enter a Model ID.")
+        } catch {
+            return error.localizedDescription
         }
     }
 
