@@ -72,6 +72,7 @@
       ],
       "invariants": [
         "Preview, source and outline derive from one working Markdown buffer.",
+        "Preview fills the available document column with reading insets and no fixed maximum width; reflow preserves the reading anchor and clears the floating controls.",
         "One window-width policy coordinates both auxiliary panels; actual reserved width is shared with native controls."
       ],
       "specification": "design/README.md#阅读与源码"

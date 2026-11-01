@@ -103,9 +103,11 @@ final class ReaderUITests: XCTestCase {
                     return !frame.isEmpty && frame.intersects(app.webViews.firstMatch.frame)
                         && !outlineTitle.frame.contains(frame)
                 })
-            XCTAssertFalse(
-                heading.frame.intersects(app.buttons["CloseDocument"].frame),
-                "The document title must remain outside the close control's touch area")
+            for control in ["OutlineToggle", "CloseDocument"] {
+                XCTAssertFalse(
+                    heading.frame.intersects(app.buttons[control].frame),
+                    "The document title must remain outside the \(control) control's touch area")
+            }
             record("document-title-clearance-\(orientation.isLandscape ? "landscape" : "portrait")")
         }
     }
