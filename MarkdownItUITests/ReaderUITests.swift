@@ -1386,8 +1386,9 @@ final class ReaderUITests: XCTestCase {
             outline.tap()
             XCTAssertTrue(firstChapter.waitForExistence(timeout: 5))
             // Three columns require 420 pt of document, 320 pt of conversation,
-            // 248 pt of outline and two 16 pt panel insets in the design contract.
-            if app.windows.firstMatch.frame.width >= 1020 {
+            // 248 pt of outline and one 16 pt outer panel inset in the design contract.
+            let threeColumnMinimum: CGFloat = 420 + 320 + 248 + 16
+            if app.windows.firstMatch.frame.width >= threeColumnMinimum {
                 XCTAssertTrue(input.exists)
                 assertCloseAtLeading()
                 record("adaptive-wide-directory-and-conversation")

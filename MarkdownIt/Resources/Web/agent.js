@@ -797,11 +797,11 @@
     function viewportChanged() {
       const viewport = window.visualViewport;
       if (sheet && viewport) {
-        panel.style.maxHeight = Math.max(160, viewport.height - 16) + 'px';
-        panel.style.bottom = Math.max(0, innerHeight - viewport.height - viewport.offsetTop) + 'px';
+        panel.style.setProperty('--mdv-agent-viewport-height', Math.max(160, viewport.height - 16) + 'px');
+        panel.style.setProperty('--mdv-agent-visual-bottom-inset', Math.max(0, innerHeight - viewport.height - viewport.offsetTop) + 'px');
       } else {
-        panel.style.removeProperty('max-height');
-        panel.style.removeProperty('bottom');
+        panel.style.removeProperty('--mdv-agent-viewport-height');
+        panel.style.removeProperty('--mdv-agent-visual-bottom-inset');
       }
     }
     window.visualViewport?.addEventListener('resize', viewportChanged);

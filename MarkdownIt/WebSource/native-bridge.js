@@ -169,7 +169,7 @@
       },
       async closeAgent() { setPanelOpen('agent', false); return await agentExperience.waitUntilClosed(); },
       setInputBottomInset(inset) {
-        app.style.setProperty('--mdv-input-bottom-inset', Math.max(0, inset) + 'px');
+        app.style.setProperty('--mdv-input-bottom-clearance', inset > 0 ? 'calc(' + inset + 'px + var(--mdv-floating-gap))' : '0px');
         nativeInputs.trackLayout();
       },
       agentInteraction() { notePanelInteraction('agent'); },

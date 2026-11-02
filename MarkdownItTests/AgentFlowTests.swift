@@ -661,7 +661,7 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
     }
 
-    func testComposerFollowsNativeBottomBoundaryWithoutMovingTheDocumentOrPanel() async throws {
+    func testConversationPanelFollowsNativeBottomBoundaryWithoutMovingTheDocument() async throws {
         AgentFixtureProtocol.queue.reset([])
         let (_, bridge, window, _) = try await reader(
             "# Reading\n\nA selected passage to discuss.\n\n"
@@ -674,12 +674,16 @@ final class AgentFlowTests: AgentReaderTestCase {
                 "(() => { const r = document.createRange(); r.selectNodeContents(document.querySelector('.mdv-article p')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); window.MarkdownIt.askSelection(); })()"
             )
             try await wait { bridge.session.agentOpen }
-            bridge.composer.blur()
-            try await wait {
-                window.keyboardLayoutGuide.layoutFrame.height <= window.safeAreaInsets.bottom + 1
-            }
             let input = try XCTUnwrap(
                 bridge.webView.superview?.subviews.compactMap { $0 as? ConversationTextView }.first)
+            // Opening focuses after the panel transition. Complete that entry
+            // before dismissing input to supply isolated native geometry below.
+            try await wait { input.isFirstResponder }
+            bridge.composer.blur()
+            try await wait {
+                !input.isFirstResponder
+                    && window.keyboardLayoutGuide.layoutFrame.height <= window.safeAreaInsets.bottom + 1
+            }
             _ = try await bridge.webView.evaluateJavaScript(
                 "(() => { const f = document.querySelector('.mdv-agent-input'); f.value = 'A question about this passage.'; f.dispatchEvent(new Event('input', {bubbles:true})); })()"
             )
@@ -704,10 +708,13 @@ final class AgentFlowTests: AgentReaderTestCase {
             }
             let baseline = try await geometry()
             let bottom = try XCTUnwrap(baseline["composerBottom"])
+            let panelBottom = try XCTUnwrap(baseline["panelBottom"])
             for inset in [136.0, 72.0, 0.0] {
                 // Supply measured native geometry at the bridge boundary, not a keyboard-height guess.
                 bridge.webView.inputBottomInset = inset
-                let target = min(bottom, size.height - inset - ReaderDesign.floatingGap)
+                let panelTarget =
+                    inset > 0 ? min(panelBottom, size.height - inset - ReaderDesign.floatingGap) : panelBottom
+                let target = bottom - (panelBottom - panelTarget)
                 var result: [String: Double] = [:]
                 try await wait {
                     result = try await geometry()
@@ -718,9 +725,14 @@ final class AgentFlowTests: AgentReaderTestCase {
                     return abs(actual - target) <= 1.1 && abs(native.minY - fieldTop) <= 0.5
                         && abs(native.maxY - fieldBottom) <= 0.5
                 }
-                for key in ["panelTop", "panelBottom", "articleTop", "articleWidth"] {
+                for key in ["articleTop", "articleWidth"] {
                     XCTAssertEqual(try XCTUnwrap(result[key]), try XCTUnwrap(baseline[key]), accuracy: 0.5)
                 }
+                XCTAssertEqual(try XCTUnwrap(result["panelBottom"]), panelTarget, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(try XCTUnwrap(result["panelTop"]), 0)
+                XCTAssertEqual(
+                    try XCTUnwrap(result["panelBottom"]) - XCTUnwrap(result["composerBottom"]),
+                    panelBottom - bottom, accuracy: 0.5, "The input keeps its spacing inside the panel")
                 let referenceOffset = try XCTUnwrap(result["inputTop"]) - XCTUnwrap(result["referenceTop"])
                 let originalOffset = try XCTUnwrap(baseline["inputTop"]) - XCTUnwrap(baseline["referenceTop"])
                 XCTAssertEqual(
@@ -858,6 +870,20 @@ final class AgentFlowTests: AgentReaderTestCase {
             _ = try await bridge.call("toggleAgent")
             try await wait { session.agentOpen }
         }
+        func assertReadingGutters() async throws {
+            let value =
+                try await bridge.webView.evaluateJavaScript(
+                    """
+                    (() => {
+                      const article=document.querySelector('.mdv-article'), style=getComputedStyle(article);
+                      const r=article.getBoundingClientRect(), a=document.querySelector('.mdv-agent').getBoundingClientRect();
+                      return [parseFloat(style.paddingLeft), a.left - r.right + parseFloat(style.paddingRight)];
+                    })()
+                    """) as? [Double]
+            let gutters = try XCTUnwrap(value)
+            XCTAssertEqual(gutters[0], 36, accuracy: 0.5)
+            XCTAssertEqual(gutters[1], gutters[0], accuracy: 0.5)
+        }
         try await resize(1376)
         if !session.outlineExpanded { _ = try await bridge.call("toggleOutline") }
         try await openAI()
@@ -867,6 +893,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             "const input=document.querySelector('.mdv-agent-input'); input.value='Draft kept across layouts'; input.dispatchEvent(new Event('input',{bubbles:true}));"
         )
         try await panels(outline: true, agent: true, sheet: false)
+        try await assertReadingGutters()
         _ = try await bridge.webView.evaluateJavaScript(
             "const conversation=document.querySelector('.mdv-agent-scroll'); conversation.dispatchEvent(new WheelEvent('wheel',{deltaY:-100})); conversation.scrollTop=80;"
         )
@@ -894,12 +921,13 @@ final class AgentFlowTests: AgentReaderTestCase {
             ) as? [Double]
         let widths = try XCTUnwrap(geometry)
         XCTAssertGreaterThanOrEqual(widths[0], 420)
-        XCTAssertGreaterThanOrEqual(widths[2] - widths[1], 15)
+        XCTAssertEqual(widths[2], widths[1], accuracy: 0.5)
         XCTAssertEqual(widths[3], 320, accuracy: 1)
+        try await assertReadingGutters()
         let reservedWidth = try await bridge.webView.evaluateJavaScript(
             "parseFloat(getComputedStyle(document.querySelector('.mdv-app')).getPropertyValue('--mdv-agent-reserved-width'))"
         )
-        XCTAssertEqual(reservedWidth as? Double, 352)
+        XCTAssertEqual(reservedWidth as? Double, 336)
         _ = try await bridge.call("toggleOutline")
         try await panels(outline: true, agent: false, sheet: false)
         let navigationKept =

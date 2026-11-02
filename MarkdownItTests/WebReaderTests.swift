@@ -96,6 +96,25 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testLocalInputToolbarDoesNotReserveAFullWidthReadingStrip() {
+        let bounds = CGRect(x: 0, y: 0, width: 1210, height: 802)
+        for keyboard in [
+            // Captured on iPad with the hardware-keyboard Pinyin toolbar.
+            CGRect(x: 5, y: 724.5, width: 65, height: 52.5),
+            CGRect(x: 1140, y: 724.5, width: 65, height: 77.5),
+            CGRect(x: 440, y: 400, width: 320, height: 260),
+            CGRect(x: 0, y: 650, width: 1210, height: 100),
+            CGRect(x: 0, y: 802, width: 1210, height: 0),
+        ] {
+            XCTAssertEqual(ReaderContainer.readingFrame(in: bounds, keyboard: keyboard), bounds)
+        }
+        let docked = CGRect(x: 0, y: 450, width: 1210, height: 352)
+        XCTAssertEqual(
+            ReaderContainer.readingFrame(in: bounds, keyboard: docked),
+            CGRect(x: 0, y: 0, width: 1210, height: 450))
+    }
+
+    @MainActor
     func testReaderViewportTracksDockedKeyboardAcrossAvailableSizeChanges() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)

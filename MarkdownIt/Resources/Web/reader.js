@@ -532,18 +532,18 @@
       const agentMaximum = value('--mdv-agent-width');
       const edge = value('--mdv-agent-edge-inset');
       const outlineWidth = value('--mdv-outline-width');
-      const side = width >= documentMinimum + agentMinimum + 2 * edge;
-      const coexist = width >= documentMinimum + agentMinimum + 2 * edge + outlineWidth;
+      const side = width >= documentMinimum + agentMinimum + edge;
+      const coexist = width >= documentMinimum + agentMinimum + edge + outlineWidth;
       if (state.agent && state.outline && headings.length && displayedMode === 'preview' && !coexist) {
         state[lastActivePanel === 'outline' ? 'agent' : 'outline'] = false;
       }
       const outlineOpen = state.outline && headings.length && displayedMode === 'preview';
       const overlay = width < documentMinimum + outlineWidth;
-      const available = width - documentMinimum - 2 * edge - (outlineOpen && !overlay ? outlineWidth : 0);
+      const available = width - documentMinimum - edge - (outlineOpen && !overlay ? outlineWidth : 0);
       const agentWidth = clamp(width * value('--mdv-agent-width-fraction'), agentMinimum, Math.min(agentMaximum, Math.max(agentMinimum, available)));
       const next = { width, sheet: !side, overlay, coexist, agentWidth,
         documentLeading: outlineOpen && !overlay ? outlineWidth : 0,
-        reservedWidth: state.agent && side ? agentWidth + 2 * edge : 0 };
+        reservedWidth: state.agent && side ? agentWidth + edge : 0 };
       app.dataset.agentLayout = next.sheet ? 'sheet' : 'side';
       app.dataset.outlineLayout = overlay ? 'overlay' : 'side';
       app.dataset.panelsCoexist = String(coexist);
@@ -738,7 +738,7 @@
       },
       async closeAgent() { setPanelOpen('agent', false); return await agentExperience.waitUntilClosed(); },
       setInputBottomInset(inset) {
-        app.style.setProperty('--mdv-input-bottom-inset', Math.max(0, inset) + 'px');
+        app.style.setProperty('--mdv-input-bottom-clearance', inset > 0 ? 'calc(' + inset + 'px + var(--mdv-floating-gap))' : '0px');
         nativeInputs.trackLayout();
       },
       agentInteraction() { notePanelInteraction('agent'); },

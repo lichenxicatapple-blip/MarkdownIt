@@ -19,7 +19,7 @@ extension WKWebView {
 @MainActor
 final class ReaderViewport: UIView {
     let webView: ReaderWKWebView
-    private let composerBoundary = UILayoutGuide()
+    private let inputBoundary = UILayoutGuide()
 
     init(webView: ReaderWKWebView) {
         self.webView = webView
@@ -28,23 +28,23 @@ final class ReaderViewport: UIView {
         backgroundColor = .systemBackground
         webView.autoresizingMask = []
         addSubview(webView)
-        // The document follows only docked input. The composer also needs the
+        // The document follows only docked input. The AI panel also needs the
         // local hardware-keyboard toolbar without reducing the reading canvas.
         keyboardLayoutGuide.followsUndockedKeyboard = true
         keyboardLayoutGuide.usesBottomSafeArea = false
-        addLayoutGuide(composerBoundary)
-        let preferredBottom = composerBoundary.bottomAnchor.constraint(equalTo: bottomAnchor)
+        addLayoutGuide(inputBoundary)
+        let preferredBottom = inputBoundary.bottomAnchor.constraint(equalTo: bottomAnchor)
         preferredBottom.priority = .defaultLow
         NSLayoutConstraint.activate([
-            composerBoundary.leadingAnchor.constraint(equalTo: leadingAnchor),
-            composerBoundary.trailingAnchor.constraint(equalTo: trailingAnchor),
-            composerBoundary.heightAnchor.constraint(equalToConstant: 0),
-            composerBoundary.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
-            composerBoundary.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+            inputBoundary.leadingAnchor.constraint(equalTo: leadingAnchor),
+            inputBoundary.trailingAnchor.constraint(equalTo: trailingAnchor),
+            inputBoundary.heightAnchor.constraint(equalToConstant: 0),
+            inputBoundary.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
+            inputBoundary.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
             preferredBottom,
         ])
         keyboardLayoutGuide.setConstraints(
-            [composerBoundary.bottomAnchor.constraint(lessThanOrEqualTo: keyboardLayoutGuide.topAnchor)],
+            [inputBoundary.bottomAnchor.constraint(lessThanOrEqualTo: keyboardLayoutGuide.topAnchor)],
             activeWhenAwayFrom: .top)
         NotificationCenter.default.addObserver(
             self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
@@ -61,7 +61,7 @@ final class ReaderViewport: UIView {
         // of the live document's viewport and composited scrolling layers.
         guard window?.windowScene?.activationState != .background else { return }
         if webView.frame != bounds { webView.frame = bounds }
-        webView.inputBottomInset = max(0, bounds.maxY - composerBoundary.layoutFrame.maxY)
+        webView.inputBottomInset = max(0, bounds.maxY - inputBoundary.layoutFrame.maxY)
     }
 
     @objc private func sceneDidActivate(_ notification: Notification) {
@@ -73,24 +73,62 @@ final class ReaderViewport: UIView {
 
 @MainActor
 final class ReaderContainer: UIView {
+    private let viewport: ReaderViewport
+    private let keyboardRegion = ReaderKeyboardRegion()
+
     init(webView: ReaderWKWebView) {
+        viewport = ReaderViewport(webView: webView)
         super.init(frame: .zero)
         backgroundColor = .systemBackground
-        // UIKit follows docked keyboards and returns to the view's bottom for
-        // undocked input, including floating keyboards and hardware-keyboard UI.
+        // Even with undocked tracking disabled, UIKit can report a narrow
+        // hardware-keyboard toolbar. Only full bottom-edge coverage reduces
+        // the document; the AI panel follows local input in ReaderViewport.
         keyboardLayoutGuide.followsUndockedKeyboard = false
         keyboardLayoutGuide.usesBottomSafeArea = false
-        let viewport = ReaderViewport(webView: webView)
-        viewport.translatesAutoresizingMaskIntoConstraints = false
+        keyboardRegion.isUserInteractionEnabled = false
+        keyboardRegion.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(keyboardRegion)
         addSubview(viewport)
+        // Keep an Auto Layout dependency on the keyboard even when the reading
+        // viewport stays full size. Its vertical extent also tracks movement.
         NSLayoutConstraint.activate([
-            viewport.topAnchor.constraint(equalTo: topAnchor),
-            viewport.leadingAnchor.constraint(equalTo: leadingAnchor),
-            viewport.trailingAnchor.constraint(equalTo: trailingAnchor),
-            viewport.bottomAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+            keyboardRegion.leadingAnchor.constraint(equalTo: keyboardLayoutGuide.leadingAnchor),
+            keyboardRegion.widthAnchor.constraint(equalTo: keyboardLayoutGuide.widthAnchor),
+            keyboardRegion.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+            keyboardRegion.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        keyboardRegion.didLayout = { [weak self] in self?.layoutReadingViewport() }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutReadingViewport()
+    }
+
+    private func layoutReadingViewport() {
+        let frame = Self.readingFrame(in: bounds, keyboard: keyboardLayoutGuide.layoutFrame)
+        if viewport.frame != frame { viewport.frame = frame }
+    }
+
+    static func readingFrame(in bounds: CGRect, keyboard: CGRect) -> CGRect {
+        guard keyboard.minX <= bounds.minX, keyboard.maxX >= bounds.maxX,
+            keyboard.maxY >= bounds.maxY
+        else { return bounds }
+        var frame = bounds
+        frame.size.height = max(0, min(bounds.height, keyboard.minY - bounds.minY))
+        return frame
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Use init(webView:)") }
+}
+
+@MainActor
+private final class ReaderKeyboardRegion: UIView {
+    var didLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        didLayout?()
+    }
 }

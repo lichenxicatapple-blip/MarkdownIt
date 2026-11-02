@@ -72,8 +72,8 @@
       ],
       "invariants": [
         "Preview, source and outline derive from one working Markdown buffer.",
-        "Preview fills the available document column with reading insets and no fixed maximum width; reflow preserves the reading anchor and clears the floating controls.",
-        "One window-width policy coordinates both auxiliary panels; actual reserved width is shared with native controls."
+        "Preview fills the available document column with equal visible gutters to adjacent panels and no fixed maximum width; reflow preserves the reading anchor and clears the floating controls.",
+        "One window-width policy coordinates both auxiliary panels; native document controls receive the actual leading edge of the document column."
       ],
       "specification": "design/README.md#阅读与源码"
     },
@@ -158,9 +158,13 @@
         "The collapse control floats over the conversation without a dedicated header row; assistant content retains shared reading insets.",
         "The side-panel collapse control shares the document close control's horizontal centerline and hit-target size; panel top and bottom margins may differ.",
         "Outline and conversation are mutually exclusive when three readable columns do not fit; narrowing retains the last actively used panel and widening does not reopen either.",
-        "Outline, document close and conversation collapse share native SF artwork and point size, centered without enlarging glyphs within the shared canvas; independent targets remain 44pt."
+        "Outline, document close and conversation collapse share native SF artwork and point size, centered without enlarging glyphs within the shared canvas; independent targets remain 44pt.",
+        "The complete panel clears local native input toolbars while the document and outline retain full height; input spacing stays inside the panel, with interruptible motion and Reduce Motion support."
       ],
-      "specification": "design/README.md#ai-对话"
+      "specification": "design/README.md#ai-对话",
+      "nativeOwners": [
+        "MarkdownIt/Reader/ReaderViewport.swift"
+      ]
     },
     {
       "id": "ConversationThread",
@@ -181,7 +185,6 @@
     {
       "id": "ConversationComposer",
       "nativeOwners": [
-        "MarkdownIt/Reader/ReaderViewport.swift",
         "MarkdownIt/AI/NativeComposerHost.swift",
         "MarkdownIt/AI/ConversationInput.swift"
       ],
@@ -197,7 +200,6 @@
       "invariants": [
         "One draft and its next-turn reference share the native input bridge.",
         "The reference sits above one input capsule; native text and the Web send button have separate hit regions within it.",
-        "The reference and input move together above the native keyboard boundary; local input toolbars reduce conversation space without shrinking the document or panel, with interruptible motion and Reduce Motion support.",
         "Long drafts scroll within the native input after reaching a viewport-relative height limit, preserving readable conversation space."
       ],
       "specification": "design/README.md#引用与输入"
