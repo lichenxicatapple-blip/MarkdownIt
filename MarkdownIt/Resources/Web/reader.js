@@ -737,6 +737,10 @@
         pending.resolve(payload.allowed === true);
       },
       async closeAgent() { setPanelOpen('agent', false); return await agentExperience.waitUntilClosed(); },
+      setInputBottomInset(inset) {
+        app.style.setProperty('--mdv-input-bottom-inset', Math.max(0, inset) + 'px');
+        nativeInputs.trackLayout();
+      },
       agentInteraction() { notePanelInteraction('agent'); },
       updateAgentInput(payload) { nativeInputs.update(payload); },
       commitAgentInput(payload) { nativeInputs.commit(payload); },

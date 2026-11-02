@@ -132,12 +132,11 @@ struct ReaderToolVisibility: ViewModifier {
 
 /// Shared SwiftUI controls follow system input geometry through native constraints.
 struct ReaderFloatingControls<Content: View>: UIViewControllerRepresentable {
-    var trailingInset: CGFloat
     var expanded: Bool
     @ViewBuilder var content: Content
 
     func makeUIViewController(context: Context) -> Controller {
-        let controller = Controller(content: content, trailingInset: trailingInset, expanded: expanded)
+        let controller = Controller(content: content, expanded: expanded)
         controller.surface.reduceMotion = context.environment.accessibilityReduceMotion
         return controller
     }
@@ -148,28 +147,20 @@ struct ReaderFloatingControls<Content: View>: UIViewControllerRepresentable {
         // Each hosting root supplies its own environment.
         // Forward the animation transaction without replacing the entire environment.
         withTransaction(context.transaction) { controller.host.rootView = content }
-        context.animate {
-            controller.trailingConstraint.constant = -trailingInset
-            controller.view.layoutIfNeeded()
-        }
     }
 
     @MainActor
     final class Controller: UIViewController {
         fileprivate let host: UIHostingController<Content>
         fileprivate let surface = ReaderControlsSurface()
-        fileprivate var trailingConstraint: NSLayoutConstraint!
-        private let trailingInset: CGFloat
-
-        init(content: Content, trailingInset: CGFloat, expanded: Bool) {
+        init(content: Content, expanded: Bool) {
             host = UIHostingController(rootView: content)
-            self.trailingInset = trailingInset
             surface.expanded = expanded
             super.init(nibName: nil, bundle: nil)
         }
 
         @available(*, unavailable)
-        required init?(coder: NSCoder) { fatalError("Use init(content:trailingInset:expanded:)") }
+        required init?(coder: NSCoder) { fatalError("Use init(content:expanded:)") }
 
         override func loadView() { view = surface }
 
@@ -187,13 +178,11 @@ struct ReaderFloatingControls<Content: View>: UIViewControllerRepresentable {
             let keyboard = view.keyboardLayoutGuide
             keyboard.followsUndockedKeyboard = true
             keyboard.usesBottomSafeArea = false
-            trailingConstraint = host.view.trailingAnchor.constraint(
-                equalTo: safeArea.trailingAnchor, constant: -trailingInset)
             let inset = ReaderDesign.floatingInset
             let preferredBottom = host.view.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -inset)
             preferredBottom.priority = .defaultLow
             NSLayoutConstraint.activate([
-                trailingConstraint,
+                host.view.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -inset),
                 host.view.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: inset),
                 host.view.topAnchor.constraint(greaterThanOrEqualTo: safeArea.topAnchor, constant: inset),
                 host.view.bottomAnchor.constraint(lessThanOrEqualTo: safeArea.bottomAnchor, constant: -inset),

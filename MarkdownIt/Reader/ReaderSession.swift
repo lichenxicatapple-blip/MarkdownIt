@@ -17,8 +17,8 @@ final class ReaderSession: ObservableObject {
     @Published var needsResourcePermission = false
     @Published private(set) var resourcePermissionDirectory: URL?
     @Published var agentOpen = false
+    @Published var agentVisible = false
     @Published var agentModalActive = false
-    @Published var agentReservedWidth: CGFloat = 0
     @Published var documentLeading: CGFloat = 0
     @Published var needsModelConfiguration = false
     @Published var needsDataSharingConsent = false
@@ -204,8 +204,8 @@ final class ReaderSession: ObservableObject {
         pendingAgentEntry = nil
         needsModelConfiguration = false
         agentOpen = false
+        agentVisible = false
         agentModalActive = false
-        agentReservedWidth = 0
         documentLeading = 0
         documentToken = UUID().uuidString.lowercased()
         localResourcePaths = nil
@@ -303,8 +303,8 @@ final class ReaderSession: ObservableObject {
         resourcePermissionDirectory = nil
         modelSettingsRequested = false
         agentOpen = false
+        agentVisible = false
         agentModalActive = false
-        agentReservedWidth = 0
         documentLeading = 0
         documentToken = UUID().uuidString.lowercased()
         rendererReady = false

@@ -996,6 +996,8 @@ final class WebReaderTests: XCTestCase {
         bridge.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         controller.view.addSubview(bridge.webView)
         defer {
+            // End the fixture's input session before hiding its temporary window.
+            window.endEditing(true)
             bridge.detach()
             window.isHidden = true
         }

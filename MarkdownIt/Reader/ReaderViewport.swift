@@ -19,6 +19,7 @@ extension WKWebView {
 @MainActor
 final class ReaderViewport: UIView {
     let webView: ReaderWKWebView
+    private let composerBoundary = UILayoutGuide()
 
     init(webView: ReaderWKWebView) {
         self.webView = webView
@@ -27,6 +28,24 @@ final class ReaderViewport: UIView {
         backgroundColor = .systemBackground
         webView.autoresizingMask = []
         addSubview(webView)
+        // The document follows only docked input. The composer also needs the
+        // local hardware-keyboard toolbar without reducing the reading canvas.
+        keyboardLayoutGuide.followsUndockedKeyboard = true
+        keyboardLayoutGuide.usesBottomSafeArea = false
+        addLayoutGuide(composerBoundary)
+        let preferredBottom = composerBoundary.bottomAnchor.constraint(equalTo: bottomAnchor)
+        preferredBottom.priority = .defaultLow
+        NSLayoutConstraint.activate([
+            composerBoundary.leadingAnchor.constraint(equalTo: leadingAnchor),
+            composerBoundary.trailingAnchor.constraint(equalTo: trailingAnchor),
+            composerBoundary.heightAnchor.constraint(equalToConstant: 0),
+            composerBoundary.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
+            composerBoundary.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+            preferredBottom,
+        ])
+        keyboardLayoutGuide.setConstraints(
+            [composerBoundary.bottomAnchor.constraint(lessThanOrEqualTo: keyboardLayoutGuide.topAnchor)],
+            activeWhenAwayFrom: .top)
         NotificationCenter.default.addObserver(
             self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
     }
@@ -42,6 +61,7 @@ final class ReaderViewport: UIView {
         // of the live document's viewport and composited scrolling layers.
         guard window?.windowScene?.activationState != .background else { return }
         if webView.frame != bounds { webView.frame = bounds }
+        webView.inputBottomInset = max(0, bounds.maxY - composerBoundary.layoutFrame.maxY)
     }
 
     @objc private func sceneDidActivate(_ notification: Notification) {

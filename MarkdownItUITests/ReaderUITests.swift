@@ -497,7 +497,13 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.webViews.buttons["Remove reference"].exists)
         XCTAssertTrue(app.webViews.buttons["Send message"].exists)
         XCTAssertTrue(app.webViews.buttons["Expand reference"].exists)
+        for id in ["ToolsToggle", "GlobalAI", "ModeToggle", "More"] {
+            XCTAssertFalse(app.buttons[id].exists, "AI hides the complete bottom group on every layout")
+        }
         record("english-agent")
+        app.webViews.buttons["Collapse conversation"].tap()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["More"].exists, "The restored group starts collapsed")
     }
 
     func testUnsupportedSystemLanguageFallsBackToEnglish() {
@@ -1070,7 +1076,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 6))
         editor.tap()
         editor.typeText("\n\nSaved by closing the document.\n")
-        close.tap()
+        tapAfterTyping(close, in: app)
         let open = app.buttons["OpenDocument"]
         XCTAssertTrue(open.waitForExistence(timeout: 8))
         XCTAssertFalse(close.exists)
@@ -1421,9 +1427,16 @@ final class ReaderUITests: XCTestCase {
             app.buttons["GlobalAI"].tap()
             XCTAssertTrue(input.waitForExistence(timeout: 5))
             assertCloseAtLeading()
+            XCTAssertFalse(app.buttons["ToolsToggle"].exists)
+            app.webViews.buttons["Collapse conversation"].tap()
             showTools(app)
             app.buttons["ModeToggle"].tap()
             XCTAssertTrue(app.textViews["SourceEditor"].waitForExistence(timeout: 8))
+            showTools(app)
+            app.buttons["GlobalAI"].tap()
+            XCTAssertTrue(input.waitForExistence(timeout: 5))
+            XCTAssertEqual(input.value as? String, draft)
+            XCTAssertFalse(app.buttons["ToolsToggle"].exists)
             XCTAssertFalse(outline.exists)
             XCTAssertEqual(close.frame.minX, 8, accuracy: 1)
             record("adaptive-source-close-leading")

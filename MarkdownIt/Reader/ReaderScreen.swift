@@ -106,16 +106,18 @@ struct ReaderScreen: View {
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        if !session.agentModalActive {
-                            ReaderFloatingControls(
-                                trailingInset: session.agentReservedWidth + ReaderDesign.floatingInset,
-                                expanded: toolsExpanded
-                            ) { floatingActions }
-                            .ignoresSafeArea(.all, edges: .bottom)
-                            .animation(
-                                reduceMotion ? nil : .easeOut(duration: ReaderDesign.agentDuration),
-                                value: session.agentReservedWidth)
+                        ZStack {
+                            if !session.agentVisible {
+                                ReaderFloatingControls(expanded: toolsExpanded) { floatingActions }
+                                    .ignoresSafeArea(.all, edges: .bottom)
+                                    .transition(.opacity)
+                            }
                         }
+                        .allowsHitTesting(!session.agentVisible)
+                        .accessibilityHidden(session.agentVisible)
+                        .animation(
+                            reduceMotion ? nil : .easeOut(duration: ReaderDesign.contentDuration),
+                            value: session.agentVisible)
                     }
                     .allowsHitTesting(!session.isClosingDocument)
                     .accessibilityHidden(session.isClosingDocument)
@@ -131,15 +133,12 @@ struct ReaderScreen: View {
                     focusedAction = .open
                 }
             }
-            .onChange(of: session.agentOpen) { _, open in
-                if open {
+            .onChange(of: session.agentVisible) { _, visible in
+                if visible {
                     toolsExpanded = false
-                } else if !session.agentModalActive {
+                } else {
                     focusedAction = .tools
                 }
-            }
-            .onChange(of: session.agentModalActive) { _, active in
-                if !active && !session.agentOpen { focusedAction = .tools }
             }
             .onChange(of: session.modelSettingsRequested) { _, requested in
                 if requested {

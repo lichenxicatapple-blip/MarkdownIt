@@ -661,6 +661,138 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
     }
 
+    func testComposerFollowsNativeBottomBoundaryWithoutMovingTheDocumentOrPanel() async throws {
+        AgentFixtureProtocol.queue.reset([])
+        let (_, bridge, window, _) = try await reader(
+            "# Reading\n\nA selected passage to discuss.\n\n"
+                + String(repeating: "More reading content.\n\n", count: 60))
+        defer { window.endEditing(true) }
+        for size in [CGSize(width: 390, height: 844), CGSize(width: 1024, height: 768)] {
+            bridge.webView.autoresizingMask = []
+            bridge.webView.frame = CGRect(origin: .zero, size: size)
+            _ = try await bridge.webView.evaluateJavaScript(
+                "(() => { const r = document.createRange(); r.selectNodeContents(document.querySelector('.mdv-article p')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); window.MarkdownIt.askSelection(); })()"
+            )
+            try await wait { bridge.session.agentOpen }
+            bridge.composer.blur()
+            try await wait {
+                window.keyboardLayoutGuide.layoutFrame.height <= window.safeAreaInsets.bottom + 1
+            }
+            let input = try XCTUnwrap(
+                bridge.webView.superview?.subviews.compactMap { $0 as? ConversationTextView }.first)
+            _ = try await bridge.webView.evaluateJavaScript(
+                "(() => { const f = document.querySelector('.mdv-agent-input'); f.value = 'A question about this passage.'; f.dispatchEvent(new Event('input', {bubbles:true})); })()"
+            )
+            func geometry() async throws -> [String: Double] {
+                let value = try await bridge.webView.evaluateJavaScript(
+                    """
+                    (() => {
+                      const panel = document.querySelector('.mdv-agent'), composer = panel.querySelector('.mdv-composer');
+                      if (panel.getAnimations({subtree:true}).length) return null;
+                      const p = panel.getBoundingClientRect(), c = composer.getBoundingClientRect();
+                      const f = panel.querySelector('textarea').getBoundingClientRect();
+                      const r = panel.querySelector('.mdv-composer-reference').getBoundingClientRect();
+                      const a = document.querySelector('.mdv-article').getBoundingClientRect();
+                      return {panelTop:p.top, panelBottom:p.bottom, composerBottom:c.bottom, inputTop:f.top,
+                        inputBottom:f.bottom, referenceTop:r.top, articleTop:a.top, articleWidth:a.width};
+                    })()
+                    """)
+                return value as? [String: Double] ?? [:]
+            }
+            try await wait {
+                try await geometry()["composerBottom"] != nil && input.text == "A question about this passage."
+            }
+            let baseline = try await geometry()
+            let bottom = try XCTUnwrap(baseline["composerBottom"])
+            for inset in [136.0, 72.0, 0.0] {
+                // Supply measured native geometry at the bridge boundary, not a keyboard-height guess.
+                bridge.webView.inputBottomInset = inset
+                let target = min(bottom, size.height - inset - ReaderDesign.floatingGap)
+                var result: [String: Double] = [:]
+                try await wait {
+                    result = try await geometry()
+                    guard let actual = result["composerBottom"], let fieldTop = result["inputTop"],
+                        let fieldBottom = result["inputBottom"]
+                    else { return false }
+                    let native = input.convert(input.bounds, to: bridge.webView)
+                    return abs(actual - target) <= 1.1 && abs(native.minY - fieldTop) <= 0.5
+                        && abs(native.maxY - fieldBottom) <= 0.5
+                }
+                for key in ["panelTop", "panelBottom", "articleTop", "articleWidth"] {
+                    XCTAssertEqual(try XCTUnwrap(result[key]), try XCTUnwrap(baseline[key]), accuracy: 0.5)
+                }
+                let referenceOffset = try XCTUnwrap(result["inputTop"]) - XCTUnwrap(result["referenceTop"])
+                let originalOffset = try XCTUnwrap(baseline["inputTop"]) - XCTUnwrap(baseline["referenceTop"])
+                XCTAssertEqual(
+                    referenceOffset, originalOffset, accuracy: 0.5, "Reference and input must move as one group")
+                XCTAssertEqual(input.text, "A question about this passage.")
+                if inset == 136 {
+                    let image = try await bridge.webView.takeSnapshot(configuration: nil)
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "composer-input-boundary-\(Int(size.width))"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+            // A new target must replace an in-flight target, including immediate reversal.
+            bridge.webView.inputBottomInset = 136
+            try await wait {
+                let value = try await bridge.webView.evaluateJavaScript(
+                    "document.querySelector('.mdv-composer').getBoundingClientRect().bottom")
+                return (value as? Double ?? bottom) < bottom - 2
+            }
+            bridge.webView.inputBottomInset = 72
+            bridge.webView.inputBottomInset = 0
+            try await wait { abs((try await geometry()["composerBottom"] ?? 0) - bottom) <= 0.5 }
+            _ = try await bridge.call("closeAgent")
+        }
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
+    }
+
+    func testConversationInputClearsDockedKeyboardWithoutDoubleCountingItsHeight() async throws {
+        let (_, bridge, window, _) = try await reader("# Reading\n\nA passage to discuss.\n")
+        defer { window.endEditing(true) }
+        let controller = try XCTUnwrap(window.rootViewController)
+        bridge.webView.removeFromSuperview()
+        let container = ReaderContainer(webView: bridge.webView)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(container)
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: controller.view.topAnchor),
+            container.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
+        ])
+        let viewport = try XCTUnwrap(bridge.webView.superview as? ReaderViewport)
+        XCTAssertTrue(viewport.keyboardLayoutGuide.followsUndockedKeyboard)
+        XCTAssertFalse(viewport.keyboardLayoutGuide.usesBottomSafeArea)
+        _ = try await bridge.call("toggleAgent")
+        try await wait(timeout: 8) {
+            bridge.session.agentOpen && container.keyboardLayoutGuide.layoutFrame.height > 0
+        }
+        let input = try XCTUnwrap(viewport.subviews.compactMap { $0 as? ConversationTextView }.first)
+        try await wait {
+            let boundary = container.convert(container.keyboardLayoutGuide.layoutFrame.origin, to: window).y
+            let native = input.convert(input.bounds, to: window)
+            return input.isFirstResponder && !input.isHidden && native.height > 0
+                && native.maxY < boundary && abs(bridge.webView.inputBottomInset) <= 1
+                && abs(viewport.frame.maxY - container.keyboardLayoutGuide.layoutFrame.minY) < 1
+        }
+        XCTAssertEqual(container.frame.maxY, controller.view.bounds.maxY, accuracy: 1)
+        let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let keyboardImage = XCTAttachment(image: image)
+        keyboardImage.name = "composer-docked-keyboard"
+        keyboardImage.lifetime = .keepAlways
+        add(keyboardImage)
+        bridge.composer.blur()
+        try await wait {
+            abs(viewport.frame.maxY - container.bounds.maxY) < 1 && bridge.webView.inputBottomInset <= 1
+        }
+        _ = try await bridge.call("closeAgent")
+    }
+
     func testAdaptivePanelsShareWidthPolicyAndPreserveConversationAndNavigation() async throws {
         AgentFixtureProtocol.queue.reset([
             AgentFixture(text: String(repeating: "An answer paragraph to retain while changing panels.\n\n", count: 40))
@@ -700,7 +832,8 @@ final class AgentFlowTests: AgentReaderTestCase {
         }
         func panels(outline: Bool, agent: Bool, sheet: Bool) async throws {
             try await wait {
-                session.outlineExpanded == outline && session.agentOpen == agent && session.agentModalActive == sheet
+                session.outlineExpanded == outline && session.agentOpen == agent && session.agentVisible == agent
+                    && session.agentModalActive == sheet
             }
             var documentLeading: Double?
             try await wait {
@@ -763,7 +896,10 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertGreaterThanOrEqual(widths[0], 420)
         XCTAssertGreaterThanOrEqual(widths[2] - widths[1], 15)
         XCTAssertEqual(widths[3], 320, accuracy: 1)
-        XCTAssertEqual(session.agentReservedWidth, 352, accuracy: 1)
+        let reservedWidth = try await bridge.webView.evaluateJavaScript(
+            "parseFloat(getComputedStyle(document.querySelector('.mdv-app')).getPropertyValue('--mdv-agent-reserved-width'))"
+        )
+        XCTAssertEqual(reservedWidth as? Double, 352)
         _ = try await bridge.call("toggleOutline")
         try await panels(outline: true, agent: false, sheet: false)
         let navigationKept =
@@ -785,7 +921,10 @@ final class AgentFlowTests: AgentReaderTestCase {
         try await panels(outline: false, agent: true, sheet: true)
         _ = try await bridge.call("toggleOutline")
         try await panels(outline: true, agent: false, sheet: false)
-        XCTAssertEqual(session.agentReservedWidth, 0)
+        let closedWidth = try await bridge.webView.evaluateJavaScript(
+            "parseFloat(getComputedStyle(document.querySelector('.mdv-app')).getPropertyValue('--mdv-agent-reserved-width'))"
+        )
+        XCTAssertEqual(closedWidth as? Double, 0)
         _ = try await bridge.call("toggleOutline")
         try await panels(outline: false, agent: false, sheet: false)
         for _ in 0..<3 {
@@ -1025,6 +1164,99 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertNotEqual(range.location, NSNotFound)
         guard range.location != NSNotFound else { throw CocoaError(.coderReadCorrupt) }
         bridge.sourceEditor.textView.selectedRange = range
+    }
+
+    func testSelectionQuoteKeepsEveryLineOutsideTheRemovalTargetWhileScrolling() async throws {
+        let paragraph = String(repeating: "重要作品完成实质性修改。综合创作先处理整体表达，再处理视听细节。", count: 12)
+        let markdown = """
+            \(paragraph)
+
+            | 项目 | 第一阶段 | 第二阶段 | 第三阶段 |
+            | --- | --- | --- | --- |
+            | 作品 | 调整结构 | 修改内容 | 检查表达 |
+
+            ```swift
+            let message = "Long code remains scrollable within the quote content area."
+            ```
+
+            最后一个段落。
+            """
+        let (_, bridge, _, _) = try await reader(markdown)
+        for width in [390.0, 1024.0] {
+            bridge.webView.frame = CGRect(x: 0, y: 0, width: width, height: 900)
+            try await wait {
+                try await bridge.webView.evaluateJavaScript("window.innerWidth") as? Double == width
+            }
+            _ = try await bridge.webView.evaluateJavaScript(
+                "(() => { const range=document.createRange(); range.selectNodeContents(document.querySelector('.mdv-article')); getSelection().removeAllRanges(); getSelection().addRange(range); })()"
+            )
+            _ = try await bridge.call("askSelection")
+            try await wait {
+                try await bridge.webView.evaluateJavaScript(
+                    "(() => { const panel=document.querySelector('.mdv-agent'); return !panel.hidden && panel.getAnimations().every(a => a.playState === 'finished'); })()"
+                ) as? Bool == true
+            }
+            let measured =
+                try await bridge.webView.evaluateJavaScript(
+                    """
+                    (() => {
+                      const row = document.querySelector('.mdv-reference-row');
+                      const body = row.querySelector('.mdv-reference-body');
+                      const remove = row.querySelector('.mdv-reference-remove');
+                      const content = body.querySelector('.mdv-rich-text');
+                      const paragraph = content.querySelector('p');
+                      const range = document.createRange();
+                      range.selectNodeContents(paragraph);
+                      const lines = [...range.getClientRects()];
+                      const target = remove.getBoundingClientRect();
+                      const marker = row.querySelector('.mdv-reference-icon').getBoundingClientRect();
+                      const start = target.top;
+                      body.scrollTop = body.scrollHeight;
+                      return {
+                        outside: lines.every(line => line.right <= target.left),
+                        lines: lines.length,
+                        width: target.width, height: target.height,
+                        alignment: marker.top + marker.height / 2 - (target.top + target.height / 2),
+                        scrolled: body.scrollTop,
+                        removalMovement: remove.getBoundingClientRect().top - start,
+                        contentBoundary: content.getBoundingClientRect().right,
+                        targetBoundary: target.left,
+                        text: content.textContent,
+                        tables: content.querySelectorAll('table').length,
+                        code: content.querySelectorAll('pre code').length
+                      };
+                    })()
+                    """
+                ) as? [String: Any]
+            let geometry = try XCTUnwrap(measured)
+            XCTAssertEqual(geometry["outside"] as? Bool, true, "Every wrapped line must avoid the removal target")
+            XCTAssertGreaterThan(try XCTUnwrap(geometry["lines"] as? Int), 3)
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(geometry["width"] as? Double), 44)
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(geometry["height"] as? Double), 44)
+            XCTAssertEqual(try XCTUnwrap(geometry["alignment"] as? Double), 0, accuracy: 0.5)
+            XCTAssertGreaterThan(try XCTUnwrap(geometry["scrolled"] as? Double), 0)
+            XCTAssertEqual(try XCTUnwrap(geometry["removalMovement"] as? Double), 0, accuracy: 0.5)
+            XCTAssertLessThanOrEqual(
+                try XCTUnwrap(geometry["contentBoundary"] as? Double),
+                try XCTUnwrap(geometry["targetBoundary"] as? Double))
+            XCTAssertTrue((geometry["text"] as? String)?.contains(paragraph) == true)
+            XCTAssertTrue((geometry["text"] as? String)?.contains("最后一个段落。") == true)
+            XCTAssertEqual(geometry["tables"] as? Int, 1)
+            XCTAssertEqual(geometry["code"] as? Int, 1)
+            _ = try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-reference-body').scrollTop=0;")
+            let snapshot = try await bridge.webView.takeSnapshot(configuration: nil)
+            let attachment = XCTAttachment(image: snapshot)
+            attachment.name = "selection-quote-alignment-\(Int(width))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            _ = try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-reference-remove').click();")
+            let state = try await state(bridge)
+            XCTAssertEqual(state["referenceHTML"] as? String, "")
+            _ = try await bridge.call("closeAgent")
+            try await wait { !bridge.session.agentVisible }
+        }
     }
 
     private func editCall(_ text: String, before: String, after: String, id: String = "edit-1") throws -> ModelToolCall

@@ -118,6 +118,7 @@
       "invariants": [
         "Both document modes reuse the same AI, mode-switch and More controls; source history actions join this group.",
         "All window widths retain one trailing disclosure; source focus and window resizing preserve its expanded state.",
+        "The bottom group is absent while the AI panel is visible, including its closing transition; it returns collapsed afterward. Its keyboard-positioning host is removed with the group.",
         "Expansion keeps the disclosure anchored and action slots stable; actions travel left and return along the same path while the chevron rotates continuously, including rapid reversals.",
         "Collapsed actions neither receive touches nor appear in the accessibility tree, and their vacant slots pass document input through.",
         "More shares SwiftUI symbol rendering and motion with adjacent actions; its transparent native button owns menu interaction only.",
@@ -180,6 +181,7 @@
     {
       "id": "ConversationComposer",
       "nativeOwners": [
+        "MarkdownIt/Reader/ReaderViewport.swift",
         "MarkdownIt/AI/NativeComposerHost.swift",
         "MarkdownIt/AI/ConversationInput.swift"
       ],
@@ -195,6 +197,7 @@
       "invariants": [
         "One draft and its next-turn reference share the native input bridge.",
         "The reference sits above one input capsule; native text and the Web send button have separate hit regions within it.",
+        "The reference and input move together above the native keyboard boundary; local input toolbars reduce conversation space without shrinking the document or panel, with interruptible motion and Reduce Motion support.",
         "Long drafts scroll within the native input after reaching a viewport-relative height limit, preserving readable conversation space."
       ],
       "specification": "design/README.md#引用与输入"
@@ -210,7 +213,8 @@
         "RichText"
       ],
       "invariants": [
-        "Selection references preserve the complete selected content and its original structural relationships."
+        "Selection references preserve the complete selected content and its original structural relationships.",
+        "Selection content keeps one trailing boundary outside the separate 44pt removal target; scrolling the quote does not move the removal control."
       ],
       "specification": "design/README.md#引用与输入"
     },

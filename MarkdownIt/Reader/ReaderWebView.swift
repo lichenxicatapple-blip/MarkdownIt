@@ -5,6 +5,10 @@ import WebKit
 final class ReaderWKWebView: WKWebView {
     var askSelectedText: (() -> Void)?
     weak var sourceView: SourceTextView?
+    var inputBottomInset: CGFloat = 0 {
+        didSet { if inputBottomInset != oldValue { inputBottomInsetDidChange?() } }
+    }
+    var inputBottomInsetDidChange: (() -> Void)?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if let sourceView, !sourceView.isHidden, sourceView.isUserInteractionEnabled,
@@ -104,6 +108,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         webView.askSelectedText = { [weak self] in
             Task { _ = try? await self?.call("askSelection") }
         }
+        webView.inputBottomInsetDidChange = { [weak self] in self?.updateInputBottomInset() }
         session.bridge = self
         guard let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web") else {
             session.errorMessage = String(localized: "Offline rendering resources are missing.")
@@ -308,6 +313,14 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         }
     }
 
+    private func updateInputBottomInset() {
+        guard ready else { return }
+        webView.callAsyncJavaScript(
+            "window.MarkdownIt.setInputBottomInset(inset);",
+            arguments: ["inset": webView.inputBottomInset], in: nil, in: .page,
+            completionHandler: nil)
+    }
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame,
             let body = message.body as? [String: Any], let type = body["type"] as? String
@@ -315,6 +328,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         switch type {
         case "ready":
             ready = true
+            updateInputBottomInset()
             update()
         case "state":
             guard body["token"] as? String == session.documentToken else { return }
@@ -355,12 +369,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             sourceEditor.restore(SourceReadingPosition(anchor))
         case "agentPresentation":
             guard body["token"] as? String == session.documentToken else { return }
-            let width = max(0, body["reservedWidth"] as? Double ?? 0)
             let open = body["open"] as? Bool == true
+            let visible = body["visible"] as? Bool == true
             let modal = body["modal"] as? Bool == true
             let leading = max(0, body["documentLeading"] as? Double ?? 0)
             if session.documentLeading != leading { session.documentLeading = leading }
-            if session.agentReservedWidth != width { session.agentReservedWidth = width }
+            if session.agentVisible != visible { session.agentVisible = visible }
             if session.agentOpen != open { session.agentOpen = open }
             if session.agentModalActive != modal { session.agentModalActive = modal }
         case "agentEntry":
@@ -432,6 +446,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         imageMenu.detach()
         composer.detach()
         webView.askSelectedText = nil
+        webView.inputBottomInsetDidChange = nil
         webView.sourceView = nil
         sourceEditor.detach()
         projectionGeneration += 1
@@ -462,8 +477,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         projectionTask?.cancel()
         projectionTask = nil
         session.agentOpen = false
+        session.agentVisible = false
         session.agentModalActive = false
-        session.agentReservedWidth = 0
         ready = false
         loadedToken = ""
         lastTheme = ""

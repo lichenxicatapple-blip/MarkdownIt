@@ -26,7 +26,6 @@
   function create(dependencies) {
     const { app, panel, renderMarkdown, fragmentIdentifier, enhance, motion, reducedMotion, onToggle, documentAttachment, provider, nativeInputs, onPresentationChange, ensureConfigured } = dependencies;
     let sheet = false;
-    let reservedWidth = 0;
     let documentLeading = 0;
     const scroll = panel.querySelector('.mdv-agent-scroll');
     const thread = panel.querySelector('.mdv-conversation');
@@ -61,10 +60,6 @@
     let conversationRevision = 0;
     let latestRequest = null;
     let referenceScrollTimer = 0;
-    const referenceViewportObserver = new ResizeObserver(entries => {
-      const body = entries[0].target;
-      reference.style.setProperty('--mdv-reference-gutter', Math.max(0, body.offsetWidth - body.clientWidth) + 'px');
-    });
     let followBottom = true;
     let followFrame = 0;
     let downwardScrollOrigin = null;
@@ -139,8 +134,6 @@
     }
     function renderAttachment(value, origin) {
       clearTimeout(referenceScrollTimer);
-      referenceViewportObserver.disconnect();
-      reference.style.removeProperty('--mdv-reference-gutter');
       reference.replaceChildren();
       reference.hidden = !value;
       useDocument.hidden = !!value;
@@ -187,10 +180,9 @@
         const marker = createNode('span', 'mdv-reference-icon');
         marker.setAttribute('aria-hidden', 'true');
         marker.append(icon(value.mode === 'source' ? 'code' : 'quote'));
-        content.prepend(marker, remove);
-        row.append(body);
+        content.prepend(marker);
+        row.append(body, remove);
         reference.append(row);
-        referenceViewportObserver.observe(body);
         enhance(content);
       }
       remove.addEventListener('click', event => { event.stopPropagation(); attachment = null; renderAttachment(null); });
@@ -285,8 +277,8 @@
       if (event.key === 'End') followLatest();
     });
     function notifyPresentation() {
-      onPresentationChange?.({ open: isOpen, modal: panel.hasAttribute('data-modal-active'),
-        reservedWidth: isOpen ? reservedWidth : 0, documentLeading });
+      onPresentationChange?.({ open: isOpen, visible: !panel.hidden,
+        modal: panel.hasAttribute('data-modal-active'), documentLeading });
     }
     function updateModality(shown, focus = false) {
       const modal = shown && sheet;
@@ -314,7 +306,6 @@
       if (shown) resolveCloseWaiters(false);
       const changed = sheet !== presentation.sheet;
       const previousRect = presentation.previousRect;
-      reservedWidth = presentation.reservedWidth;
       documentLeading = presentation.documentLeading;
       sheet = presentation.sheet;
       viewportChanged();
