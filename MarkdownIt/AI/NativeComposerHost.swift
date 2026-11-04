@@ -4,6 +4,45 @@ import WebKit
 /// UIKit owns editable text and physical keys; the shared surface owns composer layout.
 @MainActor
 final class NativeComposerHost: NSObject, UITextViewDelegate {
+    struct Recovery: Codable, Sendable {
+        let text: String
+        let selection: NSRange
+        let focused: Bool
+        let epoch: Int
+    }
+    var onCheckpoint: (() -> Void)?
+    func checkpoint() -> Recovery? {
+        guard let view = inputs["question"]?.view else { return nil }
+        return Recovery(
+            text: view.text ?? "", selection: view.selectedRange,
+            focused: view.isFirstResponder || pendingFocus == "question",
+            epoch: inputs["question"]?.epoch ?? 0)
+    }
+    func restore(_ value: Recovery) {
+        guard let view = inputs["question"]?.view else { return }
+        view.selectedRange = NSRange(
+            location: min(max(0, value.selection.location), view.text.utf16.count),
+            length: min(
+                max(0, value.selection.length), max(0, view.text.utf16.count - max(0, value.selection.location))))
+        if value.focused { focus("question") }
+    }
+    /// Mirror the draft for recovery without ending an active IME composition.
+    func synchronize() async {
+        guard let input = inputs["question"] else { return }
+        await call?("updateAgentInput", ["id": "question", "text": input.view.text ?? "", "epoch": input.epoch])
+    }
+
+    /// Input epochs belong to one Web page. Cached recovery data is retained by
+    /// the session before a reload; the new page starts its counters at zero.
+    func beginPage() {
+        blur()
+        for id in inputs.keys {
+            inputs[id]?.epoch = 0
+            inputs[id]?.metrics = []
+            inputs[id]?.view.text = ""
+            inputs[id]?.view.isHidden = true
+        }
+    }
     private struct Input {
         let view: ConversationTextView
         var epoch = 0
@@ -117,8 +156,13 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         guard let (id, input) = inputs.first(where: { $0.value.view === textView }) else { return }
         let payload: [String: Any] = ["id": id, "text": textView.text ?? "", "epoch": input.epoch]
-        Task { await call?("updateAgentInput", payload) }
+        Task {
+            await call?("updateAgentInput", payload)
+            onCheckpoint?()
+        }
     }
+
+    func textViewDidChangeSelection(_ textView: UITextView) { onCheckpoint?() }
 
     func detach() {
         blur()

@@ -1,16 +1,5 @@
 {
   "name": "MarkdownIt",
-  "iconViewBox": "0 0 1024 1024",
-  "homeCornerRadius": 224,
-  "ink": "#1247c5",
-  "colors": {
-    "light": {
-      "background": "#168aff",
-      "backgroundEnd": "#0052e9"
-    },
-    "dark": {
-      "background": "#0863d8",
-      "backgroundEnd": "#00369e"
-    }
-  }
+  "backgroundLayer": "background-art",
+  "homeClipPath": "tile-clip"
 }

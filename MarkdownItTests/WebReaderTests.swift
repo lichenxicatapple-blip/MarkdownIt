@@ -115,6 +115,55 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testReaderViewportUpdatesInputInsetWithoutResizingTheReadingCanvas() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let webView = ReaderWKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let viewport = ReaderViewport(webView: webView)
+        viewport.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(viewport)
+        NSLayoutConstraint.activate([
+            viewport.topAnchor.constraint(equalTo: controller.view.topAnchor),
+            viewport.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            viewport.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            viewport.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
+        ])
+        let input = UITextView(frame: CGRect(x: 16, y: 16, width: 240, height: 100))
+        viewport.addSubview(input)
+        window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true)
+            window.isHidden = true
+            if previousKeyWindow?.isHidden == false { previousKeyWindow?.makeKey() }
+        }
+        try await waitUntil { viewport.bounds.height > 0 && webView.frame == viewport.bounds }
+        let canvas = viewport.bounds
+        for _ in 0..<2 {
+            XCTAssertTrue(input.becomeFirstResponder())
+            // Let UIKit update its guide naturally. Forcing the viewport to lay
+            // out here would hide the stale native inset seen with local input.
+            try await waitUntil(
+                timeout: 8,
+                message: "Keyboard \(viewport.keyboardLayoutGuide.layoutFrame), inset \(webView.inputBottomInset)"
+            ) {
+                let inset = viewport.bounds.maxY - viewport.keyboardLayoutGuide.layoutFrame.minY
+                return inset > 0 && abs(webView.inputBottomInset - inset) < 1
+            }
+            XCTAssertEqual(viewport.bounds, canvas)
+            XCTAssertEqual(webView.frame, canvas, "Local input avoidance must not resize the reading canvas")
+            XCTAssertTrue(input.resignFirstResponder())
+            try await waitUntil(timeout: 8) {
+                viewport.keyboardLayoutGuide.layoutFrame.minY >= viewport.bounds.maxY - 1
+                    && webView.inputBottomInset < 1
+            }
+            XCTAssertEqual(viewport.bounds, canvas)
+        }
+    }
+
+    @MainActor
     func testReaderViewportTracksDockedKeyboardAcrossAvailableSizeChanges() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -406,7 +455,7 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testLocalImagePermissionTargetsCommonFolderAndReloadsWithoutReopeningDocument() async throws {
+    func testLocalImagePermissionRequestsSpecificFoldersAndReloadsWithoutReopeningDocument() async throws {
         let session = ReaderSession(
             defaults: UserDefaults(suiteName: UUID().uuidString)!, modelSettings: isolatedModelSettings())
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -440,8 +489,24 @@ final class WebReaderTests: XCTestCase {
             window.isHidden = true
         }
         try await waitUntil { session.rendererReady && session.needsResourcePermission }
-        XCTAssertEqual(session.resourcePermissionDirectory, root.resolvingSymlinksInPath())
-        await session.grant(root)
+        XCTAssertEqual(session.resourcePermissionDirectory?.path, images.path)
+        let firstGrant = await session.grant(images)
+        XCTAssertTrue(firstGrant)
+        session.reloadResources()
+        try await waitUntil {
+            let loaded = try await self.diagnostics(bridge)["localImages"] as? [[String: Any]] ?? []
+            return session.needsResourcePermission && session.resourcePermissionDirectory?.path == assets.path
+                && loaded.contains {
+                    ($0["path"] as? String)?.removingPercentEncoding == "images/同级.svg" && $0["loaded"] as? Bool == true
+                }
+        }
+        let partial = try await diagnostics(bridge)["localImages"] as? [[String: Any]] ?? []
+        XCTAssertTrue(
+            partial.contains {
+                ($0["path"] as? String)?.removingPercentEncoding == "images/同级.svg" && $0["loaded"] as? Bool == true
+            })
+        let secondGrant = await session.grant(assets)
+        XCTAssertTrue(secondGrant)
         session.reloadResources()
         try await waitUntil {
             let images = try await self.diagnostics(bridge)["localImages"] as? [[String: Any]] ?? []

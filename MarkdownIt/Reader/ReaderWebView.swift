@@ -68,11 +68,18 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         if let document = session.document {
             sourceToken = session.documentToken
             sourceEditor.load(document.text)
+            if let saved = session.restoredEditor {
+                do { try sourceEditor.restore(saved) } catch {
+                    session.errorMessage = String(
+                        localized: "Unable to restore the editor: \(error.localizedDescription)")
+                }
+            }
         }
         // The transparent Web source surface lets its agent panel and scrim
         // composite above the native document without duplicating document text.
         webView.sourceView = sourceEditor.textView
         sourceEditor.onChange = { [weak self] id, status in self?.sourceDidChange(id: id, status: status) }
+        sourceEditor.onCheckpoint = { [weak session] in session?.requestCheckpoint() }
         sourceEditor.onAsk = { [weak self] range in
             Task { try? await self?.askSourceSelection(range) }
         }
@@ -93,6 +100,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         composer.call = { [weak self] method, payload in
             _ = try? await self?.call(method, arguments: ["payload": payload])
         }
+        composer.onCheckpoint = { [weak session] in session?.requestCheckpoint() }
         configuration.userContentController.add(self, name: "reader")
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -249,6 +257,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             sourceToken = token
             sourceEvents.removeAll()
             sourceEditor.load(document.text)
+            if let saved = session.restoredEditor {
+                do { try sourceEditor.restore(saved) } catch {
+                    session.errorMessage = String(
+                        localized: "Unable to restore the editor: \(error.localizedDescription)")
+                }
+            }
         }
         projectedRevision = sourceEditor.history.revision
         Task {
@@ -259,6 +273,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                         "payload": [
                             "text": sourceEditor.history.text, "token": token,
                             "name": document.fileURL.lastPathComponent,
+                            "recovery": session.webRecovery ?? NSNull() as Any,
+                            "sourcePosition": sourceEditor.capturePosition().payload,
                         ]
                     ])
             } catch {
@@ -327,9 +343,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         else { return }
         switch type {
         case "ready":
+            composer.beginPage()
             ready = true
             updateInputBottomInset()
             update()
+        case "recoveryChanged":
+            if body["token"] as? String == session.documentToken { session.requestCheckpoint() }
         case "state":
             guard body["token"] as? String == session.documentToken else { return }
             if let mode = body["mode"] as? String, session.mode != mode { session.mode = mode }
@@ -338,7 +357,14 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             }
             if let value = body["hasOutline"] as? Bool, session.hasOutline != value { session.hasOutline = value }
         case "documentReady":
-            if body["token"] as? String == session.documentToken { session.rendererReady = true }
+            if body["token"] as? String == session.documentToken {
+                session.rendererReady = true
+                session.sourceHistoryChanged(
+                    canUndo: sourceEditor.history.canUndo, canRedo: sourceEditor.history.canRedo,
+                    token: session.documentToken)
+                if let saved = session.restoredComposer { composer.restore(saved) }
+                session.requestCheckpoint()
+            }
         case "imageMenu":
             guard body["token"] as? String == session.documentToken, session.mode == "preview",
                 !session.agentModalActive, !session.isClosingDocument,
@@ -467,8 +493,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         session.finishDataSharingConsent(allowed: false)
-        session.agentTransport.reset()
-        session.agentImages.reset()
+        session.captureNativeRecovery()
+        session.agentTransport.cancel()
         imageMenu.dismiss()
         composer.blur()
         sourceEditor.textView.resignFirstResponder()

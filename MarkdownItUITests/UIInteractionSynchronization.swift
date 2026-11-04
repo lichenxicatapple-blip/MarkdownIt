@@ -4,6 +4,7 @@ import XCTest
 /// Keep XCTest's run-loop synchronization, but use component assertions for visual readiness.
 /// UIKit can leave a paused, offscreen image-menu animator active indefinitely. Waiting for
 /// every animator therefore cannot establish whether the control under test is usable.
+/// Conversation interactions can also finish without XCTest receiving an animations-complete notification.
 /// This adapter lives only in the UI runner; it never changes the app or its animations.
 @MainActor
 final class UIInteractionSynchronization {

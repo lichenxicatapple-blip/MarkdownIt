@@ -47,23 +47,29 @@ final class ResourceAccessTests: XCTestCase {
         XCTAssertThrowsError(try access.resolve("bad\0name"))
     }
 
-    func testPermissionDirectoryIncludesEveryRelativeReferenceAndSkipsGrantedResources() {
+    func testPermissionDirectoriesFollowReferencesWithoutInventingCommonAncestors() {
         let project = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
         let notes = project.appendingPathComponent("文档", isDirectory: true)
+        let images = notes.appendingPathComponent("images", isDirectory: true)
+        let assets = project.appendingPathComponent("assets", isDirectory: true)
         var access = ResourceAccess(documentURL: notes.appendingPathComponent("阅读.md"), roots: [], token: "test")
-        XCTAssertEqual(
-            access.directoryRequiringAccess(for: ["images/本地图片.png"])?.path, notes.resolvingSymlinksInPath().path)
         let paths = ["images/本地图片.png", "../assets/关系图.svg?version=1#diagram"]
-        XCTAssertEqual(access.directoryRequiringAccess(for: paths)?.path, project.resolvingSymlinksInPath().path)
+        XCTAssertEqual(access.directoriesRequiringAccess(for: paths).map(\.path), [images.path, assets.path])
+        XCTAssertEqual(access.directoryRequiringAccess(for: paths)?.path, images.path)
         XCTAssertEqual(
-            access.directoryRequiringAccess(for: paths.reversed())?.path, project.resolvingSymlinksInPath().path)
-        access.roots = [project.appendingPathComponent("assets", isDirectory: true)]
-        XCTAssertEqual(access.directoryRequiringAccess(for: paths)?.path, notes.resolvingSymlinksInPath().path)
+            access.directoriesRequiringAccess(for: paths.reversed()).map(\.path), [assets.path, images.path])
+        XCTAssertEqual(
+            access.directoriesRequiringAccess(for: ["images/a.png", "images/child/b.png"]).map(\.path), [images.path])
+        access.roots = [assets]
+        XCTAssertEqual(access.directoriesRequiringAccess(for: paths).map(\.path), [images.path])
         access.roots = [project]
         XCTAssertNil(access.directoryRequiringAccess(for: paths))
         XCTAssertNil(access.directoryRequiringAccess(for: ["https://example.com/image.png", "bad\0name"]))
-        XCTAssertNil(access.directoryRequiringAccess(for: ["/unrelated/image.png"]))
+        XCTAssertEqual(
+            access.directoriesRequiringAccess(for: ["/first/a.png", "/second/b.png"]).map(\.path),
+            ["/first", "/second"])
+        XCTAssertNil(access.directoryRequiringAccess(for: ["/image.png"]), "The filesystem root must never be proposed")
     }
 
     @MainActor
@@ -80,18 +86,19 @@ final class ResourceAccessTests: XCTestCase {
         await session.open(file)
         let token = session.documentToken
         session.resources.onPermissionDenied?(token, "images/本地图片.png")
-        XCTAssertFalse(session.needsResourcePermission, "A fast first image must not choose too narrow a folder")
+        XCTAssertFalse(
+            session.needsResourcePermission, "The inventory determines request order, not whichever image failed first")
         session.localResourcesChanged(["images/本地图片.png"], token: "old-document")
         XCTAssertFalse(session.needsResourcePermission)
         session.localResourcesChanged(["images/本地图片.png", "../assets/关系图.svg"], token: token)
         XCTAssertTrue(session.needsResourcePermission)
-        XCTAssertEqual(session.resourcePermissionDirectory, project.resolvingSymlinksInPath())
+        XCTAssertEqual(session.resourcePermissionDirectory?.path, notes.appendingPathComponent("images").path)
         session.needsResourcePermission = false
         session.localResourcesChanged(["images/本地图片.png"], token: token)
         XCTAssertFalse(session.needsResourcePermission, "Cancel must not reopen the prompt on a later render")
         session.resources.onPermissionDenied?(token, "images/本地图片.png")
         XCTAssertTrue(session.needsResourcePermission, "The inventory-first delivery order also works")
-        XCTAssertEqual(session.resourcePermissionDirectory, notes.resolvingSymlinksInPath())
+        XCTAssertEqual(session.resourcePermissionDirectory?.path, notes.appendingPathComponent("images").path)
         await session.closeDocument()
         XCTAssertNil(session.resourcePermissionDirectory)
         session.resources.onPermissionDenied?(token, "image.png")

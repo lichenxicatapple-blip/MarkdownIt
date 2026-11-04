@@ -1,6 +1,6 @@
 import UIKit
 
-struct SourceReadingPosition: Equatable {
+struct SourceReadingPosition: Codable, Equatable, Sendable {
     let line: Double
     let y: CGFloat
     let atStart: Bool
@@ -54,10 +54,18 @@ final class SourceTextView: UITextView {
 /// A persistent native editor; hiding it for preview does not reset its working history.
 @MainActor
 final class SourceEditor: NSObject, UITextViewDelegate {
+    struct Recovery: Codable, Sendable {
+        let history: SourceHistory.Snapshot
+        let selection: SourceSelection
+        let position: SourceReadingPosition
+        let focused: Bool
+    }
     let history = SourceHistory()
     let textView = SourceTextView(usingTextLayoutManager: true)
     var onChange: ((String?, String?) -> Void)?
     var onAsk: ((NSRange) -> Void)?
+    var onCheckpoint: (() -> Void)?
+    private var restoreFocus = false
     private var updating = false
     private var composing = false
     private var pendingSelection: SourceSelection?
@@ -125,6 +133,29 @@ final class SourceEditor: NSObject, UITextViewDelegate {
         SourceSelection(range: textView.selectedRange, scrollY: textView.contentOffset.y)
     }
 
+    func checkpoint() -> Recovery {
+        Recovery(
+            history: history.snapshot(), selection: selection, position: capturePosition(),
+            focused: textView.isFirstResponder || restoreFocus)
+    }
+
+    func restore(_ value: Recovery) throws {
+        let length = (value.history.text as NSString).length
+        guard value.selection.range.location >= 0, value.selection.range.length >= 0,
+            value.selection.range.location <= length,
+            value.selection.range.length <= length - value.selection.range.location,
+            value.selection.scrollY.isFinite, value.position.line.isFinite, value.position.y.isFinite
+        else { throw CocoaError(.coderReadCorrupt) }
+        try history.restore(value.history)
+        updating = true
+        textView.text = history.text
+        textView.selectedRange = value.selection.range
+        updating = false
+        previousSelection = value.selection
+        restoreFocus = value.focused
+        restore(value.position)
+    }
+
     func load(_ text: String) {
         updating = true
         textView.unmarkText()
@@ -137,6 +168,7 @@ final class SourceEditor: NSObject, UITextViewDelegate {
         composing = false
         pendingPosition = nil
         restoredPosition = nil
+        restoreFocus = false
         previousSelection = selection
     }
 
@@ -178,6 +210,11 @@ final class SourceEditor: NSObject, UITextViewDelegate {
         guard !updating, !composing, textView.markedTextRange == nil, textView.text == history.text else { return }
         if pendingSelection == nil && selection.range != previousSelection.range { history.breakGroup() }
         previousSelection = selection
+        onCheckpoint?()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if !updating { onCheckpoint?() }
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
@@ -209,6 +246,9 @@ final class SourceEditor: NSObject, UITextViewDelegate {
         textView.frame = frame
         textView.isHidden = !visible
         textView.alpha = opacity
+        if restoreFocus, visible, interactive, textView.window != nil {
+            restoreFocus = !textView.becomeFirstResponder()
+        }
         if visible, let position = pendingPosition {
             pendingPosition = nil
             restore(position)
@@ -242,6 +282,7 @@ final class SourceEditor: NSObject, UITextViewDelegate {
     }
 
     func capturePosition() -> SourceReadingPosition {
+        if let pendingPosition { return pendingPosition }
         if let (position, offset, width, revision) = restoredPosition,
             abs(offset - textView.contentOffset.y) < 1, abs(width - textView.bounds.width) < 1,
             revision == history.revision

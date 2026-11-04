@@ -111,6 +111,16 @@ final class RecentDocumentsStore: ObservableObject {
         }.value
     }
 
+    /// Reuse directory grants without replacing the fresh file URL supplied by Files or the picker.
+    func folders(for url: URL) async -> [URL] {
+        let stored = documents
+        return await Task.detached(priority: .userInitiated) {
+            let identity = url.resolvingSymlinksInPath().standardizedFileURL
+            guard let document = stored.first(where: { $0.identity == identity }) else { return [] }
+            return document.folders.compactMap { try? $0.resolve() }
+        }.value
+    }
+
     private func merging(_ existing: [BookmarkedLocation], with incoming: [BookmarkedLocation]) -> [BookmarkedLocation]
     {
         var result = existing

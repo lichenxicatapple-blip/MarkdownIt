@@ -94,7 +94,7 @@ enum ModelError: LocalizedError {
     }
 }
 
-struct ModelImage: Sendable, Equatable {
+struct ModelImage: Codable, Sendable, Equatable {
     let id: String
     let data: Data
     let mimeType: String
@@ -102,7 +102,7 @@ struct ModelImage: Sendable, Equatable {
     var dataURL: String { "data:\(mimeType);base64," + data.base64EncodedString() }
 }
 
-struct ChatMessage: Sendable {
+struct ChatMessage: Codable, Sendable {
     var role: String
     var content: String
     var images: [ModelImage] = []

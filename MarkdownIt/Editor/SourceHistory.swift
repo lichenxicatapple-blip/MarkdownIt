@@ -1,6 +1,6 @@
 import Foundation
 
-struct SourceSelection: Equatable {
+struct SourceSelection: Codable, Equatable, Sendable {
     var range: NSRange
     var scrollY: CGFloat = 0
 }
@@ -38,7 +38,24 @@ final class SourceUndoManager: UndoManager {
 /// Owns the working text and edit transactions. Text views and Web snapshots are projections.
 @MainActor
 final class SourceHistory {
-    enum InputKind { case typing, backwardDelete, forwardDelete, composition, transaction }
+    enum InputKind: String, Codable, Sendable { case typing, backwardDelete, forwardDelete, composition, transaction }
+
+    struct Snapshot: Codable, Equatable, Sendable {
+        let text: String
+        let revision: Int
+        fileprivate let undo: [Transaction]
+        fileprivate let redo: [Transaction]
+    }
+
+    fileprivate struct Transaction: Codable, Equatable, Sendable {
+        let id: String
+        let start: Int
+        let before: String
+        let after: String
+        let kind: InputKind
+        let beforeSelection: SourceSelection
+        let afterSelection: SourceSelection
+    }
 
     private final class Entry {
         let id: String
@@ -61,6 +78,18 @@ final class SourceHistory {
             self.beforeSelection = beforeSelection
             self.afterSelection = afterSelection
         }
+
+        convenience init(_ value: Transaction) {
+            self.init(
+                id: value.id, start: value.start, before: value.before, after: value.after, kind: value.kind,
+                beforeSelection: value.beforeSelection, afterSelection: value.afterSelection)
+        }
+
+        var snapshot: Transaction {
+            Transaction(
+                id: id, start: start, before: before, after: after, kind: kind,
+                beforeSelection: beforeSelection, afterSelection: afterSelection)
+        }
     }
 
     private final class UndoTarget {
@@ -73,6 +102,7 @@ final class SourceHistory {
     private var undo: [Entry] = []
     private var redo: [Entry] = []
     private var group: Entry?
+    private var restoring = false
     private let undoTarget = UndoTarget()
     var onChange: ((SourceSelection, String?, String?) -> Void)?
 
@@ -95,6 +125,50 @@ final class SourceHistory {
     }
 
     func breakGroup() { group = nil }
+
+    func snapshot() -> Snapshot {
+        Snapshot(text: text, revision: revision, undo: undo.map(\.snapshot), redo: redo.map(\.snapshot))
+    }
+
+    func restore(_ snapshot: Snapshot) throws {
+        guard snapshot.revision >= 0 else { throw CocoaError(.fileReadCorruptFile) }
+        func validate(_ transactions: [Transaction], forward: Bool) throws {
+            let value = NSMutableString(string: snapshot.text)
+            for transaction in transactions.reversed() {
+                let expected = forward ? transaction.before : transaction.after
+                let replacement = forward ? transaction.after : transaction.before
+                let beforeSelection = forward ? transaction.beforeSelection : transaction.afterSelection
+                let afterSelection = forward ? transaction.afterSelection : transaction.beforeSelection
+                let start = transaction.start
+                guard start >= 0, start <= value.length, expected.utf16.count <= value.length - start,
+                    Self.valid(beforeSelection, length: value.length),
+                    value.substring(with: NSRange(location: start, length: expected.utf16.count)) == expected
+                else { throw CocoaError(.fileReadCorruptFile) }
+                value.replaceCharacters(in: NSRange(location: start, length: expected.utf16.count), with: replacement)
+                guard Self.valid(afterSelection, length: value.length) else { throw CocoaError(.fileReadCorruptFile) }
+            }
+        }
+        try validate(snapshot.undo, forward: false)
+        try validate(snapshot.redo, forward: true)
+        reset(snapshot.text)
+        // UndoManager owns executable actions. Rebuild both stacks from value records,
+        // suppressing text changes and callbacks while replaying the stack topology.
+        restoring = true
+        defer { restoring = false }
+        for transaction in snapshot.undo + snapshot.redo.reversed() {
+            let entry = Entry(transaction)
+            undo.append(entry)
+            register(entry, forward: false)
+        }
+        for _ in snapshot.redo { undoManager.undo() }
+        revision = snapshot.revision
+        group = nil
+    }
+
+    private static func valid(_ selection: SourceSelection, length: Int) -> Bool {
+        selection.range.location >= 0 && selection.range.location <= length && selection.range.length >= 0
+            && selection.range.length <= length - selection.range.location && selection.scrollY.isFinite
+    }
 
     func record(
         _ value: String, before: SourceSelection, after selection: SourceSelection? = nil,
@@ -191,9 +265,11 @@ final class SourceHistory {
         let expected = forward ? entry.before : entry.after
         let replacement = forward ? entry.after : entry.before
         let range = NSRange(location: entry.start, length: expected.utf16.count)
-        let current = text as NSString
-        precondition(NSMaxRange(range) <= current.length && current.substring(with: range) == expected)
-        text = current.replacingCharacters(in: range, with: replacement)
+        if !restoring {
+            let current = text as NSString
+            precondition(NSMaxRange(range) <= current.length && current.substring(with: range) == expected)
+            text = current.replacingCharacters(in: range, with: replacement)
+        }
         if forward {
             redo.removeLast()
             undo.append(entry)
@@ -203,6 +279,7 @@ final class SourceHistory {
         }
         register(entry, forward: !forward)
         group = nil
+        guard !restoring else { return }
         revision += 1
         onChange?(forward ? entry.afterSelection : entry.beforeSelection, entry.id, forward ? "applied" : "undone")
     }

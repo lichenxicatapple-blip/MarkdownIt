@@ -216,7 +216,8 @@
       ],
       "invariants": [
         "Selection references preserve the complete selected content and its original structural relationships.",
-        "Selection content keeps one trailing boundary outside the separate 44pt removal target; scrolling the quote does not move the removal control."
+        "Selection content keeps one trailing boundary outside the separate 44pt removal target; scrolling the quote does not move the removal control.",
+        "Document reference disclosures follow the filename with a fixed gap; long names truncate before the disclosure, and the removal target stays independent at the trailing edge."
       ],
       "specification": "design/README.md#引用与输入"
     },
@@ -369,6 +370,42 @@
       ],
       "specification": "design/README.md#引用与输入",
       "selector": ".jm-image-action"
+    },
+    {
+      "id": "ReaderRecovery",
+      "nativeOwners": [
+        "MarkdownIt/Reader/ReaderRecovery.swift",
+        "MarkdownIt/Reader/ReaderSession.swift",
+        "MarkdownIt/Editor/SourceHistory.swift"
+      ],
+      "webOwners": [
+        "MarkdownIt/WebSource/native-bridge.js",
+        "MarkdownIt/WebSource/agent/agent.js"
+      ],
+      "invariants": [
+        "Restore the open document, one edit history, semantic reading position, immutable AI references and draft after process death.",
+        "Explicit successful close ends recovery; failed saves and cancelled close preserve it.",
+        "Restoration never sends a model request or silently overwrites external file changes."
+      ],
+      "specification": "design/README.md#会话恢复"
+    },
+    {
+      "id": "ResourceFolderPermission",
+      "nativeOwners": [
+        "MarkdownIt/Documents/LocalResources.swift",
+        "MarkdownIt/Documents/RecentDocuments.swift",
+        "MarkdownIt/Documents/ResourceFolderPicker.swift",
+        "MarkdownIt/Reader/ReaderSession.swift",
+        "MarkdownIt/Reader/ReaderScreen.swift"
+      ],
+      "invariants": [
+        "Request concrete resource folders individually; do not infer a common ancestor for unrelated paths.",
+        "One native sheet separates secondary explanatory text from the primary medium-weight directory path, with Choose Folder/Cancel. Present the system picker directly from this sheet, keeping the prompt underneath; the user navigates manually, without an initial-location override.",
+        "Bind picker results to the document token. Validate scope coverage on system picker completion before persisting it or retrying image loads.",
+        "A rejected selection returns to the same permission prompt. Cancel resumes reading with unavailable images.",
+        "Recent, external, in-app and session-restoration entry points reuse saved directory bookmarks while retaining the fresh incoming file URL."
+      ],
+      "specification": "design/README.md#本地图片授权"
     }
   ]
 }

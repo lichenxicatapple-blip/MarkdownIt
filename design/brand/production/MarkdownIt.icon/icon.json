@@ -1,41 +1,7 @@
 {
   "fill-specializations" : [
     {
-      "value" : {
-        "linear-gradient" : [
-          "srgb:0.08627,0.54118,1.00000,1.00000",
-          "srgb:0.00000,0.32157,0.91373,1.00000"
-        ],
-        "orientation" : {
-          "start" : {
-            "x" : 0.5,
-            "y" : 0
-          },
-          "stop" : {
-            "x" : 0.5,
-            "y" : 1
-          }
-        }
-      }
-    },
-    {
-      "appearance" : "dark",
-      "value" : {
-        "linear-gradient" : [
-          "srgb:0.03137,0.38824,0.84706,1.00000",
-          "srgb:0.00000,0.21176,0.61961,1.00000"
-        ],
-        "orientation" : {
-          "start" : {
-            "x" : 0.5,
-            "y" : 0
-          },
-          "stop" : {
-            "x" : 0.5,
-            "y" : 1
-          }
-        }
-      }
+      "value" : "none"
     }
   ],
   "groups" : [
@@ -52,8 +18,8 @@
               "value" : false
             }
           ],
-          "image-name" : "03-PageTurn.svg",
-          "name" : "03-PageTurn"
+          "image-name" : "amber-md.svg",
+          "name" : "amber-md"
         },
         {
           "fill-specializations" : [
@@ -66,22 +32,8 @@
               "value" : false
             }
           ],
-          "image-name" : "02-Content.svg",
-          "name" : "02-Content"
-        },
-        {
-          "fill-specializations" : [
-            {
-              "value" : "none"
-            }
-          ],
-          "glass-specializations" : [
-            {
-              "value" : false
-            }
-          ],
-          "image-name" : "01-Paper.svg",
-          "name" : "01-Paper"
+          "image-name" : "background-art.svg",
+          "name" : "background-art"
         }
       ],
       "shadow" : {

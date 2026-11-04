@@ -19,7 +19,7 @@ extension WKWebView {
 @MainActor
 final class ReaderViewport: UIView {
     let webView: ReaderWKWebView
-    private let inputBoundary = UILayoutGuide()
+    private let inputBoundary = ReaderKeyboardRegion()
 
     init(webView: ReaderWKWebView) {
         self.webView = webView
@@ -32,20 +32,25 @@ final class ReaderViewport: UIView {
         // local hardware-keyboard toolbar without reducing the reading canvas.
         keyboardLayoutGuide.followsUndockedKeyboard = true
         keyboardLayoutGuide.usesBottomSafeArea = false
-        addLayoutGuide(inputBoundary)
-        let preferredBottom = inputBoundary.bottomAnchor.constraint(equalTo: bottomAnchor)
-        preferredBottom.priority = .defaultLow
+        inputBoundary.isUserInteractionEnabled = false
+        inputBoundary.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(inputBoundary)
+        let preferredTop = inputBoundary.topAnchor.constraint(equalTo: bottomAnchor)
+        preferredTop.priority = .defaultLow
         NSLayoutConstraint.activate([
             inputBoundary.leadingAnchor.constraint(equalTo: leadingAnchor),
             inputBoundary.trailingAnchor.constraint(equalTo: trailingAnchor),
-            inputBoundary.heightAnchor.constraint(equalToConstant: 0),
+            inputBoundary.bottomAnchor.constraint(equalTo: bottomAnchor),
             inputBoundary.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
-            inputBoundary.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
-            preferredBottom,
+            inputBoundary.topAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+            preferredTop,
         ])
         keyboardLayoutGuide.setConstraints(
-            [inputBoundary.bottomAnchor.constraint(lessThanOrEqualTo: keyboardLayoutGuide.topAnchor)],
+            [inputBoundary.topAnchor.constraint(lessThanOrEqualTo: keyboardLayoutGuide.topAnchor)],
             activeWhenAwayFrom: .top)
+        // A guide can move without laying out its owning viewport. Give the
+        // occupied region a real height so its own layout publishes that change.
+        inputBoundary.didLayout = { [weak self] in self?.updateInputBottomInset() }
         NotificationCenter.default.addObserver(
             self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
     }
@@ -61,7 +66,12 @@ final class ReaderViewport: UIView {
         // of the live document's viewport and composited scrolling layers.
         guard window?.windowScene?.activationState != .background else { return }
         if webView.frame != bounds { webView.frame = bounds }
-        webView.inputBottomInset = max(0, bounds.maxY - inputBoundary.layoutFrame.maxY)
+        updateInputBottomInset()
+    }
+
+    private func updateInputBottomInset() {
+        guard window?.windowScene?.activationState != .background else { return }
+        webView.inputBottomInset = max(0, bounds.maxY - inputBoundary.frame.minY)
     }
 
     @objc private func sceneDidActivate(_ notification: Notification) {

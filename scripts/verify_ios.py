@@ -106,6 +106,30 @@ def run(arguments, **options):
     return subprocess.run(arguments, cwd=ROOT, check=True, **options)
 
 
+def start_simulator_client():
+    """Initialize simulator input services before running onscreen-keyboard checks."""
+    developer = Path(run(["xcode-select", "-p"], capture_output=True, text=True).stdout.strip())
+    client = developer.parent / "Applications/DeviceHub.app"
+    if not client.is_dir():
+        raise ValueError(f"Missing simulator client: {client}. Use Xcode 27.1 or newer.")
+    process_prefix = "^" + re.escape(str(client / "Contents/MacOS")) + "/"
+    run(["open", "-g", "-j", "-a", str(client)])
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if (
+            subprocess.run(
+                ["pgrep", "-f", process_prefix],
+                stdout=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            == 0
+        ):
+            print("Device Hub is running in the background for simulator input.", flush=True)
+            return
+        time.sleep(0.1)
+    raise ValueError("Device Hub did not start; simulator input is not ready for testing.")
+
+
 def simulator_data(kind):
     return json.loads(
         run(
@@ -585,6 +609,7 @@ def verify(args, cancel):
             return code
     specification = test_run_specification(products)
     validate_test_product_signatures(specification)
+    start_simulator_client()
     families = [args.family] if args.family else ["iPhone", "iPad"]
     results = verify_families(
         families,

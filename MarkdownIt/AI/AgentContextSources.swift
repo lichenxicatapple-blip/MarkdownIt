@@ -2,8 +2,8 @@ import CoreFoundation
 import Foundation
 
 /// Immutable request materials. IDs survive history compaction; no paths can be opened by this tool.
-struct AgentContextSources: Sendable {
-    struct Source: Sendable {
+struct AgentContextSources: Codable, Sendable {
+    struct Source: Codable, Sendable {
         let id: String
         let content: String
     }

@@ -111,6 +111,53 @@ final class AgentModelTransport {
         var outputs: [ModelToolOutput] = []
         init(turn: ModelTurn) { self.turn = turn }
     }
+    struct Recovery: Codable, Sendable {
+        let key: String
+        let exchanges: [ModelToolExchange]
+        let pendingTurn: ModelTurn?
+        let pendingOutputs: [ModelToolOutput]
+        let seenToolResults: Set<String>
+        let toolsPaused: Bool
+        let messages: [ChatMessage]?
+        let sources: AgentContextSources?
+        let needsReadingTool: Bool
+        let toolSummary: String?
+        let readSignatures: [String: String]
+    }
+
+    var checkpoint: (@MainActor () async -> Void)?
+
+    func recovery() -> Recovery? {
+        guard let run else { return nil }
+        return Recovery(
+            key: run.key, exchanges: run.exchanges, pendingTurn: run.pending?.turn,
+            pendingOutputs: run.pending?.outputs ?? [], seenToolResults: run.seenToolResults,
+            toolsPaused: run.toolsPaused, messages: run.messages, sources: run.sources,
+            needsReadingTool: run.needsReadingTool, toolSummary: run.toolSummary, readSignatures: run.readSignatures)
+    }
+
+    func restore(_ value: Recovery?) throws {
+        reset()
+        guard let value else { return }
+        guard value.pendingOutputs.count <= (value.pendingTurn?.calls.count ?? 0),
+            value.pendingOutputs.enumerated().allSatisfy({ value.pendingTurn?.calls[$0.offset].id == $0.element.id })
+        else { throw CocoaError(.coderReadCorrupt) }
+        let run = Run(key: value.key)
+        run.exchanges = value.exchanges
+        if let turn = value.pendingTurn {
+            run.pending = Pending(turn: turn)
+            run.pending?.outputs = value.pendingOutputs
+        }
+        run.seenToolResults = value.seenToolResults
+        run.toolsPaused = value.toolsPaused
+        run.messages = value.messages
+        run.sources = value.sources
+        run.needsReadingTool = value.needsReadingTool
+        run.toolSummary = value.toolSummary
+        run.readSignatures = value.readSignatures
+        self.run = run
+    }
+
     private var run: Run?
 
     init(client: ModelClient = ModelClient()) { self.client = client }
@@ -150,7 +197,7 @@ final class AgentModelTransport {
             token + ":" + configuration.baseURL + ":" + configuration.model + ":"
             + configuration.apiProtocol.rawValue + ":" + AgentDocumentTools.revision(key)
         let requestKey =
-            scope + ":"
+            AgentDocumentTools.revision(scope) + ":"
             + AgentDocumentTools.revision(
                 String(decoding: (try? encoder.encode(snapshot)) ?? Data(), as: UTF8.self))
         let currentRun = run?.key == requestKey ? run! : Run(key: requestKey)
@@ -178,6 +225,7 @@ final class AgentModelTransport {
                     currentRun.messages = prepared.messages
                     currentRun.sources = prepared.sources
                     currentRun.needsReadingTool = prepared.needsReadingTool
+                    await self?.checkpoint?()
                 }
                 while true {
                     try Task.checkCancellation()
@@ -223,6 +271,7 @@ final class AgentModelTransport {
                                     id: call.id,
                                     content: repeated ? Self.pausedToolOutput : execution.output,
                                     images: repeated ? [] : execution.images))
+                            await self?.checkpoint?()
                             if let change = execution.change {
                                 await emit(AgentModelEvent(id: id, token: token, type: "change", change: change))
                             }
@@ -284,6 +333,7 @@ final class AgentModelTransport {
                         break
                     }
                     currentRun.pending = Pending(turn: turn)
+                    await self?.checkpoint?()
                 }
             } catch {
                 if self?.activeID == id && !Task.isCancelled {

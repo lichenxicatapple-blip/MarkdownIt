@@ -25,6 +25,8 @@
   const refreshIcons = () => window.lucide?.createIcons({ attrs: { width: 18, height: 18 } });
   function create(dependencies) {
     const { app, panel, renderMarkdown, fragmentIdentifier, enhance, motion, reducedMotion, onToggle, documentAttachment, provider, nativeInputs, onPresentationChange, ensureConfigured } = dependencies;
+    const checkpoint = dependencies.onCheckpoint || (() => {});
+    let restoring = false;
     let sheet = false;
     let documentLeading = 0;
     const scroll = panel.querySelector('.mdv-agent-scroll');
@@ -68,7 +70,7 @@
     const seconds = spec => reducedMotion.matches ? 0 : spec.duration;
     function announce(text) { announcement.textContent = text; }
     function animateContent(element, spec = motion.message) {
-      if (reducedMotion.matches) return;
+      if (restoring || reducedMotion.matches) return;
       element.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], spec);
     }
     function disclosure(element, shown, finished) {
@@ -85,7 +87,7 @@
         disclosureAnimations.delete(element);
         finished?.();
       };
-      if (reducedMotion.matches) { finish(); return; }
+      if (restoring || reducedMotion.matches) { finish(); return; }
       element.style.overflow = 'hidden';
       const animation = element.animate([{ height: start + 'px', opacity: start ? 1 : 0 }, { height: shown ? element.scrollHeight + 'px' : '0px', opacity: shown ? 1 : 0 }], { ...motion.reference, fill: 'both' });
       disclosureAnimations.set(element, animation);
@@ -129,6 +131,7 @@
           enhance(body);
         }
         disclosure(body, shown, () => { if (!shown) details.open = false; });
+        checkpoint();
       });
       return details;
     }
@@ -277,6 +280,7 @@
       if (event.key === 'End') followLatest();
     });
     function notifyPresentation() {
+      checkpoint();
       onPresentationChange?.({ open: isOpen, visible: !panel.hidden,
         modal: panel.hasAttribute('data-modal-active'), documentLeading });
     }
@@ -358,7 +362,7 @@
         }
         keepAtBottom();
       };
-      if (!seconds(motion.agentPanel)) { finish(); return; }
+      if (restoring || !seconds(motion.agentPanel)) { finish(); return; }
       panelAnimation = panel.animate([start, { opacity: shown ? 1 : 0, transform: shown ? 'none' : sheet ? 'translateY(100%)' : 'translateX(24px)' }], { ...motion.agentPanel, fill: 'both' });
       if (useScrim) scrimAnimation = scrim.animate([{ opacity: shown ? 0 : 1 }, { opacity: shown ? 1 : 0 }], { ...motion.agentPanel, fill: 'both' });
       panelAnimation.onfinish = finish;
@@ -375,6 +379,7 @@
       onToggle(true);
       renderAttachment(attachment, rect);
       input.focus({ preventScroll: true });
+      checkpoint();
     }
     function addMessage(role, markdown, value) {
       const message = { id: ++messageSequence, role, markdown, attachment: value ? { ...value } : null };
@@ -384,7 +389,7 @@
       turn.dataset.role = role;
       turn.setAttribute('aria-label', role === 'user' ? t("Your message") : t("AI response"));
       message.element = turn;
-      if (value) appendReference(turn, value);
+      if (value) message.reference = appendReference(turn, value);
       const surface = rich(markdown, 'message-' + message.id);
       message.surface = surface;
       turn.append(surface);
@@ -393,6 +398,7 @@
       enhance(surface);
       keepAtBottom();
       refreshIcons();
+      checkpoint();
       return message;
     }
     function clearPending(record, fade = false) {
@@ -428,11 +434,13 @@
       if (stopped) record.cancel?.();
       if (stopped) record.message.element.append(createNode('p', 'mdv-turn-status', t("Generation stopped")));
       activeStream = null;
+      checkpoint();
       updateSendState();
       announce(stopped ? t("Generation stopped. The received content has been kept.") : t("Response complete. You can ask a follow-up question."));
       keepAtBottom();
     }
     const failureMessages = {
+      interrupted: t("Response interrupted"),
       image: t("The image could not be read. Check that it is available and uses a supported format."),
       imagePermission: t("Allow access to the image folder, then retry."),
       permission: t("Allow sending to this AI service before trying again."),
@@ -460,6 +468,7 @@
       clearPending(record);
       activeStream = null;
       const { request, message, failure } = record;
+      request.failure = failure;
       message.element.dataset.state = 'failed';
       message.element.removeAttribute('aria-busy');
       const partial = message.surface.hasChildNodes();
@@ -474,7 +483,7 @@
       message.element.append(status);
       request.status = status;
       request.retryButton = retry;
-      request.retryAt = Date.now() + Math.max(0, failure.retryAfterSeconds || 0) * 1000;
+      request.retryAt = record.retryAt ?? Date.now() + Math.max(0, failure.retryAfterSeconds || 0) * 1000;
       function updateRetry() {
         const remaining = Math.max(0, Math.ceil((request.retryAt - Date.now()) / 1000));
         retry.disabled = remaining > 0;
@@ -499,6 +508,7 @@
       announce(retry.disabled ? t('{reason}. You can retry shortly.', { reason }) : t('{reason}. {action}.', { reason, action: retryLabel }));
       if (document.activeElement === message.element && !retry.disabled) retry.focus({ preventScroll: true });
       keepAtBottom();
+      checkpoint();
     }
     function streamReply(request) {
       if (activeStream) return;
@@ -523,12 +533,15 @@
       message.element.setAttribute('aria-busy', 'true');
       const record = { request, message, pending, replaceOnFirstBlock: message.surface.hasChildNodes(), liveMarkdown: '' };
       activeStream = record;
+      request.failure = null;
+      checkpoint();
       updateSendState();
       announce(retrying ? t("Retrying with the original question and reference.") : t("Generating a response."));
       record.cancel = provider.stream(request.snapshot, request.intent, {
         text(delta) {
           if (activeStream !== record) return;
           record.liveMarkdown += delta;
+          checkpoint();
           if (!record.renderTimer) record.renderTimer = setTimeout(() => { record.renderTimer = null; renderLive(record); }, 100);
         },
         complete() {
@@ -635,6 +648,7 @@
       ];
     }
     function appendDocumentChange(message, value) {
+      checkpoint();
       message.changes ||= [];
       const existing = message.changes.find(change => change.id === value.id);
       if (existing) {
@@ -672,6 +686,7 @@
       change.showStatus = status => {
         const changed = change.status !== status;
         change.status = status;
+        checkpoint();
         title.textContent = status === 'undone' ? t("Undone") : t("Edited");
         undo.hidden = status === 'undone';
         actions.hidden = status === 'undone';
@@ -723,6 +738,8 @@
       finishStream(activeStream, true);
     });
     input.addEventListener('input', updateSendState);
+    input.addEventListener('input', checkpoint);
+    scroll.addEventListener('scroll', checkpoint, { passive: true });
     panel.querySelector('[data-agent-action="collapse"]').addEventListener('click', () => onToggle(false));
     function toggleGlobal(authorized = false) {
       if (!isOpen && !authorized && ensureConfigured) { ensureConfigured(() => toggleGlobal(true)); return; }
@@ -829,7 +846,69 @@
       updateSendState();
       onToggle(false);
     }
-    return { attach, present, send, toggleGlobal, reset, waitUntilClosed };
+    function capture() {
+      return {
+        messages: messages.map(message => ({ id: message.id, role: message.role,
+          markdown: activeStream?.message === message && activeStream.liveMarkdown ? activeStream.liveMarkdown : message.markdown,
+          attachment: message.attachment, document: message.document, intent: message.intent,
+          state: message.element.dataset.state || null, referenceExpanded: message.reference?.querySelector('summary').getAttribute('aria-expanded') === 'true',
+          changes: message.changes?.map(({ id, edits, saved, status }) => ({ id, edits, saved, status })) || [] })),
+        attachment, draft: input.value, referenceExpanded: reference.querySelector('[data-agent-action=toggle-reference]')?.getAttribute('aria-expanded') === 'true', referenceScroll: reference.querySelector('.mdv-reference-body')?.scrollTop || 0, scroll: scroll.scrollTop, followBottom,
+        request: latestRequest ? { snapshot: latestRequest.snapshot, intent: latestRequest.intent,
+          markdown: latestRequest.markdown, attempt: latestRequest.attempt, messageID: latestRequest.message?.id,
+          failure: latestRequest.failure, retryAt: latestRequest.retryAt, interrupted: !!activeStream } : null
+      };
+    }
+    function restore(value) {
+      restoring = true;
+      reset();
+      for (const saved of value.messages || []) {
+        messageSequence = saved.id - 1;
+        const message = addMessage(saved.role, saved.markdown, saved.attachment);
+        message.document = saved.document;
+        message.intent = saved.intent;
+        if (saved.referenceExpanded) message.reference?.querySelector('summary').click();
+        message.element.dataset.state = saved.state || 'complete';
+        for (const change of saved.changes || []) {
+          appendDocumentChange(message, change);
+          const restored = documentChanges.get(change.id);
+          restored?.showStatus(change.status);
+          if (restored && change.status !== 'undone' && change.saved === false) restored.note.hidden = false;
+        }
+        if (saved.state === 'stopped') message.element.append(createNode('p', 'mdv-turn-status', t("Generation stopped")));
+      }
+      attachment = value.attachment || null;
+      input.value = value.draft || '';
+      renderAttachment(attachment);
+      if (value.referenceExpanded) reference.querySelector('[data-agent-action=toggle-reference]')?.click();
+      const referenceBody = reference.querySelector('.mdv-reference-body');
+      if (referenceBody) referenceBody.scrollTop = value.referenceScroll || 0;
+      if (value.request) {
+        const saved = value.request;
+        const message = messages.find(message => message.id === saved.messageID);
+        latestRequest = { ...saved, message, snapshot: Object.freeze(saved.snapshot) };
+        if (message && (saved.interrupted || saved.failure)) {
+          const record = { request: latestRequest, message, pending: createNode('div'),
+            failure: saved.interrupted ? { kind: 'interrupted' } : saved.failure,
+            retryAt: saved.interrupted ? 0 : saved.retryAt };
+          activeStream = record;
+          failStream(record);
+        }
+      }
+      followBottom = value.followBottom !== false;
+      cancelPendingFollow();
+      scroll.scrollTop = value.scroll || 0;
+      updateSendState();
+    }
+    function finishRestore(value) {
+      restoring = false;
+      cancelPendingFollow();
+      followBottom = value.followBottom !== false;
+      scroll.scrollTop = value.scroll || 0;
+      if (followBottom) keepAtBottom();
+    }
+    return { attach, present, send, toggleGlobal, reset, waitUntilClosed, capture, restore, finishRestore };
+
 
   }
   window.MarkdownItAgent = { create };

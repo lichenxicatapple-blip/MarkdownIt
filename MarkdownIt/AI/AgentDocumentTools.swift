@@ -12,7 +12,7 @@ struct AgentDocumentChange: Codable, Sendable {
     let saved: Bool?
 }
 
-struct AgentToolExecution: Sendable {
+struct AgentToolExecution: Codable, Sendable {
     let output: String
     var change: AgentDocumentChange?
     var revision: String?
@@ -22,11 +22,22 @@ struct AgentToolExecution: Sendable {
 @MainActor
 final class AgentDocumentTools {
     private weak var session: ReaderSession?
-    private struct UndoRecord {
+    struct UndoRecord: Codable, Sendable {
         let token: String
         let after: String
     }
     private var undoRecords: [String: UndoRecord] = [:]
+    struct Recovery: Codable, Sendable {
+        let undo: [String: UndoRecord]
+        let receipts: [String: AgentToolExecution]
+    }
+    private var receipts: [String: AgentToolExecution] = [:]
+    var checkpoint: (@MainActor () async -> Void)?
+    func recovery() -> Recovery { Recovery(undo: undoRecords, receipts: receipts) }
+    func restore(_ value: Recovery) {
+        undoRecords = value.undo
+        receipts = value.receipts
+    }
     private var executing = false
 
     init(session: ReaderSession) { self.session = session }
@@ -52,12 +63,17 @@ final class AgentDocumentTools {
         ),
     ]
 
-    func reset() { undoRecords.removeAll() }
+    func reset() {
+        undoRecords.removeAll()
+        receipts.removeAll()
+    }
 
     func execute(
-        _ call: ModelToolCall, token: String, maxReadBytes: Int = 8192,
+        _ call: ModelToolCall, token: String, requestID: String? = nil, maxReadBytes: Int = 8192,
         onChange: @MainActor (AgentDocumentChange) async -> Void = { _ in }
     ) async -> AgentToolExecution {
+        let receiptID = requestID.map { Self.revision(token + $0 + call.id + call.name + call.arguments) }
+        if let receiptID, let receipt = receipts[receiptID] { return receipt }
         guard !executing else { return result(["error": "document_busy"]) }
         executing = true
         defer { executing = false }
@@ -104,6 +120,13 @@ final class AgentDocumentTools {
                     return result(["error": "stale_document", "message": "原文已变化，未执行这次修改。"])
                 }
                 undoRecords[id] = UndoRecord(token: token, after: next)
+                var pending = result([
+                    "status": "edited_save_pending", "revision": Self.revision(next),
+                    "message": "内容已修改，保存结果未知；不要重复执行同一修改。",
+                ])
+                pending.change = AgentDocumentChange(id: id, edits: args.edits, saved: nil)
+                if let receiptID { receipts[receiptID] = pending }
+                await checkpoint?()
                 await onChange(AgentDocumentChange(id: id, edits: args.edits, saved: nil))
                 let saved = await save(session, token: token)
                 var execution = result([
@@ -111,6 +134,8 @@ final class AgentDocumentTools {
                     "message": saved ? "修改已写回当前文件。" : "内容已修改，保存失败；不得声称已保存，也不要重复执行同一修改。",
                 ])
                 execution.change = AgentDocumentChange(id: id, edits: args.edits, saved: saved)
+                if let receiptID { receipts[receiptID] = execution }
+                await checkpoint?()
                 return execution
             default: return result(["error": "unknown_tool"])
             }

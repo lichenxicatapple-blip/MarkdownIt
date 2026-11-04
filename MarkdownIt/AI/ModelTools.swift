@@ -12,19 +12,19 @@ struct ModelTool: Sendable {
     }
 }
 
-struct ModelToolCall: Sendable, Equatable {
+struct ModelToolCall: Codable, Sendable, Equatable {
     let id: String
     let name: String
     let arguments: String
 }
 
-struct ModelToolOutput: Sendable {
+struct ModelToolOutput: Codable, Sendable {
     let id: String
     let content: String
     var images: [ModelImage] = []
 }
 
-struct ModelTurn: Sendable {
+struct ModelTurn: Codable, Sendable {
     var text = ""
     var calls: [ModelToolCall] = []
     // Preserve opaque reasoning/signature fields without interpreting or displaying them.
@@ -32,7 +32,7 @@ struct ModelTurn: Sendable {
     var chatAssistant: Data?
 }
 
-struct ModelToolExchange: Sendable {
+struct ModelToolExchange: Codable, Sendable {
     let turn: ModelTurn
     let outputs: [ModelToolOutput]
 }

@@ -5,6 +5,74 @@ import XCTest
 
 final class SourceEditorTests: XCTestCase {
     @MainActor
+    func testSerializedHistoryRestoresBothStacksAndTheirSelections() throws {
+        let history = SourceHistory()
+        let original = "👩🏽‍💻\n"
+        history.reset(original)
+        let firstSelection = SourceSelection(range: NSRange(location: original.utf16.count + 5, length: 0), scrollY: 42)
+        history.record(
+            original + "Hello", before: SourceSelection(range: NSRange(location: original.utf16.count, length: 0)),
+            after: firstSelection, id: "manual")
+        history.record(original + "Hello world", before: firstSelection, id: "agent")
+        XCTAssertTrue(history.move(forward: false))
+        let snapshot = try JSONDecoder().decode(
+            SourceHistory.Snapshot.self, from: JSONEncoder().encode(history.snapshot()))
+        let restored = SourceHistory()
+        var changes: [SourceSelection] = []
+        restored.onChange = { selection, _, _ in changes.append(selection) }
+        try restored.restore(snapshot)
+        XCTAssertTrue(changes.isEmpty, "Loading history must not replay document edits or emit tool results")
+        XCTAssertEqual(restored.text, original + "Hello")
+        XCTAssertEqual(restored.revision, history.revision)
+        XCTAssertTrue(restored.canUndo)
+        XCTAssertTrue(restored.canRedo)
+        XCTAssertTrue(restored.move(forward: false, id: "manual"))
+        XCTAssertEqual(restored.text, original)
+        XCTAssertTrue(restored.move(forward: true, id: "manual"))
+        XCTAssertEqual(changes.last, firstSelection)
+        XCTAssertTrue(restored.move(forward: true, id: "agent"))
+        XCTAssertEqual(restored.text, original + "Hello world")
+        XCTAssertFalse(restored.canRedo)
+        XCTAssertTrue(restored.move(forward: false))
+        restored.record(original + "A new branch", before: firstSelection)
+        XCTAssertFalse(restored.canRedo)
+    }
+
+    @MainActor
+    func testHistorySnapshotDoesNotChangeWhenTypingContinues() throws {
+        let history = SourceHistory()
+        history.reset("")
+        history.record("a", before: SourceSelection(range: NSRange(location: 0, length: 0)), kind: .typing)
+        let snapshot = history.snapshot()
+        history.record("ab", before: SourceSelection(range: NSRange(location: 1, length: 0)), kind: .typing)
+        let restored = SourceHistory()
+        try restored.restore(snapshot)
+        XCTAssertEqual(restored.text, "a")
+        XCTAssertTrue(restored.move(forward: false))
+        XCTAssertEqual(restored.text, "")
+        XCTAssertEqual(history.text, "ab")
+    }
+
+    @MainActor
+    func testCorruptRestoredHistoryCannotReplaceTheCurrentBuffer() throws {
+        let history = SourceHistory()
+        history.reset("Original")
+        history.record("Changed", before: SourceSelection(range: NSRange(location: 0, length: 0)))
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(history.snapshot())) as? [String: Any])
+        var transactions = try XCTUnwrap(object["undo"] as? [[String: Any]])
+        transactions[0]["start"] = Int.max
+        object["undo"] = transactions
+        let corrupt = try JSONDecoder().decode(
+            SourceHistory.Snapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        let restored = SourceHistory()
+        restored.reset("Keep this buffer")
+        XCTAssertThrowsError(try restored.restore(corrupt))
+        XCTAssertEqual(restored.text, "Keep this buffer")
+        XCTAssertFalse(restored.canUndo)
+    }
+
+    @MainActor
     func testDetachingFocusedEditorDoesNotPublishDocumentChanges() throws {
         let (editor, window) = try editor("Unchanged document")
         defer { window.isHidden = true }

@@ -42,7 +42,10 @@ struct MarkdownItApp: App {
         #endif
         _session = StateObject(
             wrappedValue: ReaderSession(
-                defaults: defaults, modelClient: modelClient, modelCatalog: modelCatalog, modelSettings: modelSettings))
+                defaults: defaults, modelClient: modelClient, modelCatalog: modelCatalog, modelSettings: modelSettings,
+                recoveryStore: ReaderRecoveryStore(
+                    directory: ReaderRecoveryStore.applicationDirectory(
+                        testing: ProcessInfo.processInfo.arguments.contains("--ui-testing")))))
     }
 
     var body: some Scene {
@@ -50,8 +53,14 @@ struct MarkdownItApp: App {
             ReaderScreen(session: session)
                 .onOpenURL { url in Task { await session.open(url) } }
                 .task {
+                    let arguments = ProcessInfo.processInfo.arguments
                     #if DEBUG
-                        let arguments = ProcessInfo.processInfo.arguments
+                        await session.restoreLastSession(
+                            reset: arguments.contains("--ui-testing") && !arguments.contains("--ui-test-keep-state"))
+                    #else
+                        await session.restoreLastSession()
+                    #endif
+                    #if DEBUG
                         if arguments.contains("--sample-document") {
                             await session.openSampleFixture(reset: arguments.contains("--reset-sample-document"))
                         }
@@ -59,7 +68,7 @@ struct MarkdownItApp: App {
                 }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { Task { await session.flushChanges() } }
+            if phase == .background { Task { await session.checkpointForBackground() } }
         }
     }
 }

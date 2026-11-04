@@ -5,6 +5,10 @@ import XCTest
 final class ReaderUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // A following case must not inherit this app's unfinished presentation.
+        addTeardownBlock { @MainActor in
+            XCUIApplication().terminate()
+        }
     }
 
     private func useComponentSynchronization() throws {
@@ -72,6 +76,61 @@ final class ReaderUITests: XCTestCase {
     private func allowDataSharingIfRequested(_ app: XCUIApplication) {
         let allow = app.alerts.buttons["AllowModelDataSharing"].firstMatch
         if allow.waitForExistence(timeout: 5) { allow.tap() }
+    }
+
+    func testLocalImagePermissionSeparatesPathAndPresentsSystemPicker() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
+        editor.typeText(
+            "\n\n![Permission figure](/var/mobile/Library/Mobile%20Documents/com~apple~CloudDocs/Downloads/images/figure.svg)\n\n"
+        )
+        XCTAssertTrue((editor.value as? String)?.contains("Permission figure") == true)
+        showTools(app)
+        tapAfterTyping(app.buttons["ModeToggle"], in: app)
+        let title = app.staticTexts["ResourcePermissionTitle"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertEqual(title.label, "需要加载本地图片")
+        let explanation = app.staticTexts["ResourcePermissionExplanation"]
+        let path = app.staticTexts["ResourcePermissionPath"]
+        XCTAssertEqual(explanation.label, "文档引用了以下文件夹中的图片，请允许访问。")
+        XCTAssertEqual(path.label, "iCloud 云盘 / Downloads / images")
+        XCTAssertGreaterThanOrEqual(path.frame.minY, explanation.frame.maxY)
+        XCTAssertTrue(app.buttons["CancelResourcePermission"].isHittable)
+        let choose = app.buttons["ContinueResourcePermission"]
+        XCTAssertTrue(choose.isHittable)
+        record("local-image-permission")
+        choose.tap()
+        let open = app.navigationBars.buttons["打开"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        record("local-image-folder-picker")
+        let cancel = app.navigationBars.buttons["取消"].firstMatch
+        // The system picker can retain a nested directory. Its Cancel action
+        // appears at the navigation root on compact devices.
+        for _ in 0..<5 {
+            if cancel.isHittable { break }
+            let back = app.navigationBars.buttons.element(boundBy: 0)
+            XCTAssertTrue(back.isHittable)
+            back.tap()
+        }
+        XCTAssertTrue(cancel.isHittable)
+        cancel.tap()
+        XCTAssertTrue(open.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(
+            title.waitForNonExistence(timeout: 5), "Cancelling the picker returns to reading without another prompt")
+        let reading = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in app.buttons["ToolsToggle"].isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [reading], timeout: 5), .completed)
     }
 
     func testDocumentTitleDoesNotOverlapCloseControlWithOutlineExpanded() throws {
@@ -414,8 +473,14 @@ final class ReaderUITests: XCTestCase {
             XCTAssertEqual(input.value as? String, "")
 
             app.terminate()
+            app.launchArguments.removeAll { ["--sample-document", "--reset-sample-document"].contains($0) }
             app.launchArguments.append("--ui-test-keep-state")
             app.launch()
+            XCTAssertTrue(input.waitForExistence(timeout: 25), "Relaunch must restore the open AI panel")
+            XCTAssertEqual(input.value as? String, "")
+            let replies = app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "通过目录导航"))
+            XCTAssertEqual(replies.count, 1, "The existing conversation must survive relaunch")
+            app.webViews.buttons[language == "zh-Hans" ? "收起对话" : "Collapse conversation"].tap()
             XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
             showTools(app)
             app.buttons["GlobalAI"].tap()
@@ -423,7 +488,12 @@ final class ReaderUITests: XCTestCase {
             input.tap()
             input.typeText("Explain Markdown again.")
             tapAfterTyping(app.webViews.buttons[send], in: app)
-            XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
+            XCTAssertEqual(
+                XCTWaiter.wait(
+                    for: [
+                        XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in replies.count == 2 }, object: nil)
+                    ], timeout: 12), .completed,
+                "A new answer must complete without asking for the service's permission again")
             XCTAssertFalse(alert.exists, "The same service must remain authorized after relaunch")
             app.terminate()
         }
@@ -1190,6 +1260,45 @@ final class ReaderUITests: XCTestCase {
         }
     }
 
+    func testProcessRelaunchRestoresSourceAndHistoryUntilExplicitClose() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        let language = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["--ui-testing", "--sample-document", "--reset-sample-document"] + language
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        let original = editor.value as? String
+        editor.tap()
+        editor.typeText("Recoverededit")
+        let edited = editor.value as? String
+        XCTAssertNotEqual(edited, original)
+        showTools(app)
+        app.buttons["SourceUndo"].tap()
+        XCTAssertEqual(editor.value as? String, original)
+        XCUIDevice.shared.press(.home)
+        app.terminate()
+        app.launchArguments = ["--ui-testing", "--ui-test-keep-state"] + language
+        app.launch()
+        XCTAssertTrue(
+            editor.waitForExistence(timeout: 25), "Relaunch must restore source rather than showing the homepage")
+        XCTAssertEqual(editor.value as? String, original)
+        showTools(app)
+        XCTAssertTrue(app.buttons["SourceRedo"].isEnabled)
+        app.buttons["SourceRedo"].tap()
+        XCTAssertEqual(editor.value as? String, edited)
+        record("recovered-source-history")
+        app.buttons["CloseDocument"].tap()
+        XCTAssertTrue(app.buttons["OpenDocument"].waitForExistence(timeout: 8))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.buttons["OpenDocument"].waitForExistence(timeout: 8))
+        XCTAssertFalse(editor.exists)
+    }
+
     func testTouchUndoRedoAndNewEditingBranch() {
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
@@ -1245,7 +1354,8 @@ final class ReaderUITests: XCTestCase {
         XCTAssertFalse(redo.isEnabled)
     }
 
-    func testUnifiedAIReadingEditingAndTouchHistory() {
+    func testUnifiedAIReadingEditingAndTouchHistory() throws {
+        try useComponentSynchronization()
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [

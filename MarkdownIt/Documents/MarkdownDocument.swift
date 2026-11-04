@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import OSLog
 import Synchronization
@@ -7,6 +8,12 @@ final class MarkdownDocument: UIDocument {
     static let supportedFilenameExtensions = ["md", "markdown", "mdown", "mkd"]
 
     var text = ""
+    private let savedRevision = Mutex("")
+    var persistedRevision: String { savedRevision.withLock { $0 } }
+
+    private static func revision(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
     private var encoding = String.Encoding.utf8
     private var byteOrderMark = Data()
     private var lineEnding = "\n"
@@ -21,6 +28,7 @@ final class MarkdownDocument: UIDocument {
 
     override func load(fromContents contents: Any, ofType typeName: String?) throws {
         guard let data = contents as? Data else { throw CocoaError(.fileReadCorruptFile) }
+        savedRevision.withLock { $0 = Self.revision(data) }
         let value: String
         byteOrderMark = Data()
         if data.starts(with: [0xEF, 0xBB, 0xBF]) {
@@ -70,6 +78,14 @@ final class MarkdownDocument: UIDocument {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
         }
         return byteOrderMark + data
+    }
+
+    override func writeContents(
+        _ contents: Any, andAttributes additionalFileAttributes: [AnyHashable: Any]?,
+        safelyTo url: URL, for saveOperation: UIDocument.SaveOperation
+    ) throws {
+        try super.writeContents(contents, andAttributes: additionalFileAttributes, safelyTo: url, for: saveOperation)
+        if let data = contents as? Data { savedRevision.withLock { $0 = Self.revision(data) } }
     }
 
     @MainActor func openForReading() async -> Bool {

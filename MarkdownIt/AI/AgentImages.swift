@@ -16,6 +16,21 @@ enum AgentImageError: Error {
 /// IDs, never a filesystem or arbitrary-URL read tool.
 @MainActor
 final class AgentImages: NSObject, WKURLSchemeHandler {
+    struct Recovery: Codable, Sendable {
+        let references: [String: AgentImageReference]
+        let pixels: [String: ModelImage]
+        let token: String
+    }
+
+    func checkpoint() -> Recovery { Recovery(references: references, pixels: pixels, token: token) }
+
+    func restore(_ value: Recovery) {
+        reset()
+        references = value.references
+        pixels = value.pixels
+        token = value.token
+    }
+
     private var references: [String: AgentImageReference] = [:]
     private var pixels: [String: ModelImage] = [:]
     private var generation = UUID()

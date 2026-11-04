@@ -19,20 +19,32 @@ struct ResourceAccess: Sendable {
     }
 
     func directoryRequiringAccess(for sources: [String]) -> URL? {
-        let files = sources.compactMap { try? resourceURL($0) }.filter { !contains($0) }
-        guard !files.isEmpty else { return nil }
-        var directory = canonicalURL(documentURL).deletingLastPathComponent()
-        for file in files {
-            let parent = file.deletingLastPathComponent()
-            while !Self.contains(parent, in: directory) {
-                let ancestor = directory.deletingLastPathComponent()
-                guard ancestor != directory else { return nil }
-                directory = ancestor
-            }
+        directoriesRequiringAccess(for: sources).first
+    }
+
+    /// Request actual resource folders, never an inferred common ancestor.
+    /// A folder that directly contains a reference can also cover its children.
+    func directoriesRequiringAccess(for sources: [String]) -> [URL] {
+        var directories: [URL] = []
+        for source in sources {
+            guard let file = try? resourceURL(source), !contains(file) else { continue }
+            let directory = file.deletingLastPathComponent()
+            guard directory.path != "/" else { continue }
+            if directories.contains(where: { Self.contains(directory, in: $0) }) { continue }
+            let index = directories.firstIndex { Self.contains($0, in: directory) } ?? directories.count
+            directories.removeAll { Self.contains($0, in: directory) }
+            directories.insert(directory, at: min(index, directories.count))
         }
-        // The filesystem root cannot be granted by the document picker.
+        return directories
+    }
+
+    func directoryContaining(_ source: String) -> URL? {
+        guard let file = try? resourceURL(source) else { return nil }
+        let directory = file.deletingLastPathComponent()
         return directory.path == "/" ? nil : directory
     }
+
+    func containsDirectory(_ directory: URL) -> Bool { contains(canonicalURL(directory)) }
 
     private func resourceURL(_ source: String) throws -> URL {
         guard !source.contains("\0"), let components = URLComponents(string: source) else {

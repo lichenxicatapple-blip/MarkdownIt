@@ -74,6 +74,7 @@
       function update(payload) {
         const entry = entries.get(payload.id);
         if (!entry || payload.epoch !== entry.epoch) return false;
+        if (entry.field.value === payload.text) return true;
         notePanelInteraction('agent');
         applying = true;
         entry.field.value = payload.text;
@@ -119,6 +120,6 @@
       addEventListener('resize', trackLayout);
       window.visualViewport?.addEventListener('resize', trackLayout);
       schedule();
-      return { register, update, commit, trackLayout, get committing() { return committing; }, requestSubmit(id) { postNative({ type: 'inputSubmit', id }); },
+      return { register, update, commit, trackLayout, epoch(id) { return entries.get(id)?.epoch; }, get committing() { return committing; }, requestSubmit(id) { postNative({ type: 'inputSubmit', id }); },
         blur() { focused = null; postNative({ type: 'inputBlur' }); }, clear() { focused = null; for (const entry of entries.values()) entry.field.value = ''; }, focused: () => focused };
     })();

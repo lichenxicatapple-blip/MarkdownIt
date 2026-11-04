@@ -1,35 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="600" height="746" viewBox="211 130 600 746" role="img" aria-labelledby="title desc">
-  <title id="title">MarkdownIt 翻页文档标志</title>
-  <desc id="desc">白色文档印有 .md 后缀与三行正文，右下角轻轻翻起。文字已转为路径。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1254" height="1254" viewBox="0 0 1254 1254" role="img" aria-labelledby="title description">
+  <title id="title">MarkdownIt! — amber handwritten md</title>
+  <desc id="description">A continuous free handwritten md in translucent amber, on a warm ivory and pale apricot background. All artwork uses editable vector paths, gradients and vector effects.</desc>
   <defs>
-    <linearGradient id="paper-face" x1="211" y1="130" x2="811" y2="876" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#f7faff"/>
+    <path id="md-outline" fill-rule="evenodd" clip-rule="evenodd" d="M 1118.61,593.07 C 1115.85,588.41 1102.64,587.64 1091.71,589.80 C 1067.22,594.64 1054.15,614.21 1030.62,628.42 C 1012.91,639.11 989.27,646.77 976.36,641.43 C 958.12,633.88 961.25,600.43 968.95,574.76 C 975.78,551.98 986.22,535.32 995.93,518.13 C 1000.44,510.14 1004.80,502.03 1011.62,494.23 C 1027.36,476.20 1056.24,459.76 1058.38,439.23 C 1059.58,427.65 1052.28,414.78 1041.04,409.80 C 1023.99,402.24 997.85,412.87 981.27,428.72 C 957.81,451.15 953.47,484.06 942.58,506.62 C 939.39,513.23 935.64,518.95 930.01,520.92 C 920.69,524.18 906.22,517.19 891.29,515.19 C 868.42,512.13 844.46,520.79 825.44,532.24 C 780.12,559.53 762.83,602.72 715.54,638.69 C 700.18,650.37 681.64,661.30 671.56,657.66 C 659.51,653.30 659.54,628.13 653.52,606.90 C 650.02,594.57 644.47,583.56 636.21,577.61 C 617.68,564.25 585.46,576.33 568.82,595.78 C 560.40,605.61 555.97,617.33 546.35,627.95 C 536.05,639.31 519.82,649.42 513.89,645.99 C 509.96,643.71 510.56,635.48 511.05,626.38 C 512.92,592.15 513.36,545.70 495.34,517.35 C 472.44,481.31 419.69,474.54 375.44,485.67 C 324.41,498.50 284.68,535.13 249.53,572.94 C 223.88,600.53 200.67,628.75 178.58,660.33 C 161.31,685.00 144.73,711.73 146.34,742.11 C 146.95,753.78 150.26,765.99 157.59,774.20 C 164.39,781.80 174.65,785.96 183.62,784.75 C 200.61,782.46 213.00,760.92 222.76,742.46 C 224.30,739.54 225.78,736.70 227.27,733.90 C 238.68,712.43 250.77,693.42 263.19,674.65 C 271.82,661.59 280.62,648.64 290.30,636.65 C 316.21,604.55 348.51,579.26 390.95,558.43 C 409.98,549.09 431.04,540.65 446.44,546.39 C 455.21,549.66 462.14,557.53 466.34,567.09 C 470.68,576.99 472.09,588.70 470.39,600.83 C 467.55,621.06 456.07,642.47 458.15,661.50 C 461.44,691.65 498.75,715.83 524.42,704.34 C 536.74,698.84 546.37,685.11 555.94,670.53 C 570.67,648.05 585.23,623.53 602.92,617.97 C 609.51,615.91 616.54,616.47 620.88,621.39 C 627.71,629.12 627.87,647.61 632.39,662.09 C 636.45,675.11 644.03,684.90 655.11,687.50 C 670.26,691.05 691.94,681.14 703.41,687.73 C 711.49,692.37 714.50,705.20 720.89,715.34 C 730.29,730.25 747.00,739.33 763.45,741.67 C 786.12,744.90 808.31,735.35 827.90,724.20 C 844.09,714.98 858.51,704.68 873.42,690.77 C 892.35,673.11 912.05,649.63 931.30,655.30 C 943.99,659.04 956.48,675.43 970.70,679.93 C 986.88,685.05 1005.31,674.77 1020.83,664.49 C 1042.44,650.19 1058.43,635.88 1083.01,622.74 C 1094.24,616.74 1107.26,610.99 1114.36,603.89 C 1118.16,600.07 1120.27,595.87 1118.61,593.07 Z M 917.77,565.96 C 927.07,579.69 904.26,606.03 886.70,626.75 C 867.41,649.49 854.44,665.44 829.57,677.94 C 805.59,689.98 770.56,698.82 759.19,685.20 C 756.69,682.21 755.34,678.12 755.39,673.76 C 755.60,656.83 777.03,635.78 792.86,619.73 C 806.21,606.18 815.58,596.19 830.50,585.32 C 851.94,569.69 884.83,552.25 906.33,558.52 C 911.19,559.93 915.47,562.56 917.77,565.96 Z"/>
+    <path id="tile-outline" d="M 280 0 H 974 C 1166 0 1254 88 1254 280 V 974 C 1254 1166 1166 1254 974 1254 H 280 C 88 1254 0 1166 0 974 V 280 C 0 88 88 0 280 0 Z"/>
+    <clipPath id="tile-clip"><use xlink:href="#tile-outline"/></clipPath>
+    <clipPath id="md-clip"><use xlink:href="#md-outline"/></clipPath>
+    <linearGradient id="background" x1="0" y1="0" x2="1254" y2="1254" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff9ed"/><stop offset=".48" stop-color="#f6e4cf"/><stop offset="1" stop-color="#f1c398"/>
     </linearGradient>
-    <linearGradient id="paper-back" x1="700" y1="600" x2="811" y2="876" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff"/>
-      <stop offset="0.55" stop-color="#e0e9f7"/>
-      <stop offset="1" stop-color="#f5f8fe"/>
+    <radialGradient id="daylight" cx="180" cy="250" r="1020" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fffdf4" stop-opacity=".76"/><stop offset="1" stop-color="#fffdf4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lower-shade" cx="280" cy="1130" r="690" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b7a18c" stop-opacity=".22"/><stop offset="1" stop-color="#b7a18c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="amber-body" x1="570" y1="420" x2="690" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e5a455"/><stop offset=".45" stop-color="#f2be73"/><stop offset="1" stop-color="#e9a64e"/>
     </linearGradient>
-    <linearGradient id="paper-turn" x1="605" y1="665" x2="735" y2="760" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff"/>
-      <stop offset="0.48" stop-color="#e5eefc"/>
-      <stop offset="1" stop-color="#9fb9de"/>
+    <linearGradient id="edge-color" x1="0" y1="400" x2="0" y2="800" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9d5016"/><stop offset=".45" stop-color="#ad5c1d"/><stop offset="1" stop-color="#c8782d"/>
+    </linearGradient>
+    <linearGradient id="face-light" x1="0" y1="480" x2="0" y2="750" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff6d7" stop-opacity=".92"/><stop offset=".45" stop-color="#fff1c4" stop-opacity=".30"/><stop offset="1" stop-color="#ffedbc" stop-opacity=".06"/>
     </linearGradient>
   </defs>
-  <g id="paper">
-    <rect x="211" y="130" width="600" height="746" rx="80" fill="url(#paper-back)"/>
-    <path d="M 291 130 H 731 Q 811 130 811 210 V 480 C 811 560 777 565 693 599 C 615 632 594 674 580 771 C 569 850 541 876 461 876 H 291 Q 211 876 211 796 V 210 Q 211 130 291 130 Z" fill="url(#paper-face)"/>
+  <g id="background-art">
+    <rect width="1254" height="1254" fill="url(#background)"/>
+    <rect width="1254" height="1254" fill="url(#daylight)"/>
+    <rect width="1254" height="1254" fill="url(#lower-shade)"/>
   </g>
-  <g id="content" fill="currentColor">
-    <path id="markdown-extension" d="M 304.25 290.34 Q 310.24 290.34 313.91 293.65 Q 317.57 296.97 317.57 302.32 Q 317.57 307.61 313.91 310.95 Q 310.24 314.30 304.25 314.30 Q 298.39 314.30 294.70 310.95 Q 291.00 307.61 291.00 302.32 Q 291.00 297.03 294.70 293.69 Q 298.39 290.34 304.25 290.34 Z M 386.64 258.86 Q 389.32 256.00 392.82 254.50 Q 396.33 253.00 400.34 253.00 Q 409.01 253.00 412.83 258.13 Q 416.65 263.26 416.65 275.30 L 416.65 299.45 L 417.54 299.45 Q 420.54 299.45 422.04 301.21 Q 423.53 302.96 423.53 306.33 Q 423.53 310.16 421.97 311.78 Q 420.41 313.41 416.65 313.41 L 405.82 313.41 Q 404.10 313.41 403.14 312.67 Q 402.19 311.94 402.19 310.67 L 402.19 274.67 Q 402.19 270.40 400.85 268.29 Q 399.51 266.19 396.96 266.19 Q 393.78 266.19 392.03 269.03 Q 390.27 271.86 390.27 277.15 L 390.27 299.45 L 391.23 299.45 Q 394.16 299.45 395.69 301.21 Q 397.22 302.96 397.22 306.33 Q 397.22 310.16 395.63 311.78 Q 394.03 313.41 390.27 313.41 L 379.44 313.41 Q 377.72 313.41 376.70 312.67 Q 375.68 311.94 375.68 310.67 L 375.68 274.67 Q 375.68 270.40 374.41 268.29 Q 373.13 266.19 370.58 266.19 Q 367.40 266.19 365.58 269.06 Q 363.77 271.93 363.77 277.15 L 363.77 299.45 L 364.72 299.45 Q 367.72 299.45 369.21 301.17 Q 370.71 302.89 370.71 306.33 Q 370.71 310.16 369.12 311.78 Q 367.53 313.41 363.77 313.41 L 349.30 313.41 Q 345.61 313.41 344.01 311.75 Q 342.42 310.09 342.42 306.33 Q 342.42 302.96 343.92 301.21 Q 345.42 299.45 348.41 299.45 L 349.30 299.45 L 349.30 268.49 L 348.41 268.49 Q 345.42 268.49 343.85 266.67 Q 342.29 264.85 342.29 261.48 Q 342.29 257.78 343.92 256.16 Q 345.54 254.53 349.30 254.53 L 357.90 254.53 Q 360.52 254.53 361.44 255.58 Q 362.36 256.63 362.36 259.63 Q 364.72 256.38 368.04 254.69 Q 371.35 253.00 375.43 253.00 Q 379.12 253.00 381.86 254.44 Q 384.60 255.87 386.64 258.86 Z M 488.02 299.45 L 489.10 299.45 Q 492.54 299.45 494.26 301.21 Q 495.98 302.96 495.98 306.33 Q 495.98 310.09 494.17 311.75 Q 492.35 313.41 488.02 313.41 L 478.27 313.41 Q 476.42 313.41 475.43 312.67 Q 474.44 311.94 474.44 310.67 L 474.44 306.21 Q 471.32 310.48 466.42 312.74 Q 461.51 315.00 455.39 315.00 Q 442.90 315.00 434.49 306.49 Q 426.08 297.99 426.08 285.24 Q 426.08 271.99 434.59 263.26 Q 443.10 254.53 456.22 254.53 Q 460.75 254.53 465.05 256.03 Q 469.35 257.53 472.92 260.27 L 472.92 244.15 L 464.44 244.15 Q 460.04 244.15 458.20 242.46 Q 456.35 240.77 456.35 237.07 Q 456.35 233.31 458.20 231.66 Q 460.04 230.00 464.44 230.00 L 484.26 230.00 Q 486.42 230.00 487.22 230.89 Q 488.02 231.78 488.02 234.21 Z M 458.13 268.10 Q 451.89 268.10 447.78 272.79 Q 443.67 277.47 443.67 284.67 Q 443.67 292.06 447.75 296.74 Q 451.82 301.43 458.13 301.43 Q 464.44 301.43 468.55 296.71 Q 472.66 292.00 472.66 284.67 Q 472.66 277.53 468.52 272.82 Q 464.38 268.10 458.13 268.10 Z"/>
-    <g fill="#a6bee3">
-      <rect x="291" y="396" width="390" height="40" rx="19"/>
-      <rect x="291" y="482" width="328" height="39" rx="19"/>
-      <rect x="291" y="566" width="285" height="39" rx="19"/>
+  <g id="amber-md">
+    <use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="2" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="5" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="8" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="11" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="14" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="17" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="20" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="23" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="26" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="29" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="32" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="35" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="38" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="41" stroke-opacity=".013"/>
+<use xlink:href="#md-outline" transform="translate(0 13)" fill="none" stroke="#a0622d" stroke-width="44" stroke-opacity=".013"/>
+    <use xlink:href="#md-outline" fill="url(#amber-body)" stroke="url(#edge-color)" stroke-width="1.5" stroke-linejoin="round"/>
+    <g clip-path="url(#md-clip)">
+      <use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="2" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="3" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="4" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="5" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="6" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="7" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="8" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="9" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="10" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="11" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="12" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="13" stroke-opacity=".038"/>
+<use xlink:href="#md-outline" fill="none" stroke="#a35213" stroke-width="14" stroke-opacity=".038"/>
+      <use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="2" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="3" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="4" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="5" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="6" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="7" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="8" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="9" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="10" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="11" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="12" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="13" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="14" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(4 5)" fill="none" stroke="#fff8d9" stroke-width="15" stroke-opacity=".055"/>
+      <use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="6" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="8" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="10" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="12" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="14" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="16" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="18" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="20" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="22" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="24" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="26" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="28" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="30" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="32" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="34" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="36" stroke-opacity=".055"/>
+<use xlink:href="#md-outline" transform="translate(14 15)" fill="none" stroke="url(#face-light)" stroke-width="38" stroke-opacity=".055"/>
+      <use xlink:href="#md-outline" transform="translate(1.25 2)" fill="none" stroke="#fff7da" stroke-width="1.65" opacity=".96"/>
     </g>
-  </g>
-  <g id="page-turn">
-    <path d="M 811 480 C 811 560 777 565 693 599 C 615 632 594 674 580 771 C 569 850 541 876 461 876 C 601 866 724 726 774 618 C 803 552 811 513 811 480 Z" fill="url(#paper-turn)"/>
   </g>
 </svg>

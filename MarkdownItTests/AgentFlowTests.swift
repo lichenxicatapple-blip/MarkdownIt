@@ -144,6 +144,65 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
 
 @MainActor
 final class AgentFlowTests: AgentReaderTestCase {
+    func testRecoveryKeepsPartialAnswerDraftAndRetryWithoutAnAutomaticRequest() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        addTeardownBlock {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }
+        let store = ReaderRecoveryStore(directory: directory)
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(text: "Partial **answer**.", waitsAfterText: true, complete: false)
+        ])
+        let (session, bridge, _, _) = try await reader("# Document\n\nContent.\n", recoveryStore: store)
+        _ = try await bridge.call("toggleAgent")
+        try await send("Explain the document", bridge: bridge)
+        try await wait {
+            let turns = try await self.state(bridge)["turns"] as? [[String: Any]]
+            return turns?.last?["state"] as? String == "streaming"
+        }
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-composer textarea').value = 'Follow-up draft';")
+        try await wait { bridge.composer.checkpoint()?.text == "Follow-up draft" }
+        await session.checkpointForBackground()
+        let requests = AgentFixtureProtocol.queue.requests().count
+        session.agentTransport.cancel()
+        bridge.detach()
+        _ = await session.document?.closeSavingChanges()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentFixtureProtocol.self]
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defaults.set("https://agent.example.test/v1", forKey: "model.baseURL")
+        defaults.set("fixture-model", forKey: "model.id")
+        defaults.set(ModelAPIProtocol.chatCompletions.rawValue, forKey: "model.apiProtocol")
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        let next = ReaderSession(
+            defaults: defaults,
+            modelClient: ModelClient(session: URLSession(configuration: configuration)), modelKey: { "fixture-key" },
+            modelSettings: isolatedModelSettings(), recoveryStore: ReaderRecoveryStore(directory: directory))
+        addTeardownBlock { @MainActor in await next.closeDocument() }
+        await next.restoreLastSession()
+        let (restored, _) = try await mountReader(next)
+        try await wait { next.agentOpen && restored.composer.checkpoint()?.text == "Follow-up draft" }
+        let status = try await state(restored)
+        let turns = try XCTUnwrap(status["turns"] as? [[String: Any]])
+        XCTAssertEqual(turns.count, 2)
+        XCTAssertEqual(turns.last?["state"] as? String, "failed")
+        let answer = try await restored.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-assistant-turn .mdv-rich-text').textContent")
+        XCTAssertTrue((answer as? String)?.contains("Partial answer.") == true)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, requests, "Restoration must not send an AI request")
+        next.dataConsent.allow(try ModelDataConsent.service(for: next.configuration))
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "Complete answer.")])
+        _ = try await restored.webView.evaluateJavaScript("document.querySelector('[data-agent-action=retry]').click()")
+        try await completed(restored)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+        XCTAssertEqual(restored.composer.checkpoint()?.text, "Follow-up draft")
+    }
+
     func testClosingConversationWaitsForItsPresentationToFinish() async throws {
         let (session, bridge, _, _) = try await reader("# Document\n\nContent.\n")
         _ = try await bridge.call("toggleAgent")
@@ -244,14 +303,15 @@ final class AgentFlowTests: AgentReaderTestCase {
     private func reader(
         _ text: String, api: ModelAPIProtocol = .chatCompletions,
         baseURL: String = "https://agent.example.test/v1", model: String = "fixture-model",
-        modelKey: @escaping @MainActor () -> String = { "fixture-key" }, dataSharingAllowed: Bool = true
+        modelKey: @escaping @MainActor () -> String = { "fixture-key" }, dataSharingAllowed: Bool = true,
+        recoveryStore: ReaderRecoveryStore? = nil
     ) async throws -> (ReaderSession, ReaderBridge, UIWindow, URL) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AgentFixtureProtocol.self]
         return try await makeReader(
             text, api: api, baseURL: baseURL, model: model,
             modelClient: ModelClient(session: URLSession(configuration: configuration)),
-            modelKey: modelKey, dataSharingAllowed: dataSharingAllowed)
+            modelKey: modelKey, dataSharingAllowed: dataSharingAllowed, recoveryStore: recoveryStore)
     }
 
     private func completed(_ bridge: ReaderBridge, count: Int = 2, timeout: TimeInterval = 30) async throws {

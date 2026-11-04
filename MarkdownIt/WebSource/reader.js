@@ -571,6 +571,7 @@
     /* native-agent */
     const agentExperience = window.MarkdownItAgent.create({
       ensureConfigured: ensureNativeAgentConfigured,
+      onCheckpoint: scheduleRecovery,
       provider: createNativeAgentTransport(), nativeInputs,
       app, panel: agent, renderMarkdown: renderRichMarkdown, fragmentIdentifier,
       enhance: enhanceDocument, motion, reducedMotion,
@@ -588,6 +589,7 @@
     });
     updateDocument();
     function render() {
+      scheduleRecovery();
       const hasOutline = headings.length > 0;
       const previousRect = agent.hidden ? null : agent.getBoundingClientRect();
       const presentation = resolvePanelLayout();

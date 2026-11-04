@@ -653,8 +653,31 @@
       });
     }
     new MutationObserver(updateSymbols).observe(app, {childList:true,subtree:true});
+    let recoveryFrame = 0;
+    let recovering = false;
+    function scheduleRecovery() {
+      if (recovering || recoveryFrame || !nativeToken) return;
+      recoveryFrame = requestAnimationFrame(() => {
+        recoveryFrame = 0;
+        if (!recovering) postNative({ type: 'recoveryChanged', token: nativeToken });
+      });
+    }
+    function captureRecovery() {
+      return { mode: state.mode, transitioning: !!app.dataset.modeTransition, outline: state.outline, agent: state.agent,
+        anchor: pinnedAnchor || captureReadingPosition(), nativeRequestSequence, lastActivePanel,
+        composerEpoch: nativeInputs.epoch('question'),
+        outlineScroll: outlineBody.scrollTop, outlinePaused: outlineFollowPaused,
+        branches: [...outlineBody.querySelectorAll('.mdv-outline-branch')].filter(branch => branch.dataset.expanded !== 'true').map(branch => branch.id),
+        previewDetails: [...reader.querySelectorAll('details')].map(details => details.open),
+        frozenImages: [...frozenImageIDs], conversation: agentExperience.capture() };
+    }
+    addEventListener('scroll', scheduleRecovery, { passive: true, capture: true });
+    app.addEventListener('toggle', scheduleRecovery, true);
     window.MarkdownIt = {
+      captureRecovery,
+
       async openDocument(document) {
+        recovering = true;
         pendingNativeAgentConsent?.resolve(false);
         pendingNativeAgentConsent = null;
         nativeRequests.clear();
@@ -675,8 +698,39 @@
         state.mode = 'preview'; displayedMode = 'preview'; state.agent = false;
         selection = ''; pinnedAnchor = null; lastPosition = null; layoutReadingAnchor = null; transitionAnchor = null;
         stopOutlineFollow(); outlineFollowPaused = false; outlineBody.scrollTop = 0;
-        updateDocument(); render(); await documentReady;
-        window.scrollTo(0,0);
+        updateDocument();
+        const saved = document.recovery;
+        if (saved) {
+          nativeRequestSequence = saved.nativeRequestSequence || 0;
+          lastActivePanel = saved.lastActivePanel || 'outline';
+          freezeImages(saved.frozenImages || []);
+          agentExperience.restore(saved.conversation || {});
+          state.mode = saved.mode === 'source' ? 'source' : 'preview';
+          displayedMode = state.mode;
+          state.outline = !!saved.outline;
+          state.agent = !!saved.agent;
+          nativeSourcePosition = saved.transitioning ? saved.anchor : document.sourcePosition || saved.anchor;
+          pinnedAnchor = state.mode === 'source' ? nativeSourcePosition : saved.anchor;
+          layoutReadingAnchor = pinnedAnchor;
+          [...reader.querySelectorAll('details')].forEach((details, index) => { details.open = !!saved.previewDetails?.[index]; });
+          for (const id of saved.branches || []) {
+            const branch = document.getElementById(id);
+            if (!branch?.classList.contains('mdv-outline-branch')) continue;
+            branch.dataset.expanded = 'false'; branch.inert = true;
+            branch.setAttribute('aria-hidden', 'true');
+            app.querySelector(`[data-collapse-heading="${CSS.escape(id)}"]`)?.setAttribute('aria-expanded', 'false');
+          }
+        }
+        render(); await documentReady;
+        if (saved) {
+          pinnedAnchor = state.mode === 'source' ? nativeSourcePosition : saved.anchor;
+          restoreReadingPosition(pinnedAnchor);
+          outlineFollowPaused = !!saved.outlinePaused;
+          if (outlineFollowPaused) { stopOutlineFollow(); outlineBody.scrollTop = saved.outlineScroll || 0; }
+          agentExperience.finishRestore(saved.conversation || {});
+        } else window.scrollTo(0,0);
+        recovering = false;
+        scheduleRecovery();
         window.lucide.createIcons(); updateSymbols();
         postNative({type:'documentReady',token:nativeToken});
         return this.diagnostics();
@@ -864,6 +918,7 @@
       function update(payload) {
         const entry = entries.get(payload.id);
         if (!entry || payload.epoch !== entry.epoch) return false;
+        if (entry.field.value === payload.text) return true;
         notePanelInteraction('agent');
         applying = true;
         entry.field.value = payload.text;
@@ -909,12 +964,13 @@
       addEventListener('resize', trackLayout);
       window.visualViewport?.addEventListener('resize', trackLayout);
       schedule();
-      return { register, update, commit, trackLayout, get committing() { return committing; }, requestSubmit(id) { postNative({ type: 'inputSubmit', id }); },
+      return { register, update, commit, trackLayout, epoch(id) { return entries.get(id)?.epoch; }, get committing() { return committing; }, requestSubmit(id) { postNative({ type: 'inputSubmit', id }); },
         blur() { focused = null; postNative({ type: 'inputBlur' }); }, clear() { focused = null; for (const entry of entries.values()) entry.field.value = ''; }, focused: () => focused };
     })();
 
     const agentExperience = window.MarkdownItAgent.create({
       ensureConfigured: ensureNativeAgentConfigured,
+      onCheckpoint: scheduleRecovery,
       provider: createNativeAgentTransport(), nativeInputs,
       app, panel: agent, renderMarkdown: renderRichMarkdown, fragmentIdentifier,
       enhance: enhanceDocument, motion, reducedMotion,
@@ -932,6 +988,7 @@
     });
     updateDocument();
     function render() {
+      scheduleRecovery();
       const hasOutline = headings.length > 0;
       const previousRect = agent.hidden ? null : agent.getBoundingClientRect();
       const presentation = resolvePanelLayout();

@@ -4,10 +4,8 @@
   "exports" : [
     "mark.svg",
     "mark.png",
-    "app-icon-light.svg",
-    "app-icon-light.png",
-    "app-icon-dark.svg",
-    "app-icon-dark.png"
+    "app-icon.svg",
+    "app-icon.png"
   ],
   "masking" : "Unmasked squares. The system applies enclosure and appearance through the .icon package.",
   "name" : "MarkdownIt",

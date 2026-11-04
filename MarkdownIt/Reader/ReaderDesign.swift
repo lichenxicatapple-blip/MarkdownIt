@@ -27,8 +27,8 @@ enum ReaderDesign {
     static let documentCloseDuration: TimeInterval = 0.62
     static let inputAvoidanceDuration: TimeInterval = 0.22
     static let contentDuration: TimeInterval = 0.14
-    static let homeDuration: TimeInterval = 0.52
-    static let homeStagger: TimeInterval = 0.13
+    static let homeDuration: TimeInterval = 0.56
+    static let homeStagger: TimeInterval = 0.09
     static let documentCloseAnticipation: TimeInterval = 0.1
     static let documentCloseSettle: TimeInterval = 0.18
 }

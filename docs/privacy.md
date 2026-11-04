@@ -4,7 +4,7 @@
 
 ## 中文
 
-**更新日期：** 2026-11-01\
+**更新日期：** 2026-11-03\
 **发布者：** CHENXI LI（个人开发者）\
 **联系邮箱：** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -26,8 +26,9 @@ MarkdownIt! 是本地 Markdown 阅读与编辑工具，不要求注册账号，�
 | AI 发送授权 | 在设备上保存已允许服务地址的摘要标识。对同一服务不重复询问；切换模型或更新密钥不改变该授权。 |
 | API Key | 保存在本机钥匙串，采用设备解锁时可访问、仅限本设备的保护等级。密钥由原生网络层用于认证，不交给文档渲染网页，也不作为 AI 对话正文发送。 |
 
-AI 对话和编辑上下文在当前文档会话中处理，不另行保存为应用的持久化对话历史。
-关闭或切换文档会结束该会话；收起 AI 面板本身不会结束会话。
+为在系统终止应用后继续阅读，应用会在本机保存当前文档的恢复数据，包括工作文本、撤销／重做历史、阅读位置与选区，以及 AI 对话、引用图片快照和未发送草稿。恢复数据采用系统文件保护，不参与设备备份，不发送给开发者。模型连接信息仍仅保存在钥匙串，不写入恢复数据。
+
+成功关闭或切换文档会清除对应会话的恢复数据；收起 AI 面板或切到后台不会清除。未完成的回答保留已接收内容，等待你决定是否重试。无法重新访问原文件时，恢复数据保留在设备上，不覆盖其他文件。
 
 ### 3. 可选 AI 服务及模型列表查询
 
@@ -100,7 +101,7 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 
 ## English
 
-**Last updated:** 2026-11-01\
+**Last updated:** 2026-11-03\
 **Publisher:** CHENXI LI (individual developer)\
 **Contact:** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -124,9 +125,9 @@ document storage, synchronization or AI relay servers.
 | AI sending permission | Digest identifiers of allowed service addresses are stored on your device. Permission is remembered for each service; changing its model or API key does not change that permission. |
 | API key | Stored in the device’s Keychain using protection that allows access while the device is unlocked and restricts the item to that device. The native network layer uses the key for authentication. It is not provided to document-rendering web content or sent as AI conversation text. |
 
-AI conversations and editing context are processed within the current document session,
-without being saved as persistent conversation history by the app. Closing or switching
-documents ends the session; collapsing the AI panel alone does not.
+To resume after the system terminates the app, the app saves recovery data for the current document on your device: working text, undo/redo history, reading position and selection, AI conversations, referenced image snapshots and unsent drafts. Recovery data uses system file protection, is excluded from device backups and is not sent to the developer. Model connection information remains solely in the Keychain and is not included in recovery data.
+
+Successfully closing or switching documents clears the corresponding session’s recovery data. Collapsing the AI panel or moving to the background does not. An interrupted answer keeps the content already received and waits for you to choose whether to retry. If the original file cannot be accessed, recovery data remains on the device without overwriting other files.
 
 ### 3. Optional AI services and model-list requests
 

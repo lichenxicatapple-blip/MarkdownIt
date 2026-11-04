@@ -21,10 +21,9 @@ struct ReaderScreen: View {
     @State private var modelSettingsPresented = false
     @State private var modelSettingsOpening = false
     @State private var importing = false
-    @State private var importingFolder = false
     @State private var toolsExpanded = false
     @State private var modelSettingsSaved = false
-    @State private var visibleHomeItems: Set<HomeItem> = []
+    @State private var homeVisible = false
     @State private var recentsPresented = false
     @State private var privacyPresented = false
     @AccessibilityFocusState private var focusedAction: ReaderAccessibilityAction?
@@ -43,7 +42,9 @@ struct ReaderScreen: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                if session.document == nil {
+                if session.restoringSession {
+                    ProgressView().accessibilityLabel("Restoring reading session")
+                } else if session.document == nil {
                     welcome
                         .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
                             VStack(alignment: .trailing, spacing: 0) {
@@ -66,6 +67,7 @@ struct ReaderScreen: View {
                 } else {
                     ZStack {
                         ReaderWebView(session: session)
+                            .opacity(session.rendererReady ? 1 : 0)
                             .ignoresSafeArea(.all, edges: .bottom)
                         if !session.rendererReady { ProgressView().accessibilityLabel("Formatting document") }
                     }
@@ -149,25 +151,18 @@ struct ReaderScreen: View {
         }
         .background(Color(uiColor: .systemBackground))
         .fileImporter(
-            isPresented: $importing, allowedContentTypes: importingFolder ? [.folder] : markdownTypes,
+            isPresented: $importing, allowedContentTypes: markdownTypes,
             allowsMultipleSelection: false
         ) { result in
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
-                if importingFolder {
-                    Task {
-                        await session.grant(url)
-                        session.reloadResources()
-                    }
-                } else {
-                    Task { await session.open(url) }
-                }
+                Task { await session.open(url) }
             case .failure(let error):
                 if (error as NSError).code != NSUserCancelledError { session.errorMessage = error.localizedDescription }
             }
         }
-        .fileDialogDefaultDirectory(importingFolder ? session.resourcePermissionDirectory : nil)
+        .modifier(ResourceFolderPermission(session: session))
         .sheet(
             isPresented: $modelSettingsPresented,
             onDismiss: {
@@ -192,14 +187,13 @@ struct ReaderScreen: View {
         } message: {
             Text(session.errorMessage ?? "")
         }
-        .alert("Load Local Images", isPresented: alertPresentation(\.needsResourcePermission)) {
-            Button("Continue") {
-                importingFolder = true
-                importing = true
+        .alert("Document Changed", isPresented: $session.recoveryConflict) {
+            Button("Use Recovered Changes", role: .destructive) {
+                session.resolveRecoveryConflict(useRecoveredChanges: true)
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Use File on Disk") { session.resolveRecoveryConflict(useRecoveredChanges: false) }
         } message: {
-            Text("Access to the “\(session.resourcePermissionDirectory?.lastPathComponent ?? "")” folder is required.")
+            Text("This file was changed outside the app. Choose which version to keep.")
         }
         .alert(
             "Allow Sending to This AI Service?",
@@ -266,10 +260,14 @@ struct ReaderScreen: View {
             let markSize = min(ReaderDesign.homeMark, max(ReaderDesign.homeMark / 2, geometry.size.height * 0.22))
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(HomeItem.allCases, id: \.self) { item in
-                        let visible = reduceMotion || visibleHomeItems.contains(item)
+                    ForEach(Array(HomeItem.allCases.enumerated()), id: \.element) { index, item in
+                        let visible = reduceMotion || homeVisible
                         homeContent(item, markSize: markSize)
-                            .modifier(HomeEntrance(visible: visible, reduceMotion: reduceMotion))
+                            .modifier(
+                                HomeEntrance(
+                                    visible: visible, delay: Double(index) * ReaderDesign.homeStagger,
+                                    reduceMotion: reduceMotion)
+                            )
                             .accessibilityHidden(item == .mark || !visible)
                             .padding(.top, item.spacingBefore)
                     }
@@ -280,11 +278,15 @@ struct ReaderScreen: View {
             }
             .scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
         }
-        .task(id: reduceMotion) { await revealHome() }
+        .task {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            homeVisible = true
+        }
         .onDisappear {
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
-            withTransaction(transaction) { visibleHomeItems.removeAll() }
+            withTransaction(transaction) { homeVisible = false }
         }
     }
 
@@ -333,24 +335,6 @@ struct ReaderScreen: View {
             .onChange(of: recentsPresented) { _, presented in
                 if !presented && session.document == nil { focusedAction = .recents }
             }
-        }
-    }
-
-    private func revealHome() async {
-        if reduceMotion {
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { visibleHomeItems = Set(HomeItem.allCases) }
-            return
-        }
-        guard visibleHomeItems.isEmpty else { return }
-        await Task.yield()
-        for (index, item) in HomeItem.allCases.enumerated() {
-            if index > 0 {
-                do { try await Task.sleep(for: .seconds(ReaderDesign.homeStagger)) } catch { return }
-            }
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: ReaderDesign.homeDuration)) { _ = visibleHomeItems.insert(item) }
         }
     }
 
@@ -472,7 +456,6 @@ struct ReaderScreen: View {
     }
 
     private func openDocument() {
-        importingFolder = false
         importing = true
     }
 
@@ -487,12 +470,16 @@ struct ReaderScreen: View {
 
 private struct HomeEntrance: ViewModifier {
     let visible: Bool
+    let delay: TimeInterval
     let reduceMotion: Bool
 
     func body(content: Content) -> some View {
         content.opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : -ReaderDesign.homeEntranceOffset)
             .allowsHitTesting(visible)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: ReaderDesign.homeDuration).delay(delay), value: visible
+            )
             .transaction {
                 if reduceMotion {
                     $0.animation = nil

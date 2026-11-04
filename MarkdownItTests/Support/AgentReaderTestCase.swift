@@ -36,7 +36,7 @@ class AgentReaderTestCase: XCTestCase {
         _ text: String, api: ModelAPIProtocol = .chatCompletions,
         baseURL: String, model: String,
         modelClient: ModelClient, modelKey: @escaping @MainActor () -> String,
-        dataSharingAllowed: Bool = true
+        dataSharingAllowed: Bool = true, recoveryStore: ReaderRecoveryStore? = nil
     ) async throws -> (
         ReaderSession, ReaderBridge, UIWindow, URL
     ) {
@@ -54,14 +54,23 @@ class AgentReaderTestCase: XCTestCase {
         let session = ReaderSession(
             defaults: defaults,
             modelClient: modelClient,
-            modelKey: modelKey, modelSettings: isolatedModelSettings())
-        addTeardownBlock { @MainActor in await session.closeDocument() }
+            modelKey: modelKey, modelSettings: isolatedModelSettings(), recoveryStore: recoveryStore)
+        addTeardownBlock { @MainActor in
+            if let document = session.document, !document.documentState.contains(.closed) {
+                await session.closeDocument()
+            }
+        }
         if dataSharingAllowed, let service = try? ModelDataConsent.service(for: session.configuration) {
             session.dataConsent.allow(service)
         }
         await session.grant(root)
         await session.open(url)
         _ = try XCTUnwrap(session.document, session.errorMessage ?? "The fixture document must open before rendering")
+        let (bridge, window) = try await mountReader(session)
+        return (session, bridge, window, url)
+    }
+
+    func mountReader(_ session: ReaderSession) async throws -> (ReaderBridge, UIWindow) {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKeyWindow = scene.keyWindow
         let window = UIWindow(windowScene: scene)
@@ -86,7 +95,7 @@ class AgentReaderTestCase: XCTestCase {
             }
             return session.rendererReady && bridge.ready
         }
-        return (session, bridge, window, url)
+        return (bridge, window)
     }
 
     func state(_ bridge: ReaderBridge) async throws -> [String: Any] {
