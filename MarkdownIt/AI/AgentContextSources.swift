@@ -3,6 +3,11 @@ import Foundation
 
 /// Immutable request materials. IDs survive history compaction; no paths can be opened by this tool.
 struct AgentContextSources: Codable, Sendable {
+    static let invalidReadArguments = AgentToolExecution(
+        output:
+            #"{"error":"invalid_arguments","message":"offset must be an in-range UTF-8 byte boundary. Use a returned nextOffset to continue, or offset:null with query to find text. Do not guess byte positions. Only documentID, offset and query are accepted."}"#
+    )
+
     struct Source: Codable, Sendable {
         let id: String
         let content: String
@@ -29,11 +34,17 @@ struct AgentContextSources: Codable, Sendable {
         sources[id] = Source(id: id, content: content)
     }
 
-    func read(_ call: ModelToolCall, maxBytes: Int) throws -> AgentToolExecution? {
-        let args = try ModelWireFormat.object(Data(call.arguments.utf8))
-        guard let id = args["documentID"] as? String else { return nil }
-        guard let source = sources[id] else { return nil }
-        return try Self.read(source.content, arguments: args, maxBytes: maxBytes, id: id)
+    func read(_ call: ModelToolCall, maxBytes: Int) -> AgentToolExecution? {
+        do {
+            let args = try ModelWireFormat.object(Data(call.arguments.utf8))
+            guard let id = args["documentID"] as? String else { return nil }
+            guard let source = sources[id] else { return nil }
+            return try Self.read(source.content, arguments: args, maxBytes: maxBytes, id: id)
+        } catch {
+            // A rejected tool argument is a tool result, not an unreadable model
+            // response. Journal it so restored requests can advance past the call.
+            return Self.invalidReadArguments
+        }
     }
 
     static func read(

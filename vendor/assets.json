@@ -22,6 +22,35 @@
     "licenseSha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473"
   },
   {
+    "file": "markdown-it-cjk-friendly.js",
+    "url": "https://cdn.jsdelivr.net/npm/markdown-it-cjk-friendly@3.0.0/dist/index.js",
+    "sourceSha256": "a90710d493422a71e21d8b3acca36406e9a310e0c00ca0d3fe08c04ed09abe55",
+    "licenseFile": "markdown-it-cjk-friendly.LICENSE",
+    "licenseURL": "https://cdn.jsdelivr.net/npm/markdown-it-cjk-friendly@3.0.0/LICENSE",
+    "package": "markdown-it-cjk-friendly",
+    "version": "3.0.0",
+    "license": "MIT",
+    "sha256": "3a72a80ebdd8d9afc25c4290d5dd3f7ab593516aa0d0efabad333540e943474f",
+    "licenseSha256": "f51b21bdffa185b783f928da3fe582f3bf6587e9ee9d34ef50254992c7d88b6a",
+    "bundledDependencies": [
+      {
+        "package": "get-east-asian-width",
+        "version": "1.4.0",
+        "license": "MIT",
+        "url": "https://registry.npmjs.org/get-east-asian-width/-/get-east-asian-width-1.4.0.tgz",
+        "integrity": "sha512-QZjmEOC+IT1uk6Rx0sX22V6uHWVwbdbxf1faPqJ1QhLdGgsRGCZoyaQBm/piRdJy/D2um6hM1UP7ZEeQ4EkP+Q==",
+        "licenseURL": "https://cdn.jsdelivr.net/npm/get-east-asian-width@1.4.0/license"
+      }
+    ],
+    "bundle": {
+      "tool": "esbuild",
+      "version": "0.25.12",
+      "format": "iife",
+      "globalName": "MarkdownItCjkFriendly",
+      "target": "safari18"
+    }
+  },
+  {
     "file": "highlight.js",
     "url": "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js",
     "licenseFile": "highlight.LICENSE",

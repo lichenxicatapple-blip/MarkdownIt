@@ -275,6 +275,7 @@
       "selector": ".mdv-rich-text",
       "invariants": [
         "Content surfaces share the parser, sanitizer and offline extensions.",
+        "CJK-friendly emphasis rules apply to documents, quotes, user messages, streaming answers and restored history through the same parser; source text and escaped/code literals remain unchanged.",
         "Message and reference anchors are scoped to their own rendered content."
       ],
       "specification": "design/README.md#文档渲染范围"

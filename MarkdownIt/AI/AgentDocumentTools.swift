@@ -140,7 +140,7 @@ final class AgentDocumentTools {
             default: return result(["error": "unknown_tool"])
             }
         } catch {
-            if call.name == "read_document" { return result(["error": "invalid_arguments"]) }
+            if call.name == "read_document" { return AgentContextSources.invalidReadArguments }
             return result(["error": "invalid_edit", "message": "原文必须逐字匹配、唯一且互不重叠；未执行这次修改。"])
         }
     }

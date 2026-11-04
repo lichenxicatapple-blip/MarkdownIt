@@ -7,6 +7,7 @@ import XCTest
 private struct AgentFixture: Sendable {
     var status = 200
     var text = ""
+    var chunks: [String] = []
     var delay: TimeInterval = 0
     var waitsForCancellation = false
     var waitsAfterText = false
@@ -118,22 +119,25 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
                     client?.urlProtocolDidFinishLoading(self)
                     return
                 }
-                let payload: [String: Any] =
-                    responses
-                    ? ["type": "response.output_text.delta", "delta": fixture.text]
-                    : ["choices": [["delta": ["content": fixture.text]]]]
-                let json = try! JSONSerialization.data(withJSONObject: payload)
-                var data = Data("data: ".utf8)
-                data.append(json)
-                data.append(Data("\n\n".utf8))
-                if fixture.complete {
-                    data.append(
-                        Data(
-                            (responses
-                                ? "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
-                                : "data: [DONE]\n\n").utf8))
+                let chunks = fixture.chunks.isEmpty ? [fixture.text] : fixture.chunks
+                for (index, chunk) in chunks.enumerated() {
+                    let payload: [String: Any] =
+                        responses
+                        ? ["type": "response.output_text.delta", "delta": chunk]
+                        : ["choices": [["delta": ["content": chunk]]]]
+                    let json = try! JSONSerialization.data(withJSONObject: payload)
+                    var data = Data("data: ".utf8)
+                    data.append(json)
+                    data.append(Data("\n\n".utf8))
+                    if fixture.complete && index == chunks.count - 1 {
+                        data.append(
+                            Data(
+                                (responses
+                                    ? "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+                                    : "data: [DONE]\n\n").utf8))
+                    }
+                    client?.urlProtocol(self, didLoad: data)
                 }
-                client?.urlProtocol(self, didLoad: data)
                 if fixture.waitsAfterText { return }
             }
             client?.urlProtocolDidFinishLoading(self)
@@ -144,6 +148,126 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
 
 @MainActor
 final class AgentFlowTests: AgentReaderTestCase {
+    private let cjkMarkdown = #"""
+        **Merger Mixed Consideration（混合对价合并）**就是一种合并方式。
+
+        再用**CIL（零碎股现金替代）**支付，**cost basis（计税成本）**经调整后转移。
+
+        同时触发**持仓系统（数量+成本）、主数据（价格）、期权系统（合约数）**三条线更新。
+
+        **日本語。**続き。**한국어。**다음。
+
+        *强调（斜体）*后续，~~旧值（删除）~~改为新值。
+
+        字面标记 \*\*保留（符号）\*\*文本；English **Latin (term)**next；word_with_underscores。
+
+        行内代码 `**CIL（零碎股现金替代）**支付`，以及公式 $x^2$。
+
+        ```text
+        **cost basis（计税成本）**经调整
+        ```
+        """#
+
+    private let cjkBold = [
+        "Merger Mixed Consideration（混合对价合并）", "CIL（零碎股现金替代）", "cost basis（计税成本）",
+        "持仓系统（数量+成本）、主数据（价格）、期权系统（合约数）", "日本語。", "한국어。",
+    ]
+
+    private func assertCJKFormatting(_ selector: String, bridge: ReaderBridge) async throws {
+        let result =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const content = document.querySelector(selector);
+                const texts = tag => [...content.querySelectorAll(tag)].map(node => node.textContent);
+                return {strong:texts('strong'), em:texts('em'), del:texts('s,del'), code:texts('code'),
+                  text:content.textContent};
+                """, arguments: ["selector": selector], in: nil, contentWorld: .page) as? [String: Any]
+        let value = try XCTUnwrap(result)
+        XCTAssertEqual(value["strong"] as? [String], cjkBold, selector)
+        XCTAssertEqual(value["em"] as? [String], ["强调（斜体）"], selector)
+        XCTAssertEqual(value["del"] as? [String], ["旧值（删除）"], selector)
+        let code = try XCTUnwrap(value["code"] as? [String])
+        XCTAssertEqual(code.count, 2)
+        XCTAssertEqual(code.first, "**CIL（零碎股现金替代）**支付")
+        // Captured preview HTML retains the source fence inside its code snapshot.
+        XCTAssertTrue(
+            ["**cost basis（计税成本）**经调整\n", "```text\n**cost basis（计税成本）**经调整\n```"].contains(code[1]))
+        let text = try XCTUnwrap(value["text"] as? String)
+        XCTAssertTrue(text.contains("**保留（符号）**文本"))
+        XCTAssertTrue(text.contains("**Latin (term)**next"))
+        XCTAssertTrue(text.contains("word_with_underscores"))
+    }
+
+    func testCJKEmphasisIsSharedByPreviewReferencesAndConversation() async throws {
+        for api in ModelAPIProtocol.allCases {
+            AgentFixtureProtocol.queue.reset([AgentFixture(text: cjkMarkdown)])
+            let (session, bridge, _, _) = try await reader(cjkMarkdown, api: api)
+            try await assertCJKFormatting(".mdv-article", bridge: bridge)
+            _ = try await bridge.webView.evaluateJavaScript(
+                """
+                (() => { const range = document.createRange();
+                  range.selectNodeContents(document.querySelector('.mdv-article'));
+                  getSelection().removeAllRanges(); getSelection().addRange(range); })()
+                """)
+            _ = try await bridge.call("askSelection")
+            try await wait { session.agentOpen }
+            try await assertCJKFormatting(".mdv-composer-reference .mdv-rich-text", bridge: bridge)
+            try await sourceMode(bridge)
+            try selectSource(cjkMarkdown, bridge: bridge)
+            _ = try await bridge.call("askSelection")
+            try await assertCJKFormatting(".mdv-composer-reference .mdv-rich-text", bridge: bridge)
+            try await send("解释**术语（示例）**含义。", bridge: bridge)
+            try await completed(bridge)
+            try await assertCJKFormatting(".mdv-assistant-turn > .mdv-rich-text", bridge: bridge)
+            let questionBold =
+                try await bridge.webView.evaluateJavaScript(
+                    "document.querySelector('.mdv-user-turn > .mdv-rich-text strong')?.textContent") as? String
+            XCTAssertEqual(questionBold, "术语（示例）")
+            let captured = try await bridge.call("captureRecovery")
+            let saved = try XCTUnwrap(captured as? [String: Any])
+            _ = try await bridge.call(
+                "openDocument",
+                arguments: [
+                    "payload": [
+                        "token": session.documentToken, "name": "cjk.md", "text": cjkMarkdown, "recovery": saved,
+                    ]
+                ])
+            try await assertCJKFormatting(".mdv-assistant-turn > .mdv-rich-text", bridge: bridge)
+            XCTAssertEqual(
+                AgentFixtureProtocol.queue.requests().count, 1, "Restoring must only render the stored answer")
+            XCTAssertEqual(session.document?.text, cjkMarkdown)
+        }
+    }
+
+    func testFragmentedCJKRepliesPreserveFormattingWhileStreamingAndAfterStop() async throws {
+        let chunks = ["**CIL（零碎股现金", "替代）*", "*支付。\n\n", "*中文（斜体）", "*后续，~~旧值（删除）~", "~改为新值。"]
+        for api in ModelAPIProtocol.allCases {
+            AgentFixtureProtocol.queue.reset([AgentFixture(chunks: chunks, waitsAfterText: true, complete: false)])
+            let (session, bridge, _, _) = try await reader("# 文档\n\n正文。", api: api)
+            _ = try await bridge.call("toggleAgent")
+            try await send("解释", bridge: bridge)
+            try await wait {
+                try await bridge.webView.evaluateJavaScript(
+                    "document.querySelector('.mdv-assistant-turn[data-state=streaming] :is(s,del)')?.textContent === '旧值（删除）'"
+                )
+                    as? Bool == true
+            }
+            _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
+            try await wait { session.agentTransport.activeID == nil }
+            let result =
+                try await bridge.webView.evaluateJavaScript(
+                    """
+                    (() => { const turn = document.querySelector('.mdv-assistant-turn');
+                      return {strong:turn.querySelector('strong')?.textContent, em:turn.querySelector('em')?.textContent,
+                        del:turn.querySelector('s,del')?.textContent, state:turn.dataset.state}; })()
+                    """) as? [String: String]
+            XCTAssertEqual(result?["strong"], "CIL（零碎股现金替代）")
+            XCTAssertEqual(result?["em"], "中文（斜体）")
+            XCTAssertEqual(result?["del"], "旧值（删除）")
+            XCTAssertEqual(result?["state"], "stopped")
+        }
+    }
+
     func testRecoveryKeepsPartialAnswerDraftAndRetryWithoutAnAutomaticRequest() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
@@ -1645,6 +1769,81 @@ final class AgentFlowTests: AgentReaderTestCase {
         try await wait { session.document?.text == original }
         _ = bridge.moveSourceHistory(forward: true)
         try await wait { session.document?.text == "# 文档\n\n新文。\n" }
+    }
+
+    func testRestoredInvalidReadReturnsToolErrorAndContinuesWithoutRepeatingCompletedCalls() async throws {
+        let text = String(repeating: "中文😀\n", count: 7000)
+        let doc = AgentAttachment(
+            text: text, markdown: text, mode: "preview", scope: "document", location: nil, start: nil, end: nil)
+        let snapshot = AgentSnapshot(
+            question: "Explain this document", attachment: nil,
+            history: [.init(role: "user", markdown: "Explain this document", attachment: nil, document: doc)],
+            document: doc)
+        let documentID = AgentContextSources.id(text)
+        for api in ModelAPIProtocol.allCases {
+            func call(_ id: String, offset: Int?, query: String? = nil) throws -> ModelToolCall {
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "documentID": documentID, "offset": offset as Any? ?? NSNull(),
+                    "query": query as Any? ?? NSNull(),
+                ])
+                return .init(id: id, name: "read_document", arguments: String(decoding: data, as: UTF8.self))
+            }
+            let valid = try call("read-first", offset: 0)
+            let invalid = try call("read-invalid-boundary", offset: 1)
+            let repaired = try call("read-by-query", offset: nil, query: "中文")
+            AgentFixtureProtocol.queue.reset([
+                AgentFixture(calls: [valid]), AgentFixture(calls: [invalid]),
+                AgentFixture(calls: [repaired]), AgentFixture(text: "Recovered answer."),
+            ])
+            let session = URLSessionConfiguration.ephemeral
+            session.protocolClasses = [AgentFixtureProtocol.self]
+            let client = ModelClient(session: URLSession(configuration: session))
+            let transport = AgentModelTransport(client: client)
+            let configuration = ModelConfiguration(
+                baseURL: "https://agent.example.test/v1", model: "fixture", apiProtocol: api)
+            var recovery: AgentModelTransport.Recovery?
+            transport.checkpoint = {
+                if let state = transport.recovery(), state.pendingTurn?.calls.first?.id == invalid.id {
+                    recovery = state
+                    transport.cancel()
+                }
+            }
+            transport.start(
+                id: "before-termination", token: "document", snapshot: snapshot, intent: "question",
+                configuration: configuration, key: "fixture-key",
+                emit: { event in
+                    if event.type == "failure" { XCTFail("Unexpected failure before checkpoint") }
+                })
+            try await wait { recovery != nil }
+            XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 2)
+            let saved = try XCTUnwrap(recovery)
+            XCTAssertEqual(saved.exchanges.count, 1)
+            XCTAssertTrue(saved.pendingOutputs.isEmpty)
+            let restored = AgentModelTransport(client: client)
+            try restored.restore(saved)
+            var finished = false
+            restored.start(
+                id: "manual-retry", token: "document", snapshot: snapshot, intent: "question",
+                configuration: configuration, key: "fixture-key",
+                emit: { event in
+                    if event.type == "failure" { XCTFail("Invalid tool arguments must not fail the answer") }
+                    if event.type == "complete" { finished = true }
+                })
+            try await wait { finished }
+            let requests = AgentFixtureProtocol.queue.requests()
+            XCTAssertEqual(requests.count, 4, "Resume must not repeat the already completed reading requests")
+            let continuation = String(decoding: requests[2], as: UTF8.self)
+            XCTAssertTrue(continuation.contains("invalid_arguments"))
+            XCTAssertTrue(continuation.contains(invalid.id))
+            XCTAssertTrue(continuation.contains("nextOffset"))
+            let completed = try XCTUnwrap(restored.recovery())
+            XCTAssertNil(completed.pendingTurn)
+            XCTAssertEqual(completed.exchanges.count, 3)
+            XCTAssertFalse(completed.toolsPaused)
+            let output = try ModelWireFormat.object(Data(completed.exchanges.last!.outputs[0].content.utf8))
+            XCTAssertTrue((output["content"] as? String)?.hasPrefix("中文") == true)
+            XCTAssertEqual(snapshot.document?.text, text)
+        }
     }
 
     func testRepeatedToolsPauseRemainingCallsInTheSameModelTurn() async throws {

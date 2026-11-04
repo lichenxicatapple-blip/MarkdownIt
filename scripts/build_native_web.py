@@ -101,10 +101,13 @@ def vendor_assets():
 def audit_dependencies():
     """Check the pinned npm versions against published OSV advisories."""
     assets = [asset for asset in vendor_assets() if asset.get("target", "web") == "web"]
+    packages = [
+        package for asset in assets for package in [asset, *asset.get("bundledDependencies", [])]
+    ]
     query = {
         "queries": [
             {"version": asset["version"], "package": {"name": asset["package"], "ecosystem": "npm"}}
-            for asset in assets
+            for asset in packages
         ]
     }
     request = urllib.request.Request(
@@ -117,7 +120,7 @@ def audit_dependencies():
             results = json.load(response)["results"]
         if (
             not isinstance(results, list)
-            or len(results) != len(assets)
+            or len(results) != len(packages)
             or any(
                 not isinstance(result, dict) or "error" in result or result.get("next_page_token")
                 for result in results
@@ -129,12 +132,12 @@ def audit_dependencies():
     findings = [
         f"{asset['package']} {asset['version']}: "
         + ", ".join(item["id"] for item in result["vulns"])
-        for asset, result in zip(assets, results)
+        for asset, result in zip(packages, results)
         if result.get("vulns")
     ]
     if findings:
         raise SystemExit("Published dependency advisories:\n" + "\n".join(findings))
-    print(f"Checked {len(assets)} pinned npm dependencies against OSV; no matching advisories.")
+    print(f"Checked {len(packages)} pinned npm dependencies against OSV; no matching advisories.")
 
 
 def web_localizations():

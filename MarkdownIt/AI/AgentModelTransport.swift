@@ -237,7 +237,7 @@ final class AgentModelTransport {
                             if currentRun.toolsPaused {
                                 execution = AgentToolExecution(output: Self.pausedToolOutput)
                             } else if call.name == "read_document",
-                                let material = try currentRun.sources?.read(call, maxBytes: budget.limit / 12)
+                                let material = currentRun.sources?.read(call, maxBytes: budget.limit / 12)
                             {
                                 execution = material
                             } else if call.name == "read_document", let readDocument {

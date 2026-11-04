@@ -175,6 +175,32 @@ final class ContextMemoryTests: XCTestCase {
         }
     }
 
+    func testSnapshotReadValidationReturnsToolErrorsWithoutRelaxingArguments() throws {
+        let text = "😀中文\nDocument."
+        let snapshot = snapshot(text)
+        let sources = AgentContextSources(snapshot)
+        let documentID = AgentContextSources.id(text)
+        for invalid: [String: Any] in [
+            ["offset": 1], ["offset": -1], ["offset": true], ["offset": 0.5],
+            ["offset": text.utf8.count + 1], ["query": ""], ["path": "/private/file"],
+        ] {
+            var args = invalid
+            args["documentID"] = documentID
+            let data = try JSONSerialization.data(withJSONObject: args)
+            let result = try XCTUnwrap(
+                sources.read(
+                    .init(id: "invalid", name: "read_document", arguments: String(decoding: data, as: UTF8.self)),
+                    maxBytes: 64))
+            let output = try ModelWireFormat.object(Data(result.output.utf8))
+            XCTAssertEqual(output["error"] as? String, "invalid_arguments")
+            XCTAssertNil(output["content"], "Rejected input must not read document content")
+        }
+        let malformed = try XCTUnwrap(
+            sources.read(
+                .init(id: "malformed", name: "read_document", arguments: "{"), maxBytes: 64))
+        XCTAssertEqual(malformed.output, AgentContextSources.invalidReadArguments.output)
+    }
+
     func testBudgetUsesOptionalProviderCapacityAndDoesNotPretendItIsKnown() throws {
         XCTAssertEqual(AgentContextBudget(contextWindow: nil).limit, 65_536)
         XCTAssertEqual(AgentContextBudget(contextWindow: 16_384).limit, 12_288)

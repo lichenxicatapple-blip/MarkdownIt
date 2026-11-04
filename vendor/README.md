@@ -27,3 +27,31 @@ To update a dependency, review its upstream release and security advisories,
 replace the script and license together, update the version, URLs and checksums,
 then regenerate resources and run both simulator families. A checksum identifies
 the reviewed bytes; it does not establish that a dependency has no vulnerabilities.
+
+## CJK emphasis bundle
+
+`markdown-it-cjk-friendly.js` bundles the upstream ESM plugin and its pinned
+`get-east-asian-width` dependency for the existing classic-script reader. The
+combined license file retains both upstream MIT notices. `assets.json` records
+the source checksum, compiler parameters and bundled dependency; the advisory
+check includes the bundled package. Normal app builds copy the checked bundle
+without invoking npm or downloading dependencies.
+
+Reproduce the bundle from the repository root:
+
+```sh
+cjk_build_dir=$(mktemp -d)
+npm --prefix "$cjk_build_dir" install --ignore-scripts --no-audit --no-fund --save-exact \
+  markdown-it-cjk-friendly@3.0.0 get-east-asian-width@1.4.0 esbuild@0.25.12
+"$cjk_build_dir/node_modules/.bin/esbuild" \
+  "$cjk_build_dir/node_modules/markdown-it-cjk-friendly/dist/index.js" \
+  --bundle --format=iife --global-name=MarkdownItCjkFriendly --platform=browser \
+  --target=safari18 --minify --legal-comments=inline \
+  --outfile=vendor/markdown-it-cjk-friendly.js
+rm -rf "$cjk_build_dir"
+```
+
+When upgrading, update the bundle, both notices, the pinned versions and checksums
+together. Compare the CommonMark conformance examples before and after enabling
+the plugin, then verify CJK text, escaped markers, code, math and all reader
+surfaces on both simulator families.

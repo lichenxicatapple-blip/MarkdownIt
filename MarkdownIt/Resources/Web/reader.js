@@ -13,6 +13,7 @@
       return language && window.hljs.getLanguage(language) ? window.hljs.highlight(code, { language, ignoreIllegals: true }).value : '';
     }
   });
+  markdownRenderer.use(window.MarkdownItCjkFriendly.default);
   markdownRenderer.use(window.markdownitTaskLists);
   markdownRenderer.use(window.markdownitFootnote);
   markdownRenderer.renderer.rules.footnote_caption = (tokens, index) => `[${tokens[index].meta.id + 1}]`;
