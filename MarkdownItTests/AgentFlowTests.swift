@@ -1127,6 +1127,35 @@ final class AgentFlowTests: AgentReaderTestCase {
         _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
     }
 
+    func testManualConversationScrollDoesNotSnapBeforeReachingTheEnd() async throws {
+        let bridge = try await scrollingConversation()
+        let positions =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const scroll = document.querySelector('.mdv-agent-scroll');
+                const frame = () => new Promise(requestAnimationFrame);
+                scroll.style.maxHeight = '140px';
+                await frame();
+                await frame();
+                scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
+                scroll.scrollTop = scroll.scrollHeight - scroll.clientHeight - 40;
+                await frame();
+                await frame();
+                const before = scroll.scrollTop;
+                const remaining = scroll.scrollHeight - scroll.clientHeight - before;
+                // A small downward gesture must leave the scroll physics to WebKit,
+                // rather than replacing it with an application-generated jump.
+                scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: 1 }));
+                await frame();
+                await frame();
+                return { before, remaining, after: scroll.scrollTop };
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Double]
+        let value = try XCTUnwrap(positions)
+        XCTAssertEqual(try XCTUnwrap(value["remaining"]), 40, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(value["after"]), try XCTUnwrap(value["before"]), accuracy: 0.5)
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
+    }
+
     func testConversationFollowingSurvivesReturningToBottomAndResizingInTheSameFrame() async throws {
         let bridge = try await scrollingConversation()
         _ = try await bridge.webView.evaluateJavaScript(
@@ -1252,6 +1281,63 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertNotEqual(range.location, NSNotFound)
         guard range.location != NSNotFound else { throw CocoaError(.coderReadCorrupt) }
         bridge.sourceEditor.textView.selectedRange = range
+    }
+
+    func testPreviewQuotePreservesInlineFormattingAtDelimiterBoundaries() async throws {
+        let markdown = #"""
+            <strong> 随堂练</strong>：某客户持有合格股数 1,500 股。
+
+            <strong>标签：</strong>紧接正文，<em> 倾斜 </em>与<del> 删除 </del>。
+
+            普通 **加粗**，字面标记 \*\*保留\*\*，代码 `**不加粗**`。
+            """#
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "引用已读取。")])
+        let (_, bridge, _, _) = try await reader(markdown)
+        let original =
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-article').textContent") as? String
+        _ = try await bridge.webView.evaluateJavaScript(
+            """
+            (() => {
+              const range = document.createRange();
+              range.selectNodeContents(document.querySelector('.mdv-article'));
+              getSelection().removeAllRanges();
+              getSelection().addRange(range);
+            })()
+            """)
+        _ = try await bridge.call("askSelection")
+        try await wait { bridge.session.agentOpen }
+
+        func assertFormatting(_ selector: String) async throws {
+            let result =
+                try await bridge.webView.callAsyncJavaScript(
+                    """
+                    const content = document.querySelector(selector);
+                    const texts = tag => [...content.querySelectorAll(tag)].map(node => node.textContent);
+                    return { text: content.textContent, strong: texts('strong'), em: texts('em'),
+                      del: texts('del'), code: texts('code') };
+                    """, arguments: ["selector": selector], in: nil, contentWorld: .page) as? [String: Any]
+            let value = try XCTUnwrap(result)
+            XCTAssertEqual(value["strong"] as? [String], [" 随堂练", "标签：", "加粗"])
+            XCTAssertEqual(value["em"] as? [String], [" 倾斜 "])
+            XCTAssertEqual(value["del"] as? [String], [" 删除 "])
+            XCTAssertEqual(value["code"] as? [String], ["**不加粗**"])
+            XCTAssertEqual(
+                (value["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                original?.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        try await assertFormatting(".mdv-composer-reference .mdv-rich-text")
+        let image = try await bridge.webView.takeSnapshot(configuration: nil)
+        let screenshot = XCTAttachment(image: image)
+        screenshot.name = "preview-quote-inline-formatting"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        try await send("解释引用。", bridge: bridge)
+        try await completed(bridge)
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-message-reference summary').click()")
+        try await assertFormatting(".mdv-message-reference .mdv-rich-text")
     }
 
     func testSelectionQuoteKeepsEveryLineOutsideTheRemovalTargetWhileScrolling() async throws {

@@ -48,6 +48,7 @@
   --mdv-home-entrance-offset: 18px;
   --mdv-agent-width: 384px;
   --mdv-agent-inset: 24px;
+  --mdv-agent-scroll-edge: 12px;
   --mdv-composer-margin: 12px;
   --mdv-reference-height: 260px;
   --mdv-reference-leading: 20px;
@@ -375,7 +376,8 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-agent-grabber { display: none; }
 #mdv-reading-concept .mdv-app .mdv-agent-collapse { position: absolute; z-index: 3; top: var(--mdv-agent-control-inset); right: var(--mdv-agent-control-inset); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 0; border-radius: 50%; color: var(--mdv-muted); background: color-mix(in srgb, var(--mdv-paper) 85%, transparent); }
 #mdv-reading-concept .mdv-app .mdv-agent-collapse svg { width: var(--mdv-reader-chrome-canvas); height: var(--mdv-reader-chrome-canvas); }
-#mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; padding: 24px var(--mdv-agent-inset); scrollbar-width: thin; }
+#mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; margin-top: var(--mdv-agent-scroll-edge); padding: calc(var(--mdv-agent-content-inset) - var(--mdv-agent-scroll-edge)) var(--mdv-agent-content-inset) var(--mdv-agent-content-inset); scrollbar-width: thin; }
+#mdv-reading-concept .mdv-agent-scroll[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 var(--mdv-agent-scroll-edge)); }
 #mdv-reading-concept .mdv-conversation { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
 #mdv-reading-concept .mdv-turn { min-width: 0; }
 #mdv-reading-concept .mdv-user-turn { margin-left: 24px; background: var(--mdv-chrome); border-radius: 18px 18px 5px 18px; padding: 12px 14px; }
@@ -486,7 +488,6 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-grabber { display: grid; place-items: center; flex: 0 0 auto; height: 18px; touch-action: none; }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-grabber span { width: 32px; height: 4px; background: var(--mdv-line); border-radius: 3px; }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-collapse { top: 12px; }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-scroll { padding: 20px; }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-composer { margin-bottom: max(var(--mdv-composer-margin), calc(env(safe-area-inset-bottom, 0px) - var(--mdv-agent-bottom-inset))); }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-user-turn { margin-left: 16px; }
 

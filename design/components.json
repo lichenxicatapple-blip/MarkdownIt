@@ -178,6 +178,7 @@
       ],
       "invariants": [
         "Sent turns and their reference snapshots remain immutable.",
+        "The scroll viewport keeps a small top gutter and fades its top edge only when earlier content remains above; the collapse control stays unmasked and interactive.",
         "Following observes both content and viewport size; only navigation intent changes it, preserving manual browsing across layout changes."
       ],
       "specification": "design/README.md#ai-对话"

@@ -1264,11 +1264,10 @@
         if (node.tagName === 'CODE') return tick + node.textContent + tick;
         if (node.tagName === 'TABLE') return tableMarkup(node);
         const content = Array.from(node.childNodes, serialize).join('');
-        if (['STRONG','B'].includes(node.tagName)) return '**' + content + '**';
-        if (['EM','I'].includes(node.tagName)) return '*' + content + '*';
-        if (['DEL','S'].includes(node.tagName)) return '~~' + content + '~~';
-        if (['SUP','SUB'].includes(node.tagName)) {
-          const tag = node.tagName.toLowerCase();
+        if (['STRONG','B','EM','I','DEL','S','SUP','SUB'].includes(node.tagName)) {
+          // Preserve the preview's inline semantics. Rebuilding Markdown
+          // delimiters can change their meaning at whitespace/punctuation edges.
+          const tag = { B: 'strong', I: 'em', S: 'del' }[node.tagName] || node.tagName.toLowerCase();
           return '<' + tag + '>' + content + '</' + tag + '>';
         }
         if (node.tagName === 'A') return '[' + content + '](' + node.getAttribute('href') + ')';

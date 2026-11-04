@@ -211,8 +211,10 @@
       const style = getComputedStyle(input);
       input.style.height = Math.max(parseFloat(style.minHeight), input.scrollHeight) + 'px';
     }
+    function updateScrollEdge() { scroll.toggleAttribute('data-scrolled', scroll.scrollTop > 0); }
     function keepAtBottom() {
       if (followBottom && isOpen) scroll.scrollTop = scroll.scrollHeight;
+      updateScrollEdge();
     }
     function cancelPendingFollow() {
       cancelAnimationFrame(followFrame);
@@ -231,17 +233,17 @@
     const contentObserver = new ResizeObserver(keepAtBottom);
     contentObserver.observe(thread);
     contentObserver.observe(scroll);
-    const nearBottom = () => scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 56;
+    const atBottom = () => scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 1;
     function resumeFollowingAfterNavigation() {
       cancelPendingFollow();
       // Record the end the user is navigating toward before a keyboard or
       // composer reflow can move it. Rejoin immediately when already there.
       const bottom = scroll.scrollHeight - scroll.clientHeight;
-      if (nearBottom()) { followLatest(); return; }
+      if (atBottom()) { followLatest(); return; }
       downwardScrollOrigin = scroll.scrollTop;
       followFrame = requestAnimationFrame(() => {
         followFrame = 0;
-        if (nearBottom() || scroll.scrollTop >= bottom - 56) followLatest();
+        if (atBottom() || scroll.scrollTop >= bottom - 1) followLatest();
       });
     }
     // Touch momentum may reach the end after the release frame. Require both
@@ -251,7 +253,8 @@
       // already placed the content at its new end. Following remains active
       // until navigation intent pauses it, including across that late update.
       if (followBottom) keepAtBottom();
-      else if (downwardScrollOrigin !== null && scroll.scrollTop > downwardScrollOrigin && nearBottom()) followLatest();
+      else if (downwardScrollOrigin !== null && scroll.scrollTop > downwardScrollOrigin && atBottom()) followLatest();
+      updateScrollEdge();
     }, { passive: true });
     scroll.addEventListener('scrollend', () => { downwardScrollOrigin = null; }, { passive: true });
     // Resizing and layout also emit scroll events. Follow state comes from
@@ -906,6 +909,7 @@
       followBottom = value.followBottom !== false;
       scroll.scrollTop = value.scroll || 0;
       if (followBottom) keepAtBottom();
+      else updateScrollEdge();
     }
     return { attach, present, send, toggleGlobal, reset, waitUntilClosed, capture, restore, finishRestore };
 
