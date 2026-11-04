@@ -207,6 +207,7 @@ final class AgentModelTransport {
                 (($0.document?.images ?? []) + ($0.attachment?.images ?? [])).map(\.id)
             })
         let memory = contextMemory
+        let systemMessage = AgentContextBuilder.systemMessage(for: snapshot)
         task = Task { [weak self, client, memory] in
             guard !Task.isCancelled else { return }
             await memory.configure(scope: scope)
@@ -292,7 +293,7 @@ final class AgentModelTransport {
                                 : currentRun.needsReadingTool ? [AgentDocumentTools.definitions[0]] : [])
                     }
                     var tools = offeredTools()
-                    var messages = try Self.messages(currentRun)
+                    var messages = try Self.messages(currentRun, systemMessage: systemMessage)
                     while AgentContextBudget.cost(messages, exchanges: currentRun.exchanges, tools: tools)
                         > budget.limit
                     {
@@ -316,7 +317,7 @@ final class AgentModelTransport {
                                 currentRun.seenToolResults.remove(signature)
                             }
                         }
-                        messages = try Self.messages(currentRun)
+                        messages = try Self.messages(currentRun, systemMessage: systemMessage)
                         tools = offeredTools()
                     }
                     let turn = try await client.stream(
@@ -351,8 +352,12 @@ final class AgentModelTransport {
         }
     }
 
-    private static func messages(_ run: Run) throws -> [ChatMessage] {
+    private static func messages(_ run: Run, systemMessage: ChatMessage) throws -> [ChatMessage] {
         guard var messages = run.messages else { throw ModelError.invalidResponse }
+        // Recovery retains request materials and completed effects, while the
+        // installed app owns the current instructions and tool contract.
+        messages.removeAll { $0.role == "system" }
+        messages.insert(systemMessage, at: 0)
         if let summary = run.toolSummary {
             let data = try JSONSerialization.data(withJSONObject: ["toolHistorySummary": summary], options: .sortedKeys)
             messages.insert(

@@ -400,7 +400,7 @@ final class AgentFlowTests: AgentReaderTestCase {
                 + "EXACT_END_TARGET\n"
             let call = ModelToolCall(
                 id: "read-last-part", name: "read_document",
-                arguments: #"{"documentID":null,"offset":null,"query":"EXACT_END_TARGET"}"#)
+                arguments: #"{"documentID":null,"characterOffset":null,"query":"EXACT_END_TARGET"}"#)
             AgentFixtureProtocol.queue.reset([
                 AgentFixture(calls: [call]), AgentFixture(text: "The ending says EXACT_END_TARGET."),
             ])
@@ -423,6 +423,43 @@ final class AgentFlowTests: AgentReaderTestCase {
             XCTAssertEqual(session.mode, "preview")
             XCTAssertEqual(session.document?.text, text)
         }
+    }
+
+    func testCurrentFileAndSnapshotReadsShareCharacterCoordinates() async throws {
+        AgentFixtureProtocol.queue.reset([])
+        let fileText = "😀中文e\u{301}🇨🇳👨‍👩‍👧‍👦\r\n" + String(repeating: "Résumé 文档。\r\n", count: 20)
+        let (session, _, _, url) = try await reader(fileText)
+        let text = try XCTUnwrap(session.document?.text)
+        let tools = AgentDocumentTools(session: session)
+        let doc = AgentAttachment(
+            text: text, markdown: text, mode: "preview", scope: "document", location: nil, start: nil, end: nil)
+        let sources = AgentContextSources(.init(question: "Read", attachment: nil, history: [], document: doc))
+        for offset in [0, 1, 2, 3, 4, 5, 6, text.count - 2, text.count] {
+            func call(documentID: String?) throws -> ModelToolCall {
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "documentID": documentID as Any? ?? NSNull(), "characterOffset": offset, "query": NSNull(),
+                ])
+                return .init(
+                    id: UUID().uuidString, name: "read_document", arguments: String(decoding: data, as: UTF8.self))
+            }
+            let current = await tools.execute(
+                try call(documentID: nil), token: session.documentToken, maxReadBytes: 64)
+            let saved = try XCTUnwrap(sources.read(try call(documentID: AgentContextSources.id(text)), maxBytes: 64))
+            let live = try ModelWireFormat.object(Data(current.output.utf8))
+            let snapshot = try ModelWireFormat.object(Data(saved.output.utf8))
+            XCTAssertEqual(live as NSDictionary, snapshot as NSDictionary)
+            XCTAssertEqual(live["characterOffset"] as? Int, offset)
+            XCTAssertEqual(live["totalCharacters"] as? Int, text.count)
+            XCTAssertTrue(text.dropFirst(offset).hasPrefix(live["content"] as? String ?? ""))
+        }
+        XCTAssertEqual(session.document?.text, text)
+        XCTAssertFalse(session.document?.hasUnsavedChanges ?? true)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), fileText)
+        XCTAssertTrue(AgentFixtureProtocol.queue.requests().isEmpty)
+        let schema = try ModelWireFormat.object(AgentDocumentTools.definitions[0].parameters)
+        let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+        XCTAssertNotNil(properties["characterOffset"])
+        XCTAssertNil(properties["offset"])
     }
 
     private func reader(
@@ -1784,13 +1821,17 @@ final class AgentFlowTests: AgentReaderTestCase {
         for api in ModelAPIProtocol.allCases {
             func call(_ id: String, offset: Int?, query: String? = nil) throws -> ModelToolCall {
                 let data = try JSONSerialization.data(withJSONObject: [
-                    "documentID": documentID, "offset": offset as Any? ?? NSNull(),
+                    "documentID": documentID, "characterOffset": offset as Any? ?? NSNull(),
                     "query": query as Any? ?? NSNull(),
                 ])
                 return .init(id: id, name: "read_document", arguments: String(decoding: data, as: UTF8.self))
             }
             let valid = try call("read-first", offset: 0)
-            let invalid = try call("read-invalid-boundary", offset: 1)
+            // Resume the exact old API shape from a previously failed saved call.
+            // It must be rejected, never reinterpreted as a character position.
+            let invalid = ModelToolCall(
+                id: "read-byte-position", name: "read_document",
+                arguments: "{\"documentID\":\"" + documentID + "\",\"offset\":33500,\"query\":null}")
             let repaired = try call("read-by-query", offset: nil, query: "中文")
             AgentFixtureProtocol.queue.reset([
                 AgentFixture(calls: [valid]), AgentFixture(calls: [invalid]),
@@ -1822,7 +1863,14 @@ final class AgentFlowTests: AgentReaderTestCase {
             XCTAssertEqual(saved.exchanges.count, 1)
             XCTAssertTrue(saved.pendingOutputs.isEmpty)
             let restored = AgentModelTransport(client: client)
-            try restored.restore(saved)
+            var old = try ModelWireFormat.object(JSONEncoder().encode(saved))
+            var messages = try XCTUnwrap(old["messages"] as? [[String: Any]])
+            XCTAssertEqual(messages.first?["role"] as? String, "system")
+            messages[0]["content"] = "LEGACY_BYTE_READING_INSTRUCTIONS"
+            old["messages"] = messages
+            try restored.restore(
+                JSONDecoder().decode(
+                    AgentModelTransport.Recovery.self, from: JSONSerialization.data(withJSONObject: old)))
             var finished = false
             restored.start(
                 id: "manual-retry", token: "document", snapshot: snapshot, intent: "question",
@@ -1837,7 +1885,8 @@ final class AgentFlowTests: AgentReaderTestCase {
             let continuation = String(decoding: requests[2], as: UTF8.self)
             XCTAssertTrue(continuation.contains("invalid_arguments"))
             XCTAssertTrue(continuation.contains(invalid.id))
-            XCTAssertTrue(continuation.contains("nextOffset"))
+            XCTAssertTrue(continuation.contains("nextCharacterOffset"))
+            XCTAssertFalse(continuation.contains("LEGACY_BYTE_READING_INSTRUCTIONS"))
             let completed = try XCTUnwrap(restored.recovery())
             XCTAssertNil(completed.pendingTurn)
             XCTAssertEqual(completed.exchanges.count, 3)

@@ -50,9 +50,9 @@ final class AgentDocumentTools {
         ModelTool(
             name: "read_document",
             description:
-                "读取当前文档或已提供材料。documentID 为 null 时读取当前文件最新内容；否则只读取已提供的版本或引用 ID。offset 是 UTF-8 字节偏移，null 从头开始；query 可搜索文字，null 顺序读取。结果可能只有一段，按 nextOffset 继续；complete 为 true 才表示全文。无路径参数，不能访问其他文件。",
+                "读取当前文档或已提供材料。documentID 为 null 时读取当前文件最新内容；否则只读取已提供的版本或引用 ID。characterOffset 是从 0 开始的完整 Unicode 字符位置，中文、组合字符和 emoji 不拆分，null 从头开始；query 可搜索文字，null 顺序读取。结果可能只有一段，按 nextCharacterOffset 继续；complete 为 true 才表示全文。无路径参数，不能访问其他文件。",
             parameters:
-                #"{"type":"object","properties":{"documentID":{"type":["string","null"]},"offset":{"type":["integer","null"],"minimum":0},"query":{"type":["string","null"]}},"required":["documentID","offset","query"],"additionalProperties":false}"#
+                #"{"type":"object","properties":{"documentID":{"type":["string","null"]},"characterOffset":{"type":["integer","null"],"minimum":0},"query":{"type":["string","null"]}},"required":["documentID","characterOffset","query"],"additionalProperties":false}"#
         ),
         ModelTool(
             name: "edit_document",

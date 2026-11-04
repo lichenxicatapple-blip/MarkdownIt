@@ -2,6 +2,16 @@ import Foundation
 
 /// UI quotes identify the focus; complete document snapshots supply the reading background.
 enum AgentContextBuilder {
+    static func systemMessage(
+        for snapshot: AgentSnapshot,
+        appLanguage: String = Bundle.main.preferredLocalizations.first ?? "en"
+    ) -> ChatMessage {
+        ChatMessage(
+            role: "system",
+            content: AgentPrompt.instructions(
+                mode: snapshot.document?.mode ?? snapshot.attachment?.mode ?? "preview", appLanguage: appLanguage))
+    }
+
     private struct Document: Encodable {
         let id: String
         let documentName: String?
@@ -111,10 +121,8 @@ enum AgentContextBuilder {
             : Background(
                 currentDocumentID: currentID, documents: documents.values, images: imageInventory,
                 currentImageIDs: (current?.images ?? []).map(\.id))
-        let instructions = AgentPrompt.instructions(
-            mode: snapshot.document?.mode ?? snapshot.attachment?.mode ?? "preview", appLanguage: appLanguage)
         let memory = try summary.map { ChatMessage(role: "user", content: try encode(["conversationSummary": $0])) }
-        return [ChatMessage(role: "system", content: instructions)] + (memory.map { [$0] } ?? [])
+        return [systemMessage(for: snapshot, appLanguage: appLanguage)] + (memory.map { [$0] } ?? [])
             + (try history.enumerated().map { index, turn in
                 if turn.role == "assistant" {
                     return try ChatMessage(

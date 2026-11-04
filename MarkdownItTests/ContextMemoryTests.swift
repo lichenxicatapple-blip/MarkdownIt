@@ -122,8 +122,8 @@ final class ContextMemoryTests: XCTestCase {
         }
     }
 
-    func testOversizedDocumentIsExplicitlyOnDemandAndEveryUnicodeByteCanBeRead() async throws {
-        let text = String(repeating: "中文😀 café\n", count: 9000) + "Final conclusion."
+    func testOversizedDocumentIsExplicitlyOnDemandAndUnicodePagingPreservesEveryCharacter() async throws {
+        let text = String(repeating: "中文😀 cafe\u{301} 👨‍👩‍👧‍👦🇨🇳\r\n", count: 9000) + "Final conclusion."
         let doc = document(text)
         let value = AgentSnapshot(
             question: "Summarize the whole document", attachment: nil,
@@ -143,7 +143,7 @@ final class ContextMemoryTests: XCTestCase {
         var offset = 0
         var collected = ""
         while true {
-            let args = try JSONSerialization.data(withJSONObject: ["documentID": id, "offset": offset])
+            let args = try JSONSerialization.data(withJSONObject: ["documentID": id, "characterOffset": offset])
             let output = try XCTUnwrap(
                 prepared.sources.read(
                     .init(id: "read", name: "read_document", arguments: String(decoding: args, as: UTF8.self)),
@@ -152,7 +152,7 @@ final class ContextMemoryTests: XCTestCase {
             let content = try XCTUnwrap(page["content"] as? String)
             XCTAssertLessThanOrEqual(content.utf8.count, 997)
             collected += content
-            guard let next = page["nextOffset"] as? Int else { break }
+            guard let next = page["nextCharacterOffset"] as? Int else { break }
             XCTAssertGreaterThan(next, offset)
             offset = next
         }
@@ -161,18 +161,38 @@ final class ContextMemoryTests: XCTestCase {
         XCTAssertEqual(count, 0, "A long file alone needs paging, not a fabricated conversation summary")
     }
 
-    func testReadingRejectsInvalidOffsetsAndCanFindTheEndOfALargeFile() throws {
+    func testReadingUsesCharacterPositionsAndCanFindTheEndOfALargeFile() throws {
         let text = "😀中文\n" + String(repeating: "body\n", count: 6000) + "EXACT_TARGET\nTail."
         let result = try AgentContextSources.read(text, arguments: ["query": "EXACT_TARGET"], maxBytes: 64)
         let page = try ModelWireFormat.object(Data(result.output.utf8))
         XCTAssertTrue((page["content"] as? String)?.hasPrefix("EXACT_TARGET") == true)
         XCTAssertEqual(page["complete"] as? Bool, false)
+        XCTAssertEqual(page["totalCharacters"] as? Int, text.count)
+        XCTAssertNil(page["totalBytes"])
         for arguments: [String: Any] in [
-            ["offset": 1], ["offset": -1], ["offset": true], ["offset": 0.5], ["path": "/private/file"],
-            ["documentID": 7],
+            ["characterOffset": -1], ["characterOffset": true], ["characterOffset": 0.5],
+            ["characterOffset": text.count + 1], ["offset": 1], ["path": "/private/file"], ["documentID": 7],
         ] {
             XCTAssertThrowsError(try AgentContextSources.read(text, arguments: arguments, maxBytes: 64))
         }
+        let sample = "A👨‍👩‍👧‍👦e\u{301}🇨🇳中文\r\nZ"
+        let expected = ["A", "👨‍👩‍👧‍👦", "e\u{301}", "🇨🇳", "中", "文", "\r\n", "Z"]
+        XCTAssertEqual(sample.count, expected.count)
+        for offset in 0...expected.count {
+            let result = try AgentContextSources.read(sample, arguments: ["characterOffset": offset], maxBytes: 64)
+            let page = try ModelWireFormat.object(Data(result.output.utf8))
+            XCTAssertEqual(page["characterOffset"] as? Int, offset)
+            XCTAssertEqual(page["totalCharacters"] as? Int, expected.count)
+            XCTAssertEqual(page["content"] as? String, expected.dropFirst(offset).joined())
+        }
+        let matching = try AgentContextSources.read(sample, arguments: ["query": "👨‍👩‍👧‍👦"], maxBytes: 64)
+        let found = try ModelWireFormat.object(Data(matching.output.utf8))
+        XCTAssertEqual(found["characterOffset"] as? Int, 1)
+        XCTAssertTrue((found["content"] as? String)?.hasPrefix("👨‍👩‍👧‍👦") == true)
+        let oversized = try AgentContextSources.read(sample, arguments: ["characterOffset": 1], maxBytes: 4)
+        let rejected = try ModelWireFormat.object(Data(oversized.output.utf8))
+        XCTAssertEqual(rejected["error"] as? String, "character_too_large")
+        XCTAssertNil(rejected["content"], "An oversized character must not be split or produce a nonadvancing page")
     }
 
     func testSnapshotReadValidationReturnsToolErrorsWithoutRelaxingArguments() throws {
@@ -181,8 +201,8 @@ final class ContextMemoryTests: XCTestCase {
         let sources = AgentContextSources(snapshot)
         let documentID = AgentContextSources.id(text)
         for invalid: [String: Any] in [
-            ["offset": 1], ["offset": -1], ["offset": true], ["offset": 0.5],
-            ["offset": text.utf8.count + 1], ["query": ""], ["path": "/private/file"],
+            ["offset": 1], ["characterOffset": -1], ["characterOffset": true], ["characterOffset": 0.5],
+            ["characterOffset": text.count + 1], ["query": ""], ["path": "/private/file"],
         ] {
             var args = invalid
             args["documentID"] = documentID

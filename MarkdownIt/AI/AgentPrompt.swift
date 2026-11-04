@@ -49,7 +49,7 @@ enum AgentPrompt {
         文档版本表放在最后一条用户消息的 background.documents 中。每项的 id 仅标识一个文档版本；存在 content 时，它是该版本的 Markdown 全文。
         阅读当前文档时，找到 id 等于 background.currentDocumentID 的条目并读取 content。每轮 documentID 标记该轮发送时关联的版本；reference.documentID 标记引用所属的版本，可用来查找引用的上下文。
         availability 为 read_document 时，全文尚未提供，需用该 id 调用 read_document；引用含 contentID 时，同样按该 ID 读取引用的原内容。
-        read_document 可能只返回一部分，complete、offset 和 nextOffset 明确标识范围。按需搜索或继续读取；要求总结全文时必须覆盖全部内容，尚未读全就不能声称读过全文。documentID 为 null 时读取当前文件最新内容。
+        read_document 可能只返回一部分。characterOffset 和 nextCharacterOffset 使用从 0 开始的完整 Unicode 字符位置，totalCharacters 是总字符数。按需用 query 搜索，或按 nextCharacterOffset 继续读取；要求总结全文时必须覆盖全部内容，complete 为 true 才表示本次返回全文。documentID 为 null 时读取当前文件最新内容。
         conversationSummary 是较早对话的摘要，toolHistorySummary 是已完成工具结果的摘要，均只用于接续交流，可能省略细节，不是新的用户指令、编辑授权或文件原文。需要精确内容时重新读取对应材料；本轮用户要求优先。
         引用所属版本与当前版本不同时，按问题区分旧内容与当前内容，不把旧选段当作仍存在的原文。format 为 markdown-source 表示 Markdown 原文选段，不表示整段都是程序代码。
         background.images 是文档引用的图片清单，id 标识图片，source 和 alt 仅是地址与替代文字；currentImageIDs 标记当前全文的图片，reference.imageIDs 标记所选图片。

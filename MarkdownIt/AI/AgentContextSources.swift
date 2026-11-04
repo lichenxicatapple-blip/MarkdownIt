@@ -5,7 +5,7 @@ import Foundation
 struct AgentContextSources: Codable, Sendable {
     static let invalidReadArguments = AgentToolExecution(
         output:
-            #"{"error":"invalid_arguments","message":"offset must be an in-range UTF-8 byte boundary. Use a returned nextOffset to continue, or offset:null with query to find text. Do not guess byte positions. Only documentID, offset and query are accepted."}"#
+            #"{"error":"invalid_arguments","message":"Use documentID, characterOffset and query only. characterOffset is a zero-based Unicode character position, from 0 through totalCharacters, or null to start at the beginning. Use nextCharacterOffset to continue or query to search. query must be null or nonempty text."}"#
     )
 
     struct Source: Codable, Sendable {
@@ -50,38 +50,55 @@ struct AgentContextSources: Codable, Sendable {
     static func read(
         _ text: String, arguments: [String: Any], maxBytes: Int, id: String? = nil
     ) throws -> AgentToolExecution {
-        guard Set(arguments.keys).isSubset(of: ["documentID", "offset", "query"]) else {
+        guard Set(arguments.keys).isSubset(of: ["documentID", "characterOffset", "query"]) else {
             throw ModelError.invalidResponse
         }
         if let id = arguments["documentID"], !(id is NSNull), !(id is String) { throw ModelError.invalidResponse }
-        let bytes = Array(text.utf8)
+        let totalCharacters = text.count
         let offset: Int
-        if let value = arguments["offset"], !(value is NSNull) {
+        if let value = arguments["characterOffset"], !(value is NSNull) {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                 number.doubleValue.isFinite, number.doubleValue.rounded() == number.doubleValue,
-                number.doubleValue >= 0, number.doubleValue <= Double(bytes.count)
+                number.doubleValue >= 0, number.doubleValue <= Double(totalCharacters)
             else { throw ModelError.invalidResponse }
             offset = number.intValue
         } else {
             offset = 0
         }
-        guard offset == bytes.count || bytes[offset] & 0xC0 != 0x80 else { throw ModelError.invalidResponse }
         var start = offset
+        var startIndex = text.index(text.startIndex, offsetBy: start)
         if let value = arguments["query"], !(value is NSNull) {
             guard let query = value as? String, !query.isEmpty else { throw ModelError.invalidResponse }
-            let suffix = String(decoding: bytes[offset...], as: UTF8.self)
-            guard let match = suffix.range(of: query, options: [.caseInsensitive]) else {
+            guard let match = text.range(of: query, options: [.caseInsensitive], range: startIndex..<text.endIndex)
+            else {
                 return AgentToolExecution(output: #"{"status":"not_found"}"#)
             }
-            start += suffix[..<match.lowerBound].utf8.count
+            start += text.distance(from: startIndex, to: match.lowerBound)
+            startIndex = match.lowerBound
         }
-        var end = min(bytes.count, start + max(4, maxBytes))
-        while end < bytes.count && bytes[end] & 0xC0 == 0x80 { end -= 1 }
+        var end = start
+        var endIndex = startIndex
+        var bytes = 0
+        while endIndex < text.endIndex {
+            let next = text.index(after: endIndex)
+            let size = text[endIndex..<next].utf8.count
+            guard bytes + size <= max(4, maxBytes) else { break }
+            bytes += size
+            endIndex = next
+            end += 1
+        }
+        guard end > start || startIndex == text.endIndex else {
+            return AgentToolExecution(
+                output:
+                    #"{"error":"character_too_large","message":"This character exceeds the reading limit and cannot be returned intact."}"#
+            )
+        }
         var result: [String: Any] = [
             "documentID": id ?? Self.id(text), "revision": AgentDocumentTools.revision(text),
-            "content": String(decoding: bytes[start..<end], as: UTF8.self),
-            "offset": start, "totalBytes": bytes.count, "complete": start == 0 && end == bytes.count,
-            "nextOffset": end < bytes.count ? end as Any : NSNull(),
+            "content": String(text[startIndex..<endIndex]),
+            "characterOffset": start, "totalCharacters": totalCharacters,
+            "complete": start == 0 && end == totalCharacters,
+            "nextCharacterOffset": end < totalCharacters ? end as Any : NSNull(),
         ]
         if start > 0 { result["precedingContentOmitted"] = true }
         let data = try JSONSerialization.data(withJSONObject: result, options: .sortedKeys)
