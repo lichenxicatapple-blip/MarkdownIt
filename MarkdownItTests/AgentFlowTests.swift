@@ -190,8 +190,9 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertEqual(code.count, 2)
         XCTAssertEqual(code.first, "**CIL（零碎股现金替代）**支付")
         // Captured preview HTML retains the source fence inside its code snapshot.
+        let block = try XCTUnwrap(code.last)
         XCTAssertTrue(
-            ["**cost basis（计税成本）**经调整\n", "```text\n**cost basis（计税成本）**经调整\n```"].contains(code[1]))
+            ["**cost basis（计税成本）**经调整\n", "```text\n**cost basis（计税成本）**经调整\n```"].contains(block))
         let text = try XCTUnwrap(value["text"] as? String)
         XCTAssertTrue(text.contains("**保留（符号）**文本"))
         XCTAssertTrue(text.contains("**Latin (term)**next"))
@@ -1802,7 +1803,8 @@ final class AgentFlowTests: AgentReaderTestCase {
             let configuration = ModelConfiguration(
                 baseURL: "https://agent.example.test/v1", model: "fixture", apiProtocol: api)
             var recovery: AgentModelTransport.Recovery?
-            transport.checkpoint = {
+            transport.checkpoint = { [weak transport] in
+                guard let transport else { return }
                 if let state = transport.recovery(), state.pendingTurn?.calls.first?.id == invalid.id {
                     recovery = state
                     transport.cancel()
@@ -1840,7 +1842,8 @@ final class AgentFlowTests: AgentReaderTestCase {
             XCTAssertNil(completed.pendingTurn)
             XCTAssertEqual(completed.exchanges.count, 3)
             XCTAssertFalse(completed.toolsPaused)
-            let output = try ModelWireFormat.object(Data(completed.exchanges.last!.outputs[0].content.utf8))
+            let result = try XCTUnwrap(completed.exchanges.last?.outputs.first)
+            let output = try ModelWireFormat.object(Data(result.content.utf8))
             XCTAssertTrue((output["content"] as? String)?.hasPrefix("中文") == true)
             XCTAssertEqual(snapshot.document?.text, text)
         }
