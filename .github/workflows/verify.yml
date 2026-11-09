@@ -14,6 +14,7 @@ concurrency:
 
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+  NATIVE_TEST_DIRECTORY: native-tests-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   verify:
@@ -89,7 +90,7 @@ jobs:
           caffeinate -i python3 scripts/verify_ios.py
           --simulator-prefix 'MarkdownIt CI'
           --runtime 26.5
-          --output "$RUNNER_TEMP/native-tests"
+          --output "$RUNNER_TEMP/$NATIVE_TEST_DIRECTORY"
       - name: Publish test summary
         if: always()
         run: |
@@ -98,7 +99,7 @@ jobs:
           import os
           from pathlib import Path
 
-          results = Path(os.environ["RUNNER_TEMP"]) / "native-tests/results.json"
+          results = Path(os.environ["RUNNER_TEMP"]) / os.environ["NATIVE_TEST_DIRECTORY"] / "results.json"
           if results.is_file():
               with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
                   summary.write("| Simulator | Result | Passed | Failed | Skipped | Test execution |\n")
@@ -120,9 +121,9 @@ jobs:
         with:
           name: native-results
           path: |
-            ${{ runner.temp }}/native-tests/*.log
-            ${{ runner.temp }}/native-tests/*-stall.json
-            ${{ runner.temp }}/native-tests/results.json
+            ${{ runner.temp }}/${{ env.NATIVE_TEST_DIRECTORY }}/*.log
+            ${{ runner.temp }}/${{ env.NATIVE_TEST_DIRECTORY }}/*-stall.json
+            ${{ runner.temp }}/${{ env.NATIVE_TEST_DIRECTORY }}/results.json
           retention-days: 7
           if-no-files-found: ignore
       - name: Retain full failure diagnostics
@@ -130,6 +131,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-failure-diagnostics
-          path: ${{ runner.temp }}/native-tests/*.xcresult
+          path: ${{ runner.temp }}/${{ env.NATIVE_TEST_DIRECTORY }}/*.xcresult
           retention-days: 7
           if-no-files-found: ignore
