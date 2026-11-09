@@ -5,12 +5,15 @@ import WebKit
 
 @MainActor
 final class ReaderSession: ObservableObject {
+    private var sourceFocusRequested = false
+
     @Published private(set) var document: MarkdownDocument?
     @Published private(set) var restoringSession = false
     @Published var recoveryConflict = false
     private let recoveryStore: ReaderRecoveryStore?
     private var recoverySequence: UInt64 = 0
     private var recoveryWeb: Data?
+    private(set) var restoredAnnotation: ReaderAnnotationHost.Recovery?
     private(set) var restoredComposer: NativeComposerHost.Recovery?
     private(set) var restoredEditor: SourceEditor.Recovery?
     private var recoveryLocation: RecentDocument?
@@ -42,8 +45,20 @@ final class ReaderSession: ObservableObject {
     @Published var configuration = ModelConfiguration()
     @Published private(set) var modelSettingsError: String?
     weak var bridge: ReaderBridge?
+    private(set) var annotations = ReadingAnnotations()
+    private let annotationStore: ReadingAnnotationStore
+    private var loadedAnnotations: ReadingAnnotations?
+    private var annotationMutation: Task<Bool, Never>?
+    private var annotationMutationID = UUID()
+    private var annotationPath: String?
+    private var annotationOwner = UUID()
+    private var annotationRevision: UInt64 = 0
+    private var annotationsSavedRevision: UInt64 = 0
     let resources = LocalResourceHandler()
     let agentImages = AgentImages()
+    let searchAuthorization: WebSearchAuthorization
+    private let webSearchClient: WebSearchClient
+    @Published private(set) var searchSettings = WebSearchSettings()
     private var grantedRoots: [URL] = []
     private var scopedURLs: [URL] = []
     private var documentScope: URL?
@@ -67,14 +82,19 @@ final class ReaderSession: ObservableObject {
     init(
         defaults: UserDefaults = .standard, modelClient: ModelClient = ModelClient(),
         modelCatalog: ModelCatalog = ModelCatalog(),
+        webSearchClient: WebSearchClient = WebSearchClient(),
         modelKey: (@MainActor () -> String)? = nil,
         modelSettings: ModelSettingsStore = ModelSettingsStore(),
-        recoveryStore: ReaderRecoveryStore? = nil
+        recoveryStore: ReaderRecoveryStore? = nil,
+        annotationStore: ReadingAnnotationStore = ReadingAnnotationStore()
     ) {
         self.defaults = defaults
+        self.annotationStore = annotationStore
         self.recoveryStore = recoveryStore
         restoringSession = recoveryStore != nil
         dataConsent = ModelDataConsent(defaults: defaults)
+        searchAuthorization = WebSearchAuthorization(defaults: defaults)
+        self.webSearchClient = webSearchClient
         recentDocuments = RecentDocumentsStore(defaults: defaults)
         self.modelKey = modelKey
         self.modelSettings = modelSettings
@@ -173,10 +193,15 @@ final class ReaderSession: ObservableObject {
         needsResourcePermission = true
     }
 
-    func open(_ url: URL) async {
+    func consumeSourceFocusRequest() -> Bool {
+        defer { sourceFocusRequested = false }
+        return sourceFocusRequested
+    }
+
+    func open(_ url: URL, startingNewDocument: Bool = false) async {
         await restoreLastSession()
         do {
-            _ = try await openDocument {
+            _ = try await openDocument(startingNewDocument: startingNewDocument) {
                 RecentDocumentLocation(file: url, folders: await self.recentDocuments.folders(for: url))
             }
         } catch {
@@ -199,9 +224,12 @@ final class ReaderSession: ObservableObject {
     }
 
     private func openDocument(
-        replacing recentID: UUID? = nil, resolve: () async throws -> RecentDocumentLocation
+        replacing recentID: UUID? = nil, startingNewDocument: Bool = false,
+        resolve: () async throws -> RecentDocumentLocation
     ) async throws -> Bool {
-        guard !opening, !recoveryConflict, !isClosingDocument, failedCloseToken == nil else { return false }
+        guard !opening, !recoveryConflict, !isClosingDocument, failedCloseToken == nil,
+            bridge?.annotationHost.hasUnsavedChanges != true
+        else { return false }
         opening = true
         var incomingScope: URL?
         var incomingFolderScopes: [URL] = []
@@ -237,6 +265,11 @@ final class ReaderSession: ObservableObject {
         }
         if url.startAccessingSecurityScopedResource() { incomingScope = url }
         guard await flushChanges() else { return false }
+        let nextAnnotationPath = ReadingAnnotationStore.path(for: url)
+        let nextAnnotationOwner = UUID()
+        var nextAnnotations = try await annotationStore.load(path: nextAnnotationPath, owner: nextAnnotationOwner)
+        let rawAnnotations = nextAnnotations
+        nextAnnotations.retireHistory()
         let next = MarkdownDocument(fileURL: url)
         guard await next.openForReading() else { throw CocoaError(.fileReadUnknown) }
         let access = ResourceAccess(documentURL: url, roots: grantedRoots, token: documentToken)
@@ -252,10 +285,12 @@ final class ReaderSession: ObservableObject {
         recoveryWeb = nil
         restoredEditor = nil
         restoredComposer = nil
+        restoredAnnotation = nil
         recoverySequence = 0
         agentTransport.reset()
         agentImages.reset()
         finishDataSharingConsent(allowed: false)
+        searchAuthorization.finish(allowed: false)
         agentDocuments.reset()
         failedCloseToken = nil
         closeSaveFailed = false
@@ -271,7 +306,8 @@ final class ReaderSession: ObservableObject {
         resourcePermissionDirectory = nil
         needsResourcePermission = false
         rendererReady = false
-        mode = "preview"
+        mode = startingNewDocument ? "source" : "preview"
+        sourceFocusRequested = startingNewDocument
         canUndoSource = false
         canRedoSource = false
         hasOutline = false
@@ -282,10 +318,16 @@ final class ReaderSession: ObservableObject {
         recentDocuments.record(recent)
         recoveryLocation = recentDocuments.documents.first(where: { $0.identity == recent.identity }) ?? recent
         installed = true
+        loadedAnnotations = rawAnnotations
+        annotations = nextAnnotations
+        annotationPath = nextAnnotationPath
+        annotationOwner = nextAnnotationOwner
+        annotationRevision = 0
+        annotationsSavedRevision = 0
         document = next
         configureResources()
         pendingRecovery = nil
-        if !restoringSession, let recoveryLocation,
+        if !startingNewDocument, !restoringSession, let recoveryLocation,
             let saved = try await recoveryStore?.load(location: recoveryLocation)
         {
             let validator = SourceHistory()
@@ -299,6 +341,90 @@ final class ReaderSession: ObservableObject {
         }
         requestCheckpoint()
         return true
+    }
+
+    func annotationsEdited(_ edit: SourceHistory.Edit, historyIDs: Set<String>) {
+        guard document != nil, !annotations.records.isEmpty else { return }
+        annotations.apply(edit)
+        annotations.retainHistory(historyIDs)
+        annotations.sourceRevision = nil
+        annotationRevision += 1
+        requestCheckpoint()
+    }
+
+    func setAnnotation(
+        ranges: [AnnotationRange], underlined: Bool? = nil, note: String? = nil, id: UUID? = nil,
+        token: String, sourceRevision: Int, operationID: String? = nil, joining: Set<UUID> = []
+    ) async -> Bool {
+        let previous = annotationMutation
+        let mutationID = UUID()
+        annotationMutationID = mutationID
+        let task = Task { @MainActor in
+            _ = await previous?.value
+            return await self.commitAnnotation(
+                ranges: ranges, underlined: underlined, note: note, id: id,
+                token: token, sourceRevision: sourceRevision, operationID: operationID, joining: joining)
+        }
+        annotationMutation = task
+        let result = await task.value
+        if annotationMutationID == mutationID { annotationMutation = nil }
+        return result
+    }
+
+    func waitForAnnotations() async { _ = await annotationMutation?.value }
+
+    private func commitAnnotation(
+        ranges: [AnnotationRange], underlined: Bool?, note: String?, id: UUID?, token: String, sourceRevision: Int,
+        operationID: String?, joining: Set<UUID>
+    ) async -> Bool {
+        guard token == documentToken, mode == "preview", !isClosingDocument,
+            let bridge, bridge.sourceEditor.history.revision == sourceRevision,
+            let document, !ranges.isEmpty,
+            ranges.allSatisfy({ $0.isValid && $0.end <= document.text.utf16.count })
+        else { return false }
+        do {
+            var value = annotations
+            if underlined == true && note == nil && id == nil {
+                try value.addUnderline(
+                    ranges: ranges, joining: joining, history: bridge.sourceEditor.history.snapshot())
+            } else {
+                try value.set(ranges: ranges, underlined: underlined, note: note, id: id)
+            }
+            value.sourceRevision = DocumentRevision.text(document.text)
+            guard let path = annotationPath else { return false }
+            let revision = annotationRevision + 1
+            try await annotationStore.save(value, path: path, owner: annotationOwner, revision: revision)
+            guard token == documentToken, bridge.sourceEditor.history.revision == sourceRevision else { return false }
+            annotations = value
+            annotationRevision = revision
+            annotationsSavedRevision = revision
+            await bridge.projectAnnotations(acknowledging: operationID)
+            await checkpointRecovery(includeWeb: false)
+            return true
+        } catch {
+            errorMessage = String(localized: "Unable to save annotations: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
+    func saveAnnotations() async -> Bool {
+        guard annotationRevision != annotationsSavedRevision, let path = annotationPath else { return true }
+        let revision = annotationRevision
+        let token = documentToken
+        do {
+            var snapshot = annotations
+            snapshot.sourceRevision = document.map { DocumentRevision.text($0.text) }
+            try await annotationStore.save(snapshot, path: path, owner: annotationOwner, revision: revision)
+            if token == documentToken {
+                annotationsSavedRevision = max(annotationsSavedRevision, revision)
+                if annotationRevision == revision { annotations.sourceRevision = snapshot.sourceRevision }
+            }
+            return true
+        } catch {
+            errorMessage = String(localized: "Unable to save annotations: \(error.localizedDescription)")
+            return false
+        }
     }
 
     func sourceChanged(_ text: String, token: String) {
@@ -323,12 +449,13 @@ final class ReaderSession: ObservableObject {
         guard !isClosingDocument, failedCloseToken == nil else { return false }
         guard let document, document.hasUnsavedChanges else { return true }
         let saved = await document.persist()
+        let notesSaved = await saveAnnotations()
         await checkpointRecovery(includeWeb: false)
         if !saved, self.document === document, !isClosingDocument, failedCloseToken == nil {
             errorMessage = String(
                 localized: "The document cannot be saved right now. Keep it open and check file access.")
         }
-        return saved
+        return saved && notesSaved
     }
 
     private func synchronizeSource() {
@@ -339,8 +466,10 @@ final class ReaderSession: ObservableObject {
     @discardableResult
     func flushChanges() async -> Bool {
         guard !isClosingDocument, failedCloseToken == nil else { return false }
+        await waitForAnnotations()
         synchronizeSource()
         autosaveTask?.cancel()
+        guard await saveAnnotations() else { return false }
         return await saveCurrentDocument()
     }
 
@@ -351,6 +480,7 @@ final class ReaderSession: ObservableObject {
 
     func closeDocument(discardChanges: Bool = false) async {
         guard !opening, !isClosingDocument, let document else { return }
+        guard bridge?.annotationHost.hasUnsavedChanges != true else { return }
         guard !discardChanges || failedCloseToken == documentToken else { return }
         isClosingDocument = true
         closeSaveFailed = false
@@ -360,8 +490,10 @@ final class ReaderSession: ObservableObject {
             isClosingDocument = false
             if self.document != nil { requestCheckpoint() }
         }
+        await waitForAnnotations()
         if !discardChanges { synchronizeSource() }
         autosaveTask?.cancel()
+        guard await saveAnnotations() else { return }
         let hadChanges = document.hasUnsavedChanges
         // UIDocument.close normally saves. Only an explicit discard choice
         // clears its dirty state so closing cannot retry the failed write.
@@ -376,10 +508,12 @@ final class ReaderSession: ObservableObject {
         recoveryWeb = nil
         restoredEditor = nil
         restoredComposer = nil
+        restoredAnnotation = nil
         recoveryLocation = nil
         agentTransport.reset()
         agentImages.reset()
         finishDataSharingConsent(allowed: false)
+        searchAuthorization.finish(allowed: false)
         agentDocuments.reset()
         pendingAgentEntry = nil
         failedCloseToken = nil
@@ -396,6 +530,7 @@ final class ReaderSession: ObservableObject {
         documentToken = UUID().uuidString.lowercased()
         rendererReady = false
         mode = "preview"
+        sourceFocusRequested = false
         canUndoSource = false
         canRedoSource = false
         outlineExpanded = false
@@ -403,6 +538,8 @@ final class ReaderSession: ObservableObject {
         resources.clear()
         documentScope?.stopAccessingSecurityScopedResource()
         documentScope = nil
+        annotations = ReadingAnnotations()
+        annotationPath = nil
         self.document = nil
         bridge = nil
     }
@@ -463,6 +600,7 @@ final class ReaderSession: ObservableObject {
             }
         }
         pendingAgentEntry = (id, token)
+        if isModelConfigured { modelCatalog.prefetch(baseURL: configuration.baseURL, key: apiKey) }
         if isModelConfigured { finishAgentConfiguration(saved: true) } else { needsModelConfiguration = true }
     }
 
@@ -538,10 +676,29 @@ final class ReaderSession: ObservableObject {
             return
         }
         let key = apiKey
+        let searchConfiguration = searchSettings
+        let search =
+            searchConfiguration.isConfigured
+            ? AgentWebSearch(
+                settings: searchConfiguration, client: webSearchClient,
+                onResult: { [weak self] result in self?.agentTransport.recordSearch(result, snapshot: snapshot) },
+                onPage: { [weak self] page in self?.agentTransport.recordWebPage(page, snapshot: snapshot) },
+                authorize: { [weak self] provider, query in
+                    guard let self else { return false }
+                    return await self.searchAuthorization.authorize(provider: provider, query: query) { [weak self] in
+                        guard let self else { return false }
+                        return self.documentToken == token && !self.isClosingDocument
+                            && self.agentTransport.activeID == id
+                            && self.searchSettings.identity == searchConfiguration.identity
+                    }
+                }) : nil
         agentTransport.start(
             id: id, token: token, snapshot: snapshot, intent: intent, configuration: configuration, key: key,
-            contextWindow: modelCatalog.contextWindow(
-                model: configuration.model, baseURL: configuration.baseURL, key: key),
+            toolScope: searchConfiguration.identity,
+            capabilities: { [weak self] in
+                guard let self else { return ModelCapabilities() }
+                return await self.modelCatalog.capabilities(configuration: configuration, key: key)
+            },
             toolsAvailable: { [weak self] in
                 self?.mode == "source" && self?.documentToken == token && self?.isClosingDocument == false
             },
@@ -556,18 +713,30 @@ final class ReaderSession: ObservableObject {
                 await emit(AgentModelEvent(id: id, token: token, type: "images", imageIDs: self.agentImages.loadedIDs))
                 return images
             },
-            imageTools: { [weak self] in
-                guard let self, self.documentToken == token, self.document != nil, !self.isClosingDocument,
-                    self.agentImages.hasImages(in: snapshot)
-                else { return [] }
-                return [AgentImages.definition]
+            additionalTools: { [weak self] in
+                guard let self, self.documentToken == token, self.document != nil, !self.isClosingDocument else {
+                    return []
+                }
+                var tools = self.agentImages.hasImages(in: snapshot) ? [AgentImages.definition] : []
+                if search?.isAvailable == true && self.searchSettings.identity == searchConfiguration.identity {
+                    tools += search?.definitions ?? []
+                }
+                return tools
             },
             readDocument: { [weak self] call, maxBytes in
                 guard let self else { return AgentToolExecution(output: #"{"error":"document_closed"}"#) }
                 return await self.agentDocuments.execute(call, token: token, maxReadBytes: maxBytes)
             },
-            executeTool: { [weak self] call, onChange in
-                guard let self else { return AgentToolExecution(output: "{\"error\":\"document_closed\"}") }
+            executeTool: { [weak self] call, maxReadBytes, onChange in
+                guard let self, self.documentToken == token, self.document != nil, !self.isClosingDocument else {
+                    return AgentToolExecution(output: #"{"error":"document_closed"}"#)
+                }
+                if ["web_search", "read_webpage"].contains(call.name), let search {
+                    guard self.searchSettings.identity == searchConfiguration.identity else {
+                        return AgentToolExecution(output: #"{"error":"tool_unavailable"}"#)
+                    }
+                    return try await search.execute(call, maxReadBytes: maxReadBytes)
+                }
                 if call.name == "read_image", let document = self.document, self.documentToken == token,
                     !self.isClosingDocument
                 {
@@ -603,11 +772,14 @@ final class ReaderSession: ObservableObject {
         _ = bridge?.moveSourceHistory(forward: forward)
     }
 
-    func saveConfiguration(_ value: ModelConfiguration, key: String) throws {
+    func saveConfiguration(_ value: ModelConfiguration, key: String, search: WebSearchSettings? = nil) throws {
         try value.validateForSaving()
+        let search = try (search ?? searchSettings).validated()
         try modelSettings.save(
-            SavedModelSettings(configuration: value, apiKey: key), replacingLegacyIn: defaults)
+            SavedModelSettings(configuration: value, apiKey: key, search: search.isEmpty ? nil : search),
+            replacingLegacyIn: defaults)
         savedAPIKey = key
+        searchSettings = search
         configuration = value
         modelSettingsError = nil
     }
@@ -615,6 +787,8 @@ final class ReaderSession: ObservableObject {
     func resetModelSettings() throws {
         try modelSettings.reset(clearingLegacyIn: defaults)
         savedAPIKey = ""
+        searchSettings = WebSearchSettings()
+        searchAuthorization.finish(allowed: false)
         configuration = ModelConfiguration()
         modelSettingsError = nil
         modelCatalog.reset()
@@ -624,6 +798,7 @@ final class ReaderSession: ObservableObject {
         do {
             let saved = try modelSettings.load(migrating: defaults)
             savedAPIKey = saved.apiKey
+            searchSettings = saved.search ?? WebSearchSettings()
             configuration = saved.configuration
             modelSettingsError = nil
         } catch {
@@ -716,6 +891,17 @@ extension ReaderSession {
 
     private func installRecovery(_ record: ReaderRecovery) throws {
         guard let document else { return }
+        if let snapshot = record.annotations {
+            let stored = loadedAnnotations ?? annotations
+            if stored.sourceRevision == DocumentRevision.text(record.editor.history.text) {
+                annotations = stored
+                annotations.restoreHistory(from: snapshot)
+            } else {
+                annotations = snapshot
+            }
+            annotationRevision += 1
+        }
+        loadedAnnotations = nil
         try agentTransport.restore(record.transport)
         agentDocuments.restore(record.tools)
         agentImages.restore(record.images)
@@ -723,6 +909,7 @@ extension ReaderSession {
         documentToken = record.token
         restoredEditor = record.editor
         restoredComposer = record.composer
+        restoredAnnotation = record.annotationDraft
         recoveryWeb = record.web
         if document.text != record.editor.history.text {
             document.text = record.editor.history.text
@@ -816,13 +1003,16 @@ extension ReaderSession {
         restoredEditor = editor
         let composer = rendererReady ? bridge?.composer.checkpoint() : restoredComposer
         restoredComposer = composer
+        let annotationDraft = rendererReady ? bridge?.annotationHost.checkpoint() : restoredAnnotation
+        restoredAnnotation = annotationDraft
         recoverySequence += 1
         let record = ReaderRecovery(
             token: token, sequence: recoverySequence,
             location: recentDocuments.documents.first(where: { $0.id == location.id }) ?? location,
             savedRevision: document.persistedRevision, editor: editor,
             composer: composer, web: recoveryWeb,
-            images: agentImages.checkpoint(), tools: agentDocuments.recovery(), transport: agentTransport.recovery())
+            images: agentImages.checkpoint(), tools: agentDocuments.recovery(), transport: agentTransport.recovery(),
+            annotations: annotations, annotationDraft: annotationDraft)
         do { try await recoveryStore.save(record) } catch {
             if token == documentToken {
                 errorMessage = String(
@@ -835,6 +1025,7 @@ extension ReaderSession {
         guard let bridge else { return }
         restoredEditor = bridge.sourceEditor.checkpoint()
         restoredComposer = bridge.composer.checkpoint()
+        restoredAnnotation = bridge.annotationHost.checkpoint()
     }
 
     func checkpointForBackground() async {

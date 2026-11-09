@@ -1,7 +1,9 @@
 import Foundation
 
 enum ModelWireFormat {
-    static func requestBody(_ configuration: ModelConfiguration, messages: [ChatMessage]) throws -> Data {
+    static func requestBody(
+        _ configuration: ModelConfiguration, messages: [ChatMessage], maxOutputTokens: Int? = nil
+    ) throws -> Data {
         let responses = configuration.apiProtocol == .responses
         var body: [String: Any] = [
             "model": configuration.model.trimmingCharacters(in: .whitespacesAndNewlines), "stream": true,
@@ -12,7 +14,18 @@ enum ModelWireFormat {
             body["instructions"] = messages.filter { $0.role == "system" }.map(\.content).joined(separator: "\n\n")
             body["store"] = false
         }
+        setOutputLimit(maxOutputTokens, in: &body, configuration: configuration)
         return try JSONSerialization.data(withJSONObject: body, options: .sortedKeys)
+    }
+
+    static func setOutputLimit(_ tokens: Int?, in body: inout [String: Any], configuration: ModelConfiguration) {
+        guard let tokens else { return }
+        let host = (try? configuration.endpoint())?.host?.lowercased() ?? ""
+        let field =
+            configuration.apiProtocol == .responses
+            ? "max_output_tokens"
+            : (host == "api.deepseek.com" || ModelCatalog.isQwenHost(host)) ? "max_tokens" : "max_completion_tokens"
+        body[field] = max(1, tokens)
     }
 
     static func message(_ value: ChatMessage, api: ModelAPIProtocol) -> [String: Any] {
@@ -69,8 +82,14 @@ enum ModelWireFormat {
         let error = value as? [String: Any] ?? [:]
         let description = ["code", "type", "message"].compactMap { error[$0] as? String }.joined(separator: " ")
             .lowercased()
-        if ["context_length", "context window", "maximum context", "context limit", "too many tokens"].contains(
-            where: description.contains)
+        let code = error["code"] as? String ?? ""
+        if ["context_length_exceeded", "context_window_exceeded"].contains(code)
+            || [
+                "maximum context length", "maximum context exceeded", "input exceeds the context window",
+                "prompt is too long",
+                "range of input length should be", "total message token length exceed model limit",
+            ].contains(
+                where: description.contains)
         {
             return .contextLimit
         }
@@ -118,6 +137,7 @@ struct ModelStreamDecoder {
     let allowsTools: Bool
     private(set) var receivedText = false
     private(set) var tools = ModelToolDecoder()
+    private(set) var usage: ModelTokenUsage?
 
     init(api: ModelAPIProtocol, allowsTools: Bool = false) {
         self.api = api
@@ -138,6 +158,7 @@ struct ModelStreamDecoder {
             return Update(completed: true)
         }
         let root = try ModelWireFormat.object(Data(frame.data.utf8))
+        if let usage = ModelTokenUsage(root, api: api) { self.usage = usage }
         if root["error"] != nil { throw ModelWireFormat.remoteError(root["error"], fallback: .generationFailed) }
         if allowsTools { tools.record(root, api: api) }
         var update = Update()

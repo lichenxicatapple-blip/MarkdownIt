@@ -12,6 +12,12 @@
             ModelCatalog(session: session())
         }
 
+        static func searchClient() -> WebSearchClient {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [DebugSearchFixture.self]
+            return WebSearchClient(session: URLSession(configuration: configuration))
+        }
+
         private static func session() -> URLSession {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [DebugModelFixture.self]
@@ -59,7 +65,33 @@
                 }
                 var text = ""
                 var call: [String: Any]?
-                if !outputs.isEmpty {
+                if question.contains("SEARCH_PUBLIC_REFERENCE") {
+                    let canSearch = (body["tools"] as? [[String: Any]] ?? []).contains { tool in
+                        let definition = responses ? tool : tool["function"] as? [String: Any] ?? [:]
+                        return definition["name"] as? String == "web_search"
+                    }
+                    if !outputs.isEmpty {
+                        let textOutput = String(describing: outputs.last!)
+                        text =
+                            textOutput.contains("search_permission")
+                            ? "Continue using the document without web search."
+                            : "See the [Markdown reference](https://commonmark.org/help/) for the original explanation."
+                    } else if canSearch {
+                        let arguments = #"{"query":"Markdown reference","language":"en"}"#
+                        call =
+                            responses
+                            ? [
+                                "type": "function_call", "id": "fc_ui_search", "call_id": "call_ui_search",
+                                "name": "web_search", "arguments": arguments,
+                            ]
+                            : [
+                                "id": "call_ui_search", "type": "function",
+                                "function": ["name": "web_search", "arguments": arguments],
+                            ]
+                    } else {
+                        text = "Web search is not enabled. You can configure it in Model Settings."
+                    }
+                } else if !outputs.isEmpty {
                     text = "已修改这句话，其余内容保持原样。"
                 } else if question.contains("修改") || question.contains("改成") {
                     let canEdit = (body["tools"] as? [[String: Any]] ?? []).contains { tool in
@@ -137,6 +169,37 @@
                 data.append(contentsOf: buffer.prefix(count))
             }
             return data
+        }
+    }
+
+    private final class DebugSearchFixture: URLProtocol, @unchecked Sendable {
+        override class func canInit(with request: URLRequest) -> Bool {
+            WebSearchProvider.allCases.contains { $0.endpoint.host == request.url?.host }
+        }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func stopLoading() {}
+        override func startLoading() {
+            let item: [String: String] = [
+                "title": "Markdown reference", "url": "https://commonmark.org/help/",
+                "link": "https://commonmark.org/help/",
+                "snippet": "Search fixture result.", "content": "Search fixture result.",
+                "description": "Search fixture result.",
+            ]
+            let provider = WebSearchProvider.allCases.first { $0.endpoint.host == request.url?.host }
+            let root: [String: Any] =
+                switch provider {
+                case .serper: ["organic": [item]]
+                case .tavily: ["results": [item]]
+                case .brave: ["web": ["results": [item]]]
+                case nil: [:]
+                }
+            let data = try! JSONSerialization.data(withJSONObject: root)
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
         }
     }
 #endif

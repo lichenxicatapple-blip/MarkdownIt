@@ -129,6 +129,37 @@ class FullTestExecution(unittest.TestCase):
                     with self.subTest(index=index, key=key), self.assertRaises(ValueError):
                         verify_ios.test_run_specification(products)
 
+    def test_live_and_offline_products_cannot_be_substituted_for_each_other(self):
+        verify_ios.validate_test_plan(live=True)
+        live = self.metadata()
+        live["TestPlan"]["Name"] = "Live"
+        live["TestConfigurations"][0]["TestTargets"] = [{"BlueprintName": "MarkdownItLiveTests"}]
+        for metadata, expected_live in [(self.metadata(), False), (live, True)]:
+            with tempfile.TemporaryDirectory() as directory:
+                products = Path(directory)
+                specification = products / "Tests.xctestrun"
+                specification.write_bytes(plistlib.dumps(metadata))
+                self.assertEqual(
+                    verify_ios.test_run_specification(products, live=expected_live), specification
+                )
+                with self.assertRaises(ValueError):
+                    verify_ios.test_run_specification(products, live=not expected_live)
+
+    def test_live_products_cannot_exclude_any_required_provider_case(self):
+        metadata = self.metadata()
+        metadata["TestPlan"]["Name"] = "Live"
+        metadata["TestConfigurations"][0]["TestTargets"] = [
+            {
+                "BlueprintName": "MarkdownItLiveTests",
+                "SkipTestIdentifiers": ["LiveModelTests/testSearch"],
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            products = Path(directory)
+            (products / "Live.xctestrun").write_bytes(plistlib.dumps(metadata))
+            with self.assertRaises(ValueError):
+                verify_ios.test_run_specification(products, live=True)
+
     def test_prebuilt_products_require_full_enabled_configuration_and_both_targets(self):
         valid = self.metadata()
         variants = []

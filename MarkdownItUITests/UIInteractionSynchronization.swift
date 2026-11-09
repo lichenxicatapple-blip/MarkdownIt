@@ -5,6 +5,7 @@ import XCTest
 /// UIKit can leave a paused, offscreen image-menu animator active indefinitely. Waiting for
 /// every animator therefore cannot establish whether the control under test is usable.
 /// Conversation interactions can also finish without XCTest receiving an animations-complete notification.
+/// Native search and text entry can retain the same stale animation-idle state.
 /// This adapter lives only in the UI runner; it never changes the app or its animations.
 @MainActor
 final class UIInteractionSynchronization {

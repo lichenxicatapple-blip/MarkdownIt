@@ -17,7 +17,8 @@
         "ModelSettings",
         "ModelConfigurationPrompt",
         "DocumentClose",
-        "ModelDataConsentPrompt"
+        "ModelDataConsentPrompt",
+        "SearchDataConsentPrompt"
       ],
       "invariants": [
         "One native screen coordinates the document surface and shared reading controls."
@@ -30,11 +31,23 @@
         "MarkdownIt/Reader/ReaderScreen.swift"
       ],
       "owns": [
+        "NewDocument",
         "RecentDocuments",
         "PrivacyPolicy"
       ],
       "invariants": [
         "One ordered collection determines the central homepage layout and entrance sequence; the policy entry occupies its own footer."
+      ],
+      "specification": "design/README.md#首页与最近文档"
+    },
+    {
+      "id": "NewDocument",
+      "nativeOwners": [
+        "MarkdownIt/Reader/ReaderScreen.swift",
+        "MarkdownIt/Documents/NewDocumentPicker.swift"
+      ],
+      "invariants": [
+        "The native save dialog owns naming and location; a temporary empty seed is released with the picker, and the saved file enters the shared editor and document lifecycle."
       ],
       "specification": "design/README.md#首页与最近文档"
     },
@@ -65,7 +78,8 @@
       "selector": "[data-component='DocumentSurface']",
       "owns": [
         "SelectionQuestionMenu",
-        "SourceHistory"
+        "SourceHistory",
+        "ReadingAnnotations"
       ],
       "uses": [
         "RichText"
@@ -179,7 +193,8 @@
       "invariants": [
         "Sent turns and their reference snapshots remain immutable.",
         "The scroll viewport keeps a small top gutter and fades its top edge only when earlier content remains above; the collapse control stays unmasked and interactive.",
-        "Following observes both content and viewport size; only navigation intent changes it, preserving manual browsing across layout changes."
+        "Following observes both content and viewport size; only navigation intent changes it, preserving manual browsing across layout changes.",
+        "Top and bottom fades share one edge size and appear only where conversation content remains offscreen; content and viewport resizing update both edges."
       ],
       "specification": "design/README.md#ai-对话"
     },
@@ -285,11 +300,13 @@
       "nativeOwners": [
         "MarkdownIt/AI/ModelSettingsView.swift",
         "MarkdownIt/AI/ModelSelectionView.swift",
-        "MarkdownIt/AI/ModelSettingsStore.swift"
+        "MarkdownIt/AI/ModelSettingsStore.swift",
+        "MarkdownIt/AI/WebSearchSettings.swift"
       ],
       "invariants": [
         "One native modal owns settings navigation and blocks the underlying reader. Complete connection settings share one Keychain record; confirmed Reset clears the saved connection immediately and uses native destructive styling.",
-        "Validation and storage errors use native alerts, preserve the draft and leave no error row in the form; Reset executes after confirmation dismissal."
+        "Validation and storage errors use native alerts, preserve the draft and leave no error row in the form; Reset executes after confirmation dismissal.",
+        "Optional search is Off by default. Model and search keys share one secure-field style and Keychain record; provider keys remain separate and reset together."
       ],
       "specification": "design/README.md#模型设置与系统提示"
     },
@@ -356,7 +373,8 @@
     {
       "id": "ImageActionMenu",
       "nativeOwners": [
-        "MarkdownIt/Reader/ReaderImageMenu.swift"
+        "MarkdownIt/Reader/ReaderImageMenu.swift",
+        "MarkdownIt/Reader/ReaderActionMenu.swift"
       ],
       "webOwners": [
         "MarkdownIt/WebSource/native-bridge.js",
@@ -385,7 +403,7 @@
         "MarkdownIt/WebSource/agent/agent.js"
       ],
       "invariants": [
-        "Restore the open document, one edit history, semantic reading position, immutable AI references and draft after process death.",
+        "Restore the open document, one edit history, semantic reading position, annotation draft, immutable AI references and draft after process death.",
         "Explicit successful close ends recovery; failed saves and cancelled close preserve it.",
         "Restoration never sends a model request or silently overwrites external file changes."
       ],
@@ -408,6 +426,70 @@
         "Recent, external, in-app and session-restoration entry points reuse saved directory bookmarks while retaining the fresh incoming file URL."
       ],
       "specification": "design/README.md#本地图片授权"
+    },
+    {
+      "id": "ReadingAnnotations",
+      "nativeOwners": [
+        "MarkdownIt/Annotations/ReadingAnnotations.swift",
+        "MarkdownIt/Annotations/ReadingAnnotationStore.swift"
+      ],
+      "webOwners": [
+        "MarkdownIt/WebSource/annotations/source-map.js",
+        "MarkdownIt/WebSource/annotations/annotations.js",
+        "MarkdownIt/WebSource/annotations/waves.js",
+        "MarkdownIt/WebSource/annotations/annotations.css"
+      ],
+      "owns": [
+        "AnnotationCard",
+        "PencilUnderline"
+      ],
+      "uses": [
+        "SourceHistory",
+        "SelectionQuestionMenu"
+      ],
+      "invariants": [
+        "Underlines and annotation text are independent states, stored locally by normalized full file path without changing Markdown.",
+        "Plain overlapping or adjacent underlines coalesce with their historical ranges; note-bearing records remain independent.",
+        "Selections use parser source positions; native manual and AI edit deltas share range transforms and one undo history.",
+        "Live and saved waves share persistent drawing layers; pointer movement does not rebuild document text.",
+        "Document copy and AI references omit annotation controls and do not implicitly include annotation text."
+      ],
+      "specification": "design/README.md#划线与批注"
+    },
+    {
+      "id": "AnnotationCard",
+      "nativeOwners": [
+        "MarkdownIt/Annotations/AnnotationCardView.swift",
+        "MarkdownIt/Annotations/ReaderAnnotationHost.swift",
+        "MarkdownIt/Reader/ReaderActionMenu.swift"
+      ],
+      "invariants": [
+        "Creation, reading and editing share one native text card in both anchored and sheet presentations.",
+        "An anchored card scrolls with document content, preserves its initial side and retires only after its paint bounds leave the viewport.",
+        "Unsaved text, native composition and draft recovery survive unrelated layout updates; removal actions require separate destructive confirmations."
+      ],
+      "specification": "design/README.md#划线与批注"
+    },
+    {
+      "id": "PencilUnderline",
+      "nativeOwners": [
+        "MarkdownIt/Annotations/ReaderPencilInteraction.swift"
+      ],
+      "invariants": [
+        "Pencil uses text-relative starting regions and spatial intent hysteresis; one recognized stroke keeps its purpose until lift.",
+        "WebKit retains native vertical and overflow scrolling, while note input retains native Scribble."
+      ],
+      "specification": "design/README.md#划线与批注"
+    },
+    {
+      "id": "SearchDataConsentPrompt",
+      "nativeOwners": [
+        "MarkdownIt/AI/WebSearchAuthorization.swift"
+      ],
+      "invariants": [
+        "One native consent prompt shows the service and actual query or webpage URL before its first request. Remembered permission includes its data-sharing scope; a pending decision belongs to the active document and request."
+      ],
+      "specification": "design/README.md#联网搜索"
     }
   ]
 }

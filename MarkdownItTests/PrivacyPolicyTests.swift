@@ -20,7 +20,7 @@ final class PrivacyPolicyTests: XCTestCase {
                 case .heading(let text): headings.append(text.map(\.text).joined())
                 case .table(let rows):
                     tables += 1
-                    XCTAssertEqual(rows.count, 6)
+                    XCTAssertEqual(rows.count, 7)
                     XCTAssertTrue(rows.allSatisfy { $0.count == 2 })
                 case .list(let items):
                     lists += 1

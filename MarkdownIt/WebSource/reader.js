@@ -79,6 +79,7 @@
   reducedMotion.addEventListener('change', event => {
     if (event.matches) apps.forEach(app => app.getAnimations({ subtree: true }).forEach(animation => { if (animation.effect?.getTiming().iterations !== Infinity) animation.finish(); }));
   });
+  window.MarkdownItSourceMap.install(markdownRenderer);
   apps.forEach(app => {
     app.append(template.content.cloneNode(true));
     localize(app);
@@ -421,7 +422,7 @@
       return window.DOMPurify.sanitize(markdownRenderer.render(markdown, environment), {
         USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true,
         ALLOW_DATA_ATTR: false,
-        ADD_ATTR: ['data-source-start', 'data-source-end', 'data-code-start', 'data-code-count', 'data-source-path', 'data-math-display'],
+        ADD_ATTR: ['data-source-start', 'data-source-end', 'data-code-start', 'data-code-count', 'data-source-path', 'data-math-display', 'data-reader-text'],
         FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'textarea', 'button', 'select', 'option', 'link', 'meta', 'base'],
         FORBID_ATTR: ['style', 'name', 'autofocus', 'form', 'contenteditable', 'tabindex']
       });
@@ -468,7 +469,9 @@
       });
     }
     function renderRichMarkdown(markdown, prefix, images = []) {
-      const documentFragment = markdownFragment(markdown);
+      const environment = prefix === layout ? window.MarkdownItSourceMap.environment() : {};
+      const documentFragment = markdownFragment(markdown, environment);
+      if (prefix === layout) documentSourceMap = environment.readerMap.runs;
       documentFragment.querySelectorAll('input').forEach(input => {
         if (input.type !== 'checkbox') input.remove();
         else input.disabled = true;
@@ -506,11 +509,13 @@
       documentFragment.querySelectorAll('summary').forEach(summary => summary.classList.add('cursor-interaction'));
       return documentFragment;
     }
+    let documentSourceMap = new Map();
     function updateDocument() {
       if (renderedMarkdown === documentText) return;
       renderedMarkdown = documentText;
       const documentFragment = renderRichMarkdown(renderedMarkdown, layout);
       reader.replaceChildren(documentFragment);
+      annotations.mount(documentSourceMap);
       const documentHeadings = Array.from(reader.querySelectorAll('h1,h2,h3,h4,h5,h6'));
       headings.splice(0, headings.length, ...documentHeadings);
       buildOutline();
@@ -610,6 +615,7 @@
       if (!showOutline) stopOutlineFollow();
       if (showOutline && !outlineWasExpanded) keepCurrentHeadingVisible();
       nativeInputs.trackLayout();
+      annotations.scheduleLayout();
     }
     function switchMode(nextMode) {
       pinnedAnchor = null;
@@ -624,6 +630,7 @@
         if (revision !== modeRevision) return;
         readingLayout.style.removeProperty('opacity');
         delete app.dataset.modeTransition;
+        annotations.scheduleLayout();
       }
       function fadeTo(target, spec, done) {
         if (revision !== modeRevision) return;
@@ -802,6 +809,7 @@
     }
     function selectionMarkdown(range) {
       const fragment = range.cloneContents();
+      window.MarkdownItAnnotations.clean(fragment);
       const tableSources = new WeakMap();
       const sources = Array.from(range.commonAncestorContainer.querySelectorAll?.('table') || []).filter(table => range.intersectsNode(table));
       fragment.querySelectorAll('table').forEach((table, index) => tableSources.set(table, sources[index]));
@@ -830,6 +838,7 @@
           element.removeAttribute('data-source-start');
           element.removeAttribute('data-source-end');
         });
+        window.MarkdownItAnnotations.clean(copy);
         return '\n\n' + copy.outerHTML + '\n\n';
       }
       const cell = startElement.closest('td,th,caption');

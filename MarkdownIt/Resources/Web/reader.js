@@ -79,6 +79,7 @@
   reducedMotion.addEventListener('change', event => {
     if (event.matches) apps.forEach(app => app.getAnimations({ subtree: true }).forEach(animation => { if (animation.effect?.getTiming().iterations !== Infinity) animation.finish(); }));
   });
+  window.MarkdownItSourceMap.install(markdownRenderer);
   apps.forEach(app => {
     app.append(template.content.cloneNode(true));
     localize(app);
@@ -421,7 +422,7 @@
       return window.DOMPurify.sanitize(markdownRenderer.render(markdown, environment), {
         USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true,
         ALLOW_DATA_ATTR: false,
-        ADD_ATTR: ['data-source-start', 'data-source-end', 'data-code-start', 'data-code-count', 'data-source-path', 'data-math-display'],
+        ADD_ATTR: ['data-source-start', 'data-source-end', 'data-code-start', 'data-code-count', 'data-source-path', 'data-math-display', 'data-reader-text'],
         FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'textarea', 'button', 'select', 'option', 'link', 'meta', 'base'],
         FORBID_ATTR: ['style', 'name', 'autofocus', 'form', 'contenteditable', 'tabindex']
       });
@@ -468,7 +469,9 @@
       });
     }
     function renderRichMarkdown(markdown, prefix, images = []) {
-      const documentFragment = markdownFragment(markdown);
+      const environment = prefix === layout ? window.MarkdownItSourceMap.environment() : {};
+      const documentFragment = markdownFragment(markdown, environment);
+      if (prefix === layout) documentSourceMap = environment.readerMap.runs;
       documentFragment.querySelectorAll('input').forEach(input => {
         if (input.type !== 'checkbox') input.remove();
         else input.disabled = true;
@@ -506,11 +509,13 @@
       documentFragment.querySelectorAll('summary').forEach(summary => summary.classList.add('cursor-interaction'));
       return documentFragment;
     }
+    let documentSourceMap = new Map();
     function updateDocument() {
       if (renderedMarkdown === documentText) return;
       renderedMarkdown = documentText;
       const documentFragment = renderRichMarkdown(renderedMarkdown, layout);
       reader.replaceChildren(documentFragment);
+      annotations.mount(documentSourceMap);
       const documentHeadings = Array.from(reader.querySelectorAll('h1,h2,h3,h4,h5,h6'));
       headings.splice(0, headings.length, ...documentHeadings);
       buildOutline();
@@ -569,9 +574,13 @@
       });
     }, { passive: true });
     let nativeToken = '';
+    let nativeRevision = 0;
     let nativeDocumentName = ''; 
     let nativeSymbols = {};
     function postNative(message) { window.webkit?.messageHandlers.reader.postMessage(message); }
+    const annotations = new window.MarkdownItAnnotations({reader,
+      context: () => ({token:nativeToken,revision:nativeRevision,enabled:displayedMode==='preview'&&!app.dataset.modeTransition}),
+      post: message => postNative({token:nativeToken,revision:nativeRevision,...message})});
     function prepareLocalResources(fragment, documentContent = false) {
       const images = [...fragment.querySelectorAll('img')];
       if (documentContent) {
@@ -690,13 +699,15 @@
         nativeInputs.blur();
         nativeInputs.clear();
         nativeToken = document.token;
+        nativeRevision = document.revision;
+        annotations.reset(document.annotations);
         nativeDocumentName = document.name || '';
         pendingNativeAgentEntry = null;
         renderedMarkdown = null; documentText = document.text;
         nativeSourcePosition = { line: 0, y: 0, atStart: true };
         ++modeRevision; modeAnimation?.cancel(); modeAnimation = null;
         readingLayout.style.removeProperty('opacity'); delete app.dataset.modeTransition;
-        state.mode = 'preview'; displayedMode = 'preview'; state.agent = false;
+        state.mode = document.mode === 'source' ? 'source' : 'preview'; displayedMode = state.mode; state.agent = false;
         selection = ''; pinnedAnchor = null; lastPosition = null; layoutReadingAnchor = null; transitionAnchor = null;
         stopOutlineFollow(); outlineFollowPaused = false; outlineBody.scrollTop = 0;
         updateDocument();
@@ -736,6 +747,17 @@
         postNative({type:'documentReady',token:nativeToken});
         return this.diagnostics();
       },
+      annotationState(payload) {
+        if(payload.token!==nativeToken||payload.revision!==nativeRevision)return false;
+        annotations.set(payload.records,payload.acknowledged);return true;
+      },
+      annotationSelectionAction(payload) {annotations.act(payload.action);},
+      annotationPresentation(payload) {annotations.presentation(payload);},
+      resolveAnnotationAnchor(payload) {
+        const rect=annotations.rangeAt(payload)?.getBoundingClientRect();
+        return rect?{x:rect.x,y:rect.y,width:rect.width,height:rect.height}:null;
+      },
+      annotationPencil(payload) {annotations.pencil(payload);},
       toggleMode(payload) {
         if (payload?.anchor) nativeSourcePosition = payload.anchor;
         switchMode(state.mode === 'preview' ? 'source' : 'preview');
@@ -774,6 +796,8 @@
       async sourceState(payload) {
         if (payload.token !== nativeToken) return false;
         documentText = payload.text;
+        nativeRevision = payload.revision;
+        annotations.records = payload.annotations || [];
         for (const detail of payload.events || []) app.dispatchEvent(new CustomEvent('mdv-source-history', { detail }));
         if (displayedMode === 'preview') { updateDocument(); render(); await documentReady; }
         return true;
@@ -1009,6 +1033,7 @@
       if (!showOutline) stopOutlineFollow();
       if (showOutline && !outlineWasExpanded) keepCurrentHeadingVisible();
       nativeInputs.trackLayout();
+      annotations.scheduleLayout();
     }
     function switchMode(nextMode) {
       pinnedAnchor = null;
@@ -1023,6 +1048,7 @@
         if (revision !== modeRevision) return;
         readingLayout.style.removeProperty('opacity');
         delete app.dataset.modeTransition;
+        annotations.scheduleLayout();
       }
       function fadeTo(target, spec, done) {
         if (revision !== modeRevision) return;
@@ -1201,6 +1227,7 @@
     }
     function selectionMarkdown(range) {
       const fragment = range.cloneContents();
+      window.MarkdownItAnnotations.clean(fragment);
       const tableSources = new WeakMap();
       const sources = Array.from(range.commonAncestorContainer.querySelectorAll?.('table') || []).filter(table => range.intersectsNode(table));
       fragment.querySelectorAll('table').forEach((table, index) => tableSources.set(table, sources[index]));
@@ -1229,6 +1256,7 @@
           element.removeAttribute('data-source-start');
           element.removeAttribute('data-source-end');
         });
+        window.MarkdownItAnnotations.clean(copy);
         return '\n\n' + copy.outerHTML + '\n\n';
       }
       const cell = startElement.closest('td,th,caption');

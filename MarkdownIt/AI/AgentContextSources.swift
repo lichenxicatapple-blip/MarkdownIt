@@ -54,9 +54,44 @@ struct AgentContextSources: Codable, Sendable {
             throw ModelError.invalidResponse
         }
         if let id = arguments["documentID"], !(id is NSNull), !(id is String) { throw ModelError.invalidResponse }
+        let page: AgentTextPage
+        do {
+            page = try AgentTextPage.read(
+                text, characterOffset: arguments["characterOffset"], query: arguments["query"], maxBytes: maxBytes)
+        } catch AgentTextPage.ReadError.notFound {
+            return AgentToolExecution(output: #"{"status":"not_found"}"#)
+        } catch AgentTextPage.ReadError.characterTooLarge {
+            return AgentToolExecution(
+                output:
+                    #"{"error":"character_too_large","message":"This character exceeds the reading limit and cannot be returned intact."}"#
+            )
+        }
+        var result = try ModelWireFormat.object(JSONEncoder().encode(page))
+        result["nextCharacterOffset"] = page.nextCharacterOffset as Any? ?? NSNull()
+        result["documentID"] = id ?? Self.id(text)
+        result["revision"] = AgentDocumentTools.revision(text)
+        let data = try JSONSerialization.data(withJSONObject: result, options: .sortedKeys)
+        return AgentToolExecution(
+            output: String(decoding: data, as: UTF8.self), revision: AgentDocumentTools.revision(text))
+    }
+}
+
+/// Shared character-safe paging for document versions and extracted Web pages.
+/// Transport byte limits never become coordinates exposed to the model.
+struct AgentTextPage: Codable, Sendable, Equatable {
+    let content: String
+    let characterOffset: Int
+    let totalCharacters: Int
+    let complete: Bool
+    let nextCharacterOffset: Int?
+    let precedingContentOmitted: Bool?
+
+    enum ReadError: Error { case notFound, characterTooLarge }
+
+    static func read(_ text: String, characterOffset: Any?, query: Any?, maxBytes: Int) throws -> Self {
         let totalCharacters = text.count
         let offset: Int
-        if let value = arguments["characterOffset"], !(value is NSNull) {
+        if let value = characterOffset, !(value is NSNull) {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                 number.doubleValue.isFinite, number.doubleValue.rounded() == number.doubleValue,
                 number.doubleValue >= 0, number.doubleValue <= Double(totalCharacters)
@@ -67,11 +102,11 @@ struct AgentContextSources: Codable, Sendable {
         }
         var start = offset
         var startIndex = text.index(text.startIndex, offsetBy: start)
-        if let value = arguments["query"], !(value is NSNull) {
+        if let value = query, !(value is NSNull) {
             guard let query = value as? String, !query.isEmpty else { throw ModelError.invalidResponse }
             guard let match = text.range(of: query, options: [.caseInsensitive], range: startIndex..<text.endIndex)
             else {
-                return AgentToolExecution(output: #"{"status":"not_found"}"#)
+                throw AgentTextPage.ReadError.notFound
             }
             start += text.distance(from: startIndex, to: match.lowerBound)
             startIndex = match.lowerBound
@@ -88,21 +123,12 @@ struct AgentContextSources: Codable, Sendable {
             end += 1
         }
         guard end > start || startIndex == text.endIndex else {
-            return AgentToolExecution(
-                output:
-                    #"{"error":"character_too_large","message":"This character exceeds the reading limit and cannot be returned intact."}"#
-            )
+            throw AgentTextPage.ReadError.characterTooLarge
         }
-        var result: [String: Any] = [
-            "documentID": id ?? Self.id(text), "revision": AgentDocumentTools.revision(text),
-            "content": String(text[startIndex..<endIndex]),
-            "characterOffset": start, "totalCharacters": totalCharacters,
-            "complete": start == 0 && end == totalCharacters,
-            "nextCharacterOffset": end < totalCharacters ? end as Any : NSNull(),
-        ]
-        if start > 0 { result["precedingContentOmitted"] = true }
-        let data = try JSONSerialization.data(withJSONObject: result, options: .sortedKeys)
-        return AgentToolExecution(
-            output: String(decoding: data, as: UTF8.self), revision: AgentDocumentTools.revision(text))
+        return Self(
+            content: String(text[startIndex..<endIndex]), characterOffset: start, totalCharacters: totalCharacters,
+            complete: start == 0 && end == totalCharacters,
+            nextCharacterOffset: end < totalCharacters ? end : nil,
+            precedingContentOmitted: start > 0 ? true : nil)
     }
 }

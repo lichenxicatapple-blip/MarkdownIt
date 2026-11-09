@@ -26,6 +26,26 @@ def replace_once(text, marker, replacement):
 
 def reader_design(spec):
     names = {
+        **{
+            name: kind + "." + name
+            for name, kind in {
+                "annotationWidth": "size",
+                "annotationMinimumEditor": "size",
+                "annotationMaximumEditor": "size",
+                "annotationRadius": "size",
+                "annotationMarker": "size",
+                "annotationInset": "space",
+                "annotationScrollbarGap": "space",
+                "annotationScrollbarInset": "space",
+                "annotationGap": "space",
+                "annotationBodyGap": "space",
+                "annotationArrow": "size",
+                "annotationBodySize": "type",
+                "annotationLeading": "type",
+                "pencilHorizontalIntent": "ratio",
+                "pencilVerticalEscape": "ratio",
+            }.items()
+        },
         "sourceSize": "type.sourceSize",
         "sourceHorizontalInset": "space.sourceHorizontalInset",
         "sourceTopInset": "space.sourceTopInset",
@@ -51,6 +71,30 @@ def reader_design(spec):
         f"    static let {name}: CGFloat = {float(spec['tokens'][key]['value'].removesuffix('px')):g}"
         for name, key in names.items()
     ]
+    for key, token in spec["tokens"].items():
+        if not key.startswith("color.annotation"):
+            continue
+        colors = re.fullmatch(r"light-dark\((#[0-9a-fA-F]+), (#[0-9a-fA-F]+)\)", token["value"])
+        if not colors:
+            raise ValueError(f"Invalid native annotation palette: {key}")
+
+        def native_color(value):
+            value = value.removeprefix("#")
+            value = (value + "ff" if len(value) == 6 else value).upper()
+            return "0x" + value[:4] + "_" + value[4:]
+
+        light, dark = (native_color(value) for value in colors.groups())
+        declarations.append(
+            f"    static var {key.removeprefix('color.')}: UIColor {{ palette(light: {light}, dark: {dark}) }}"
+        )
+    declarations.append("""    private static func palette(light: UInt32, dark: UInt32) -> UIColor {
+        UIColor { traits in
+            let rgba = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(
+                red: CGFloat((rgba >> 24) & 255) / 255, green: CGFloat((rgba >> 16) & 255) / 255,
+                blue: CGFloat((rgba >> 8) & 255) / 255, alpha: CGFloat(rgba & 255) / 255)
+        }
+    }""")
     declarations += [
         f"    static let {name}Duration: TimeInterval = {spec['motion'][key]['duration'] / 1000:g}"
         for name, key in [
@@ -346,6 +390,7 @@ def generate(destination):
     )
     (package / "localization.js").write_text(localization)
     shutil.copy2(SOURCE / "agent/agent.js", package / "agent.js")
+    shutil.copytree(SOURCE / "annotations", package / "annotations")
     for asset in assets:
         for key in ["file", "licenseFile"]:
             shutil.copy2(VENDOR / asset[key], package / asset[key])

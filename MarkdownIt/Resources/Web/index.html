@@ -79,6 +79,34 @@
   --mdv-agent-edge-inset: 16px;
   --mdv-agent-control-inset: 8px;
   --mdv-agent-width-fraction: 0.34;
+  --mdv-annotation-width: 360px;
+  --mdv-annotation-minimum-editor: 100px;
+  --mdv-annotation-maximum-editor: 260px;
+  --mdv-annotation-radius: 22px;
+  --mdv-annotation-marker: 10px;
+  --mdv-annotation-inset: 22px;
+  --mdv-annotation-scrollbar-gap: 14px;
+  --mdv-annotation-scrollbar-inset: 8px;
+  --mdv-annotation-gap: 12px;
+  --mdv-annotation-body-gap: 18px;
+  --mdv-annotation-arrow: 13px;
+  --mdv-annotation-body-size: 18px;
+  --mdv-annotation-leading: 1.9;
+  --mdv-annotation-wave-offset: .38em;
+  --mdv-annotation-paper: light-dark(#fffdf8, #282923);
+  --mdv-annotation-ink: light-dark(#39372f, #ece7d7);
+  --mdv-annotation-muted: light-dark(#837e70, #b5b09f);
+  --mdv-annotation-line: light-dark(#e9e4d8, #45463d);
+  --mdv-annotation-wave: light-dark(#b98534, #d6b76b);
+  --mdv-annotation-mark: light-dark(#eee0ad62, #b89a403a);
+  --mdv-annotation-active: light-dark(#ead49c99, #b89a4075);
+  --mdv-annotation-wave-amplitude: .07em;
+  --mdv-annotation-wave-period: .4em;
+  --mdv-annotation-wave-thickness: .07em;
+  --mdv-pencil-horizontal-intent: 0.75;
+  --mdv-pencil-vertical-escape: 0.5;
+  --mdv-pencil-start-above: 0.2;
+  --mdv-pencil-start-below: 0.55;
   --mdv-duration-homeEntrance: 560ms;
   --mdv-ease-homeEntrance: ease-in-out;
   --mdv-duration-material: 160ms;
@@ -377,9 +405,11 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-agent-grabber { display: none; }
 #mdv-reading-concept .mdv-app .mdv-agent-collapse { position: absolute; z-index: 3; top: var(--mdv-agent-control-inset); right: var(--mdv-agent-control-inset); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 0; border-radius: 50%; color: var(--mdv-muted); background: color-mix(in srgb, var(--mdv-paper) 85%, transparent); }
 #mdv-reading-concept .mdv-app .mdv-agent-collapse svg { width: var(--mdv-reader-chrome-canvas); height: var(--mdv-reader-chrome-canvas); }
-#mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; margin-top: var(--mdv-agent-scroll-edge); padding: calc(var(--mdv-agent-content-inset) - var(--mdv-agent-scroll-edge)) var(--mdv-agent-content-inset) var(--mdv-agent-content-inset); scrollbar-width: thin; }
-#mdv-reading-concept .mdv-agent-scroll[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 var(--mdv-agent-scroll-edge)); }
-#mdv-reading-concept .mdv-conversation { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+#mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; padding: 0 var(--mdv-agent-content-inset); scrollbar-width: thin; }
+#mdv-reading-concept .mdv-agent-scroll { --mdv-scroll-top-alpha: #000; --mdv-scroll-bottom-alpha: #000; mask-image: linear-gradient(to bottom, var(--mdv-scroll-top-alpha), #000 var(--mdv-agent-scroll-edge), #000 calc(100% - var(--mdv-agent-scroll-edge)), var(--mdv-scroll-bottom-alpha)); }
+#mdv-reading-concept .mdv-agent-scroll[data-scrolled] { --mdv-scroll-top-alpha: transparent; }
+#mdv-reading-concept .mdv-agent-scroll[data-more-below] { --mdv-scroll-bottom-alpha: transparent; }
+#mdv-reading-concept .mdv-conversation { display: flex; flex-direction: column; gap: 28px; min-width: 0; padding: var(--mdv-agent-content-inset) 0; }
 #mdv-reading-concept .mdv-turn { min-width: 0; }
 #mdv-reading-concept .mdv-user-turn { margin-left: 24px; background: var(--mdv-chrome); border-radius: 18px 18px 5px 18px; padding: 12px 14px; }
 #mdv-reading-concept .mdv-user-turn:first-child { margin-right: 40px; }
@@ -536,6 +566,10 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
   </div>
   </div>
 </template>
+<link rel="stylesheet" href="annotations/annotations.css">
+<script src="annotations/source-map.js"></script>
+<script src="annotations/waves.js"></script>
+<script src="annotations/annotations.js"></script>
 <script src="localization.js"></script>
 <script src="agent.js"></script>
 <style>

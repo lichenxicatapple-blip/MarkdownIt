@@ -161,5 +161,18 @@
     "target": "native",
     "sha256": "0636887c9f72f77ce188f0b31029be58e65adae5a47e6d2887ad5020c2c75036",
     "licenseSha256": "fdfad38143ec470553cae82a1e45320bdd1b9ec70415d37bd0171051d8a4ded8"
+  },
+  {
+    "file": "model-capabilities.json",
+    "package": "models.dev",
+    "version": "108245c45623b9d3349090e1e8dc9359f26fb72d",
+    "target": "native",
+    "license": "MIT",
+    "url": "https://codeload.github.com/anomalyco/models.dev/tar.gz/108245c45623b9d3349090e1e8dc9359f26fb72d",
+    "sourceSha256": "c96c60c5e52a3ad45ebba510bc5fe83e263290d4c0eea56097a88a0622924b83",
+    "licenseFile": "models.dev.LICENSE",
+    "licenseURL": "https://raw.githubusercontent.com/anomalyco/models.dev/108245c45623b9d3349090e1e8dc9359f26fb72d/LICENSE",
+    "sha256": "021f0a5fbd1fef11459a17caacda708cdc86665686a0a9e56ed955f51aaa2d9b",
+    "licenseSha256": "dc2dc41c9fea2fd3c41c21c6f484844cab367800b88ff24781f980ad3a9d160a"
   }
 ]

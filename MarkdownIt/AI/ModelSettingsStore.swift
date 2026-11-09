@@ -4,9 +4,10 @@ import Security
 struct SavedModelSettings: Codable, Equatable, Sendable {
     var configuration = ModelConfiguration()
     var apiKey = ""
+    var search: WebSearchSettings?
 }
 
-/// One Keychain item keeps the endpoint, model, protocol and credential together.
+/// One Keychain item keeps model and optional search connections and their credentials together.
 struct ModelSettingsStore: Sendable {
     let service: String
 

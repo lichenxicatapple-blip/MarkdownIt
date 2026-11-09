@@ -4,11 +4,13 @@ struct ModelTool: Sendable {
     let name: String
     let description: String
     let parameters: Data
+    let reusesResult: Bool
 
-    init(name: String, description: String, parameters: String) {
+    init(name: String, description: String, parameters: String, reusesResult: Bool = false) {
         self.name = name
         self.description = description
         self.parameters = Data(parameters.utf8)
+        self.reusesResult = reusesResult
     }
 }
 
@@ -20,8 +22,22 @@ struct ModelToolCall: Codable, Sendable, Equatable {
 
 struct ModelToolOutput: Codable, Sendable {
     let id: String
-    let content: String
+    var content: String
     var images: [ModelImage] = []
+}
+
+struct ModelTokenUsage: Codable, Sendable {
+    let inputTokens: Int?
+    let outputTokens: Int?
+
+    init?(_ root: [String: Any], api: ModelAPIProtocol) {
+        let response = root["response"] as? [String: Any] ?? root
+        guard let usage = response["usage"] as? [String: Any] else { return nil }
+        let input = usage[api == .responses ? "input_tokens" : "prompt_tokens"] as? Int
+        let output = usage[api == .responses ? "output_tokens" : "completion_tokens"] as? Int
+        inputTokens = input.flatMap { $0 >= 0 ? $0 : nil }
+        outputTokens = output.flatMap { $0 >= 0 ? $0 : nil }
+    }
 }
 
 struct ModelTurn: Codable, Sendable {
@@ -30,6 +46,7 @@ struct ModelTurn: Codable, Sendable {
     // Preserve opaque reasoning/signature fields without interpreting or displaying them.
     var responseItems: [Data] = []
     var chatAssistant: Data?
+    var usage: ModelTokenUsage?
 }
 
 struct ModelToolExchange: Codable, Sendable {
@@ -40,7 +57,7 @@ struct ModelToolExchange: Codable, Sendable {
 enum ModelToolWire {
     static func requestBody(
         _ configuration: ModelConfiguration, messages: [ChatMessage],
-        tools: [ModelTool], exchanges: [ModelToolExchange]
+        tools: [ModelTool], exchanges: [ModelToolExchange], maxOutputTokens: Int? = nil
     ) throws -> Data {
         let responses = configuration.apiProtocol == .responses
         var body: [String: Any] = [
@@ -88,6 +105,7 @@ enum ModelToolWire {
                 : ["type": "function", "function": function]
         }
         body["parallel_tool_calls"] = false
+        ModelWireFormat.setOutputLimit(maxOutputTokens, in: &body, configuration: configuration)
         return try JSONSerialization.data(withJSONObject: body, options: .sortedKeys)
     }
 
@@ -114,7 +132,8 @@ enum ModelToolWire {
             decoder.recordChatMessage(message)
             text = ModelWireFormat.text(message["content"])
         }
-        let turn = try decoder.result(text: text, api: api)
+        var turn = try decoder.result(text: text, api: api)
+        turn.usage = ModelTokenUsage(root, api: api)
         guard !turn.text.isEmpty || !turn.calls.isEmpty else { throw ModelError.invalidResponse }
         return turn
     }

@@ -13,6 +13,8 @@ struct ReaderRecovery: Codable, Sendable {
     let images: AgentImages.Recovery
     let tools: AgentDocumentTools.Recovery
     let transport: AgentModelTransport.Recovery?
+    var annotations: ReadingAnnotations? = nil
+    var annotationDraft: ReaderAnnotationHost.Recovery? = nil
 }
 
 /// Serial, atomic replacement keeps the previous checkpoint intact on write failure.

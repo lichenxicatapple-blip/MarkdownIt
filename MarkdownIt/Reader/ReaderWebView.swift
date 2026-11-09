@@ -4,7 +4,10 @@ import WebKit
 @MainActor
 final class ReaderWKWebView: WKWebView {
     var askSelectedText: (() -> Void)?
+    var annotateSelectedText: ((String) -> Void)?
+    var hasAnnotationSelection = false
     weak var sourceView: SourceTextView?
+    weak var annotationView: UITextView?
     var inputBottomInset: CGFloat = 0 {
         didSet { if inputBottomInset != oldValue { inputBottomInsetDidChange?() } }
     }
@@ -19,7 +22,7 @@ final class ReaderWKWebView: WKWebView {
         return super.hitTest(point, with: event)
     }
     private var nativeInputFocused: Bool {
-        sourceView?.isFirstResponder == true
+        sourceView?.isFirstResponder == true || annotationView?.isFirstResponder == true
     }
 
     override func buildMenu(with builder: any UIMenuBuilder) {
@@ -30,7 +33,18 @@ final class ReaderWKWebView: WKWebView {
             [weak self] _ in
             self?.askSelectedText?()
         }
-        builder.insertChild(UIMenu(title: "", options: .displayInline, children: [ask]), atEndOfMenu: .standardEdit)
+        var actions: [UIMenuElement] = [ask]
+        if hasAnnotationSelection {
+            actions += [
+                UIAction(title: String(localized: "Underline"), image: UIImage(systemName: "underline")) {
+                    [weak self] _ in self?.annotateSelectedText?("underline")
+                },
+                UIAction(title: String(localized: "Add Annotation…"), image: UIImage(systemName: "text.bubble")) {
+                    [weak self] _ in self?.annotateSelectedText?("note")
+                },
+            ]
+        }
+        builder.insertChild(UIMenu(title: "", options: .displayInline, children: actions), atEndOfMenu: .standardEdit)
     }
 }
 
@@ -43,6 +57,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     private var lastTheme = ""
     private(set) var composer: NativeComposerHost!
     private(set) var imageMenu: ReaderImageMenu!
+    private var actionMenu: ReaderActionMenu!
+    private var pencil: ReaderPencilInteraction!
+    private(set) var annotationHost: ReaderAnnotationHost!
     let sourceEditor = SourceEditor()
     private var sourceToken = ""
     private var projectedRevision = -1
@@ -83,7 +100,26 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         sourceEditor.onAsk = { [weak self] range in
             Task { try? await self?.askSourceSelection(range) }
         }
-        imageMenu = ReaderImageMenu(webView: webView)
+        actionMenu = ReaderActionMenu(webView: webView)
+        imageMenu = ReaderImageMenu(menu: actionMenu)
+        annotationHost = ReaderAnnotationHost(session: session, webView: webView, menu: actionMenu)
+        pencil = ReaderPencilInteraction(webView: webView)
+        pencil.enabled = { [weak self] in
+            self?.session.mode == "preview" && self?.session.isClosingDocument == false
+                && self?.annotationHost.hasUnsavedChanges == false
+        }
+        pencil.onBegin = { [weak self] in self?.annotationHost.dismiss() }
+        pencil.send = { [weak self] payload in
+            Task { _ = try? await self?.rawCall("annotationPencil", payload: payload) }
+        }
+        annotationHost.call = { [weak self] method, payload in
+            _ = try? await self?.rawCall(method, payload: payload)
+        }
+        sourceEditor.history.onEdit = { [weak self] edit in
+            guard let self else { return }
+            self.session.annotationsEdited(
+                edit, historyIDs: self.sourceEditor.history.transactionIDs)
+        }
         imageMenu.onAsk = { [weak self] reference, token, point in
             guard let self, token == self.session.documentToken, self.session.mode == "preview",
                 !self.session.isClosingDocument,
@@ -116,6 +152,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         webView.askSelectedText = { [weak self] in
             Task { _ = try? await self?.call("askSelection") }
         }
+        webView.annotateSelectedText = { [weak self] action in
+            Task { _ = try? await self?.call("annotationSelectionAction", arguments: ["payload": ["action": action]]) }
+        }
         webView.inputBottomInsetDidChange = { [weak self] in self?.updateInputBottomInset() }
         session.bridge = self
         guard let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web") else {
@@ -131,9 +170,10 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         return sourceEditor.history.text
     }
 
-    func applySourceEdit(before: String, after: String, id: String) -> Bool {
+    func applySourceEdit(before: String, after: String, id: String, changes: [SourceHistory.Edit.Delta]? = nil) -> Bool
+    {
         guard sourceToken == session.documentToken, session.mode == "source" else { return false }
-        return sourceEditor.replace(expected: before, with: after, id: id)
+        return sourceEditor.replace(expected: before, with: after, id: id, changes: changes)
     }
 
     func moveSourceHistory(forward: Bool, id: String? = nil) -> Bool {
@@ -144,6 +184,11 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 
     func call(_ method: String, arguments: [String: Any] = [:]) async throws -> Any? {
         let payload = arguments["payload"]
+        if ["toggleMode", "toggleAgent", "toggleOutline"].contains(method) {
+            guard !annotationHost.hasUnsavedChanges else { return nil }
+            await session.waitForAnnotations()
+            annotationHost.dismiss()
+        }
         switch method {
         case "askSelection" where session.mode == "source":
             try await askSourceSelection(sourceEditor.textView.selectedRange)
@@ -209,7 +254,11 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 let events = self.sourceEvents
                 let text = self.sourceEditor.history.text
                 let accepted = try await self.rawCall(
-                    "sourceState", payload: ["token": token, "text": text, "events": events])
+                    "sourceState",
+                    payload: [
+                        "token": token, "text": text, "events": events, "revision": revision,
+                        "annotations": annotationRecords(),
+                    ])
                 guard generation == self.projectionGeneration, token == self.sourceToken, accepted as? Bool == true
                 else { return }
                 self.sourceEvents.removeFirst(min(events.count, self.sourceEvents.count))
@@ -248,6 +297,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         updateTheme()
         guard let document = session.document, loadedToken != session.documentToken else { return }
         imageMenu.dismiss()
+        annotationHost.dismiss(force: true, animated: false)
         loadedToken = session.documentToken
         let token = loadedToken
         if sourceToken != token {
@@ -272,11 +322,24 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                     arguments: [
                         "payload": [
                             "text": sourceEditor.history.text, "token": token,
+                            "revision": sourceEditor.history.revision, "annotations": annotationRecords(),
                             "name": document.fileURL.lastPathComponent,
+                            "mode": session.mode,
                             "recovery": session.webRecovery ?? NSNull() as Any,
                             "sourcePosition": sourceEditor.capturePosition().payload,
                         ]
                     ])
+                if token == session.documentToken, var saved = session.restoredAnnotation {
+                    if let value = try await rawCall(
+                        "resolveAnnotationAnchor",
+                        payload: ["start": saved.request.anchor.start, "end": saved.request.anchor.end]),
+                        let data = try? JSONSerialization.data(withJSONObject: value),
+                        let rect = try? JSONDecoder().decode(AnnotationRequest.Rect.self, from: data)
+                    {
+                        saved.request.rect = rect
+                        annotationHost.restore(saved)
+                    }
+                }
             } catch {
                 session.errorMessage = String(
                     localized: "Unable to render this document: \(error.localizedDescription)")
@@ -291,6 +354,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             "chevron-right": "chevron.right", "chevron-down": "chevron.down", "quote": "quote.opening",
             "code": "chevron.left.forwardslash.chevron.right", "file-text": "doc.text", "x": "xmark",
             "arrow-up": "arrow.up", "square": "stop.fill",
+            "message-square-text": "text.bubble",
         ]
         var symbols: [String: String] = [:]
         for (name, symbol) in names {
@@ -329,7 +393,27 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         }
     }
 
+    private func annotationRecords() -> [[String: Any]] {
+        session.annotations.visible.map { record in
+            [
+                "id": record.id.uuidString, "underlined": record.underlined, "hasNote": !record.note.isEmpty,
+                "ranges": record.ranges.map { ["start": $0.start, "end": $0.end] },
+            ]
+        }
+    }
+
+    func projectAnnotations(acknowledging operation: String? = nil) async {
+        _ = try? await rawCall(
+            "annotationState",
+            payload: [
+                "token": session.documentToken,
+                "revision": sourceEditor.history.revision, "records": annotationRecords(),
+                "acknowledged": operation ?? NSNull() as Any,
+            ])
+    }
+
     private func updateInputBottomInset() {
+        annotationHost.updateViewport()
         guard ready else { return }
         webView.callAsyncJavaScript(
             "window.MarkdownIt.setInputBottomInset(inset);",
@@ -342,6 +426,46 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             let body = message.body as? [String: Any], let type = body["type"] as? String
         else { return }
         switch type {
+        case "annotationRegions":
+            guard body["token"] as? String == session.documentToken, let values = body["regions"],
+                let data = try? JSONSerialization.data(withJSONObject: values),
+                let regions = try? JSONDecoder().decode([ReaderPencilInteraction.Region].self, from: data)
+            else { return }
+            pencil.update(regions)
+        case "annotationSelection":
+            guard body["token"] as? String == session.documentToken else { return }
+            let available = body["available"] as? Bool == true && session.mode == "preview"
+            if webView.hasAnnotationSelection != available {
+                webView.hasAnnotationSelection = available
+                UIMenuSystem.context.setNeedsRebuild()
+            }
+            if available { annotationHost.dismiss() }
+        case "annotationOpen":
+            guard let value = body["request"], let data = try? JSONSerialization.data(withJSONObject: value),
+                let request = try? JSONDecoder().decode(AnnotationRequest.self, from: data)
+            else { return }
+            annotationHost.show(request)
+        case "annotationAction":
+            guard body["token"] as? String == session.documentToken, body["action"] as? String == "underline",
+                let values = body["ranges"], let data = try? JSONSerialization.data(withJSONObject: values),
+                let ranges = try? JSONDecoder().decode([AnnotationRange].self, from: data),
+                let revision = body["revision"] as? Int
+            else { return }
+            let token = session.documentToken
+            let operation = body["operationID"] as? String
+            let joining = Set((body["joining"] as? [String] ?? []).compactMap(UUID.init(uuidString:)))
+            Task {
+                let saved = await session.setAnnotation(
+                    ranges: ranges, underlined: true, token: token, sourceRevision: revision, operationID: operation,
+                    joining: joining)
+                if !saved { await projectAnnotations(acknowledging: operation) }
+            }
+        case "annotationAnchor":
+            guard body["token"] as? String == session.documentToken, let rect = body["rect"],
+                let data = try? JSONSerialization.data(withJSONObject: rect),
+                let rect = try? JSONDecoder().decode(AnnotationRequest.Rect.self, from: data)
+            else { return }
+            annotationHost.updateAnchor(rect)
         case "ready":
             composer.beginPage()
             ready = true
@@ -359,6 +483,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         case "documentReady":
             if body["token"] as? String == session.documentToken {
                 session.rendererReady = true
+                if session.consumeSourceFocusRequest() { sourceEditor.requestFocus() }
                 session.sourceHistoryChanged(
                     canUndo: sourceEditor.history.canUndo, canRedo: sourceEditor.history.canRedo,
                     token: session.documentToken)
@@ -467,11 +592,17 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 
     func detach() {
         session.finishDataSharingConsent(allowed: false)
+        session.searchAuthorization.finish(allowed: false)
         session.agentTransport.reset()
         session.agentImages.reset()
+        pencil.detach()
+        annotationHost.detach()
         imageMenu.detach()
+        actionMenu.detach()
+        sourceEditor.history.onEdit = nil
         composer.detach()
         webView.askSelectedText = nil
+        webView.annotateSelectedText = nil
         webView.inputBottomInsetDidChange = nil
         webView.sourceView = nil
         sourceEditor.detach()
@@ -493,6 +624,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         session.finishDataSharingConsent(allowed: false)
+        session.searchAuthorization.finish(allowed: false)
         session.captureNativeRecovery()
         session.agentTransport.cancel()
         imageMenu.dismiss()

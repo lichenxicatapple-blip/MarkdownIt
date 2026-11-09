@@ -12,6 +12,7 @@ final class LiveModelTests: AgentReaderTestCase {
         let model: String
         let key: String
         let apiProtocol: String?
+        let serperKey: String?
     }
 
     private func liveConfiguration() throws -> (LiveConfiguration, [ModelAPIProtocol]) {
@@ -80,10 +81,100 @@ final class LiveModelTests: AgentReaderTestCase {
     }
 
     /// Secrets live outside the repository and are never attached to test reports.
+    func testAtlasSearchAndWebPageReadingUseRealServicesAndContinueTheConversation() async throws {
+        let (live, protocols) = try liveConfiguration()
+        let serperKey = try XCTUnwrap(live.serperKey, "Real search verification requires serperKey")
+        XCTAssertFalse(serperKey.isEmpty)
+        let service = try isolatedCredential(live.key)
+        let store = ModelSettingsStore(service: service)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: service))
+        let saved = try store.load(migrating: defaults)
+        try store.save(
+            SavedModelSettings(
+                configuration: saved.configuration, apiKey: saved.apiKey,
+                search: .init(provider: .serper, keys: ["serper": serperKey])), replacingLegacyIn: defaults)
+        for api in protocols {
+            let (session, bridge, _, _) = try await makeReader(
+                "# Reading note\n\nWe are checking the official CommonMark syntax reference.\n", api: api,
+                baseURL: live.baseURL, model: live.model, modelClient: ModelClient(),
+                modelKey: { self.readCredential(service) })
+            let search = try XCTUnwrap(try store.load(migrating: defaults).search)
+            try session.saveConfiguration(session.configuration, key: readCredential(service), search: search)
+            _ = try await bridge.call("toggleAgent")
+            let started = Date()
+            try await send(
+                "请联网搜索 CommonMark 官方快速语法参考，再读取 https://commonmark.org/help/ 的网页正文，查找表格里的一级标题和链接语法。用中文简短说明并附上来源链接。",
+                bridge: bridge)
+            try await wait { session.searchAuthorization.request != nil }
+            session.searchAuthorization.finish(allowed: true)
+            try await liveCompleted(bridge)
+            let recovery = try XCTUnwrap(session.agentTransport.recovery())
+            let calls = recovery.exchanges.flatMap { $0.turn.calls }
+            XCTAssertTrue(calls.contains { $0.name == "web_search" }, "The actual model must search")
+            XCTAssertTrue(calls.contains { $0.name == "read_webpage" }, "The actual model must retrieve page text")
+            XCTAssertFalse(
+                recovery.exchanges.flatMap { $0.outputs }.contains { $0.content.contains("webpage_unavailable") })
+            let first = try await state(bridge)
+            let answer = (first["turns"] as? [[String: Any]])?.last?["text"] as? String ?? ""
+            let answerHTML = (first["turns"] as? [[String: Any]])?.last?["html"] as? String ?? ""
+            XCTAssertTrue(
+                answerHTML.contains("https://commonmark.org/help/"),
+                "The rendered answer must include the actual source link")
+            XCTAssertTrue(answer.contains("#"))
+            XCTAssertNotNil(answer.range(of: "[\u{4e00}-\u{9fff}]", options: .regularExpression))
+            try await send("结合刚才实际读取的网页，给一个 Markdown 链接的具体例子，保留来源。", bridge: bridge)
+            try await liveCompleted(bridge, count: 4)
+            let followup = try await state(bridge)
+            let second = (followup["turns"] as? [[String: Any]])?.last?["text"] as? String ?? ""
+            XCTAssertTrue(second.contains("]("))
+            XCTAssertTrue(second.contains("commonmark.org"))
+            XCTAssertEqual(session.mode, "preview")
+            XCTAssertEqual(
+                session.document?.text, "# Reading note\n\nWe are checking the official CommonMark syntax reference.\n")
+            let evidence = XCTAttachment(
+                string:
+                    "Model: \(live.model)\nProtocol: \(api.rawValue)\nSearch: Serper\nTools: \(calls.map(\.name).joined(separator: ", "))\nTwo-turn elapsed: \(Date().timeIntervalSince(started)) seconds"
+            )
+            evidence.name = "Real search and webpage reading"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
+    }
+
+    func testAtlasCatalogCapacitiesAndBudgetedGeneration() async throws {
+        let (live, protocols) = try liveConfiguration()
+        let service = try isolatedCredential(live.key)
+        let models = try await ModelCatalog().models(baseURL: live.baseURL, key: readCredential(service))
+        let model = try XCTUnwrap(models.first { $0.id == live.model })
+        XCTAssertGreaterThan(try XCTUnwrap(model.contextWindow), 0)
+        XCTAssertGreaterThan(try XCTUnwrap(model.maxOutputTokens), 0)
+        let budget = AgentContextBudget(capabilities: model.capabilities)
+        for api in protocols {
+            let messages = [ChatMessage(role: "user", content: "Reply only with this exact marker: MDV_CAPACITY_OK")]
+            let started = Date()
+            let turn = try await ModelClient().stream(
+                configuration: .init(baseURL: live.baseURL, model: live.model, apiProtocol: api),
+                key: readCredential(service), messages: messages,
+                maxOutputTokens: budget.outputLimit(inputCost: budget.cost(messages))
+            ) { _ in }
+            XCTAssertTrue(turn.text.contains("MDV_CAPACITY_OK"))
+            XCTAssertGreaterThan(try XCTUnwrap(turn.usage?.inputTokens), 0)
+            let evidence = XCTAttachment(
+                string:
+                    "Model: \(live.model)\nProtocol: \(api.rawValue)\nContext: \(model.contextWindow ?? 0)\nMax output: \(model.maxOutputTokens ?? 0)\nElapsed: \(Date().timeIntervalSince(started)) seconds"
+            )
+            evidence.name = "Provider capacity and generation"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
+    }
+
     func testAtlasContextCompactionAndOnDemandReading() async throws {
         let (live, protocols) = try liveConfiguration()
         let keychainService = try isolatedCredential(live.key)
         let client = ModelClient()
+        let catalog = try await ModelCatalog().models(baseURL: live.baseURL, key: readCredential(keychainService))
+        let window = try XCTUnwrap(catalog.first { $0.id == live.model }?.contextWindow)
         for api in protocols {
             let configuration = ModelConfiguration(baseURL: live.baseURL, model: live.model, apiProtocol: api)
             let doc = AgentAttachment(
@@ -101,12 +192,13 @@ final class LiveModelTests: AgentReaderTestCase {
                     .init(
                         role: "assistant",
                         markdown: String(
-                            repeating: "We discussed supporting evidence and the reading note. ", count: 450),
+                            repeating: "We discussed supporting evidence and the reading note. ", count: 1800),
                         attachment: nil),
                     .init(role: "user", markdown: question, attachment: nil, document: doc),
                 ], document: doc)
             let prepared = try await AgentContextMemory().prepare(
-                snapshot, intent: "question", scope: api.rawValue, budget: .init(limit: 24_000), images: [],
+                snapshot, intent: "question", scope: api.rawValue,
+                budget: .init(capabilities: .init(contextWindow: 32_768)), images: [],
                 summarize: { messages in
                     try await client.stream(
                         configuration: configuration, key: live.key, messages: messages
@@ -120,7 +212,7 @@ final class LiveModelTests: AgentReaderTestCase {
                 turn.text.contains("Cedar-8427"), "The real model must preserve the earlier agreement after compaction")
 
             let longDocument =
-                "# Reading note\n\n" + String(repeating: "Supporting detail about the reading.\n\n", count: 2400)
+                "# Reading note\n\n" + String(repeating: "资料", count: window / 4 + 1)
                 + "结论校验：海星9527。\n"
             let (session, bridge, _, _) = try await makeReader(
                 longDocument, api: api, baseURL: live.baseURL, model: live.model,
@@ -132,6 +224,10 @@ final class LiveModelTests: AgentReaderTestCase {
             let answer = (state["turns"] as? [[String: Any]])?.last?["text"] as? String ?? ""
             XCTAssertTrue(
                 answer.contains("海星9527"), "A real tool call must retrieve material omitted from the initial request")
+            let calls = session.agentTransport.recovery()?.exchanges.flatMap { $0.turn.calls } ?? []
+            XCTAssertTrue(
+                calls.contains { $0.name == "read_document" },
+                "The oversized material must actually be read through the tool")
             XCTAssertEqual(session.document?.text, longDocument)
             XCTAssertEqual(session.mode, "preview")
         }

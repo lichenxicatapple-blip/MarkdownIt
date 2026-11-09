@@ -2,6 +2,21 @@
 import UIKit
 
 enum ReaderDesign {
+    static let annotationWidth: CGFloat = 360
+    static let annotationMinimumEditor: CGFloat = 100
+    static let annotationMaximumEditor: CGFloat = 260
+    static let annotationRadius: CGFloat = 22
+    static let annotationMarker: CGFloat = 10
+    static let annotationInset: CGFloat = 22
+    static let annotationScrollbarGap: CGFloat = 14
+    static let annotationScrollbarInset: CGFloat = 8
+    static let annotationGap: CGFloat = 12
+    static let annotationBodyGap: CGFloat = 18
+    static let annotationArrow: CGFloat = 13
+    static let annotationBodySize: CGFloat = 18
+    static let annotationLeading: CGFloat = 1.9
+    static let pencilHorizontalIntent: CGFloat = 0.75
+    static let pencilVerticalEscape: CGFloat = 0.5
     static let sourceSize: CGFloat = 16
     static let sourceHorizontalInset: CGFloat = 24
     static let sourceTopInset: CGFloat = 76
@@ -22,6 +37,21 @@ enum ReaderDesign {
     static let homeActionGap: CGFloat = 8
     static let recentsWidth: CGFloat = 360
     static let recentsMaxHeight: CGFloat = 540
+    static var annotationPaper: UIColor { palette(light: 0xFFFD_F8FF, dark: 0x2829_23FF) }
+    static var annotationInk: UIColor { palette(light: 0x3937_2FFF, dark: 0xECE7_D7FF) }
+    static var annotationMuted: UIColor { palette(light: 0x837E_70FF, dark: 0xB5B0_9FFF) }
+    static var annotationLine: UIColor { palette(light: 0xE9E4_D8FF, dark: 0x4546_3DFF) }
+    static var annotationWave: UIColor { palette(light: 0xB985_34FF, dark: 0xD6B7_6BFF) }
+    static var annotationMark: UIColor { palette(light: 0xEEE0_AD62, dark: 0xB89A_403A) }
+    static var annotationActive: UIColor { palette(light: 0xEAD4_9C99, dark: 0xB89A_4075) }
+    private static func palette(light: UInt32, dark: UInt32) -> UIColor {
+        UIColor { traits in
+            let rgba = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(
+                red: CGFloat((rgba >> 24) & 255) / 255, green: CGFloat((rgba >> 16) & 255) / 255,
+                blue: CGFloat((rgba >> 8) & 255) / 255, alpha: CGFloat(rgba & 255) / 255)
+        }
+    }
     static let toolsDuration: TimeInterval = 0.24
     static let agentDuration: TimeInterval = 0.28
     static let documentCloseDuration: TimeInterval = 0.62

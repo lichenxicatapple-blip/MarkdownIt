@@ -211,7 +211,10 @@
       const style = getComputedStyle(input);
       input.style.height = Math.max(parseFloat(style.minHeight), input.scrollHeight) + 'px';
     }
-    function updateScrollEdge() { scroll.toggleAttribute('data-scrolled', scroll.scrollTop > 0); }
+    function updateScrollEdge() {
+      scroll.toggleAttribute('data-scrolled', scroll.scrollTop > 1);
+      scroll.toggleAttribute('data-more-below', scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 1);
+    }
     function keepAtBottom() {
       if (followBottom && isOpen) scroll.scrollTop = scroll.scrollHeight;
       updateScrollEdge();

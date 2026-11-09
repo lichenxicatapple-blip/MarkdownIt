@@ -36,6 +36,8 @@ struct AgentSnapshot: Codable, Sendable, Equatable {
 
     var document: AgentAttachment? = nil
     var id: String? = nil
+    var searchResults: [Int: [WebSearchResult]]? = nil
+    var webPages: [Int: [WebPageExcerpt]]? = nil
 
     func messages(intent: String) throws -> [ChatMessage] {
         try AgentContextBuilder.build(self, intent: intent)
@@ -91,6 +93,8 @@ final class AgentModelTransport {
         "{\"error\":\"repeated_without_progress\",\"message\":\"相同调用得到相同结果且文档没有变化。已停止继续调用工具，请如实说明结果。\"}"
     private let client: ModelClient
     private var contextMemory = AgentContextMemory()
+    private var contextCheckpoint: AgentContextMemory.Checkpoint?
+    private var searchHistory = AgentWebSearchHistory()
     private var task: Task<Void, Never>?
     private(set) var activeID: String?
     private final class Run {
@@ -99,12 +103,26 @@ final class AgentModelTransport {
         var pending: Pending?
         var seenToolResults = Set<String>()
         var toolsPaused = false
-        var messages: [ChatMessage]?
         var sources: AgentContextSources?
-        var needsReadingTool = false
-        var toolSummary: String?
+        var context = AgentContextMemory.ToolMemory()
         var readSignatures: [String: String] = [:]
         init(key: String) { self.key = key }
+
+        func completedOutput(for call: ModelToolCall) -> String? {
+            func arguments(_ value: String) -> Data? {
+                guard let object = try? ModelWireFormat.object(Data(value.utf8)) else { return nil }
+                return try? JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
+            }
+            guard let expected = arguments(call.arguments) else { return nil }
+            let completed = exchanges + (pending.map { [ModelToolExchange(turn: $0.turn, outputs: $0.outputs)] } ?? [])
+            for exchange in completed.reversed() {
+                for previous in exchange.turn.calls
+                where previous.name == call.name && arguments(previous.arguments) == expected {
+                    if let output = exchange.outputs.first(where: { $0.id == previous.id }) { return output.content }
+                }
+            }
+            return nil
+        }
     }
     private final class Pending {
         let turn: ModelTurn
@@ -118,11 +136,10 @@ final class AgentModelTransport {
         let pendingOutputs: [ModelToolOutput]
         let seenToolResults: Set<String>
         let toolsPaused: Bool
-        let messages: [ChatMessage]?
-        let sources: AgentContextSources?
-        let needsReadingTool: Bool
-        let toolSummary: String?
+        let context: AgentContextMemory.Checkpoint?
+        let toolMemory: AgentContextMemory.ToolMemory?
         let readSignatures: [String: String]
+        var searchHistory: AgentWebSearchHistory? = nil
     }
 
     var checkpoint: (@MainActor () async -> Void)?
@@ -132,8 +149,8 @@ final class AgentModelTransport {
         return Recovery(
             key: run.key, exchanges: run.exchanges, pendingTurn: run.pending?.turn,
             pendingOutputs: run.pending?.outputs ?? [], seenToolResults: run.seenToolResults,
-            toolsPaused: run.toolsPaused, messages: run.messages, sources: run.sources,
-            needsReadingTool: run.needsReadingTool, toolSummary: run.toolSummary, readSignatures: run.readSignatures)
+            toolsPaused: run.toolsPaused, context: contextCheckpoint, toolMemory: run.context,
+            readSignatures: run.readSignatures, searchHistory: searchHistory)
     }
 
     func restore(_ value: Recovery?) throws {
@@ -150,10 +167,9 @@ final class AgentModelTransport {
         }
         run.seenToolResults = value.seenToolResults
         run.toolsPaused = value.toolsPaused
-        run.messages = value.messages
-        run.sources = value.sources
-        run.needsReadingTool = value.needsReadingTool
-        run.toolSummary = value.toolSummary
+        run.context = value.toolMemory ?? AgentContextMemory.ToolMemory()
+        contextCheckpoint = value.context
+        searchHistory = value.searchHistory ?? AgentWebSearchHistory()
         run.readSignatures = value.readSignatures
         self.run = run
     }
@@ -174,30 +190,48 @@ final class AgentModelTransport {
         cancel()
         run = nil
         contextMemory = AgentContextMemory()
+        contextCheckpoint = nil
+        searchHistory = AgentWebSearchHistory()
+    }
+
+    func recordSearch(_ result: WebSearchResult, snapshot: AgentSnapshot) {
+        searchHistory.append(result, snapshot: snapshot)
+    }
+
+    func recordWebPage(_ page: WebPageExcerpt, snapshot: AgentSnapshot) {
+        searchHistory.append(page, snapshot: snapshot)
     }
 
     func start(
         id: String, token: String, snapshot: AgentSnapshot, intent: String,
-        configuration: ModelConfiguration, key: String, contextWindow: Int? = nil,
+        configuration: ModelConfiguration, key: String,
+        toolScope: String = "",
+        capabilities: @escaping @MainActor () async -> ModelCapabilities = { ModelCapabilities() },
         toolsAvailable: @escaping @MainActor () -> Bool = { false },
         prepareImages: @escaping @MainActor () async throws -> [ModelImage] = { [] },
-        imageTools: @escaping @MainActor () -> [ModelTool] = { [] },
+        additionalTools: @escaping @MainActor () -> [ModelTool] = { [] },
         readDocument: (@MainActor (ModelToolCall, Int) async -> AgentToolExecution)? = nil,
         executeTool:
             @escaping @MainActor (
-                ModelToolCall, @escaping @MainActor (AgentDocumentChange) async -> Void
-            ) async -> AgentToolExecution = { _, _ in AgentToolExecution(output: "{\"error\":\"read_only\"}") },
+                ModelToolCall, Int, @escaping @MainActor (AgentDocumentChange) async -> Void
+            ) async throws -> AgentToolExecution = { _, _, _ in AgentToolExecution(output: "{\"error\":\"read_only\"}")
+            },
         emit: @escaping @MainActor (AgentModelEvent) async -> Void
     ) {
         guard activeID == nil else { return }
         activeID = id
+        var snapshot = snapshot
+        // This material is owned by native execution, never trusted from a Web payload.
+        snapshot.searchResults = searchHistory.results(for: snapshot)
+        snapshot.webPages = searchHistory.pages(for: snapshot)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        let scope =
+        let scope = AgentDocumentTools.revision(
             token + ":" + configuration.baseURL + ":" + configuration.model + ":"
-            + configuration.apiProtocol.rawValue + ":" + AgentDocumentTools.revision(key)
+                + configuration.apiProtocol.rawValue + ":" + AgentDocumentTools.revision(key)
+                + (toolScope.isEmpty ? "" : ":" + toolScope))
         let requestKey =
-            AgentDocumentTools.revision(scope) + ":"
+            scope + ":"
             + AgentDocumentTools.revision(
                 String(decoding: (try? encoder.encode(snapshot)) ?? Data(), as: UTF8.self))
         let currentRun = run?.key == requestKey ? run! : Run(key: requestKey)
@@ -207,29 +241,17 @@ final class AgentModelTransport {
                 (($0.document?.images ?? []) + ($0.attachment?.images ?? [])).map(\.id)
             })
         let memory = contextMemory
-        let systemMessage = AgentContextBuilder.systemMessage(for: snapshot)
         task = Task { [weak self, client, memory] in
             guard !Task.isCancelled else { return }
-            await memory.configure(scope: scope)
-            let budget = await memory.budget(contextWindow: contextWindow)
-            let summarize: AgentContextMemory.Summarize = { messages in
-                let turn = try await client.stream(configuration: configuration, key: key, messages: messages) { _ in }
-                guard turn.calls.isEmpty else { throw ModelError.contextPreparation }
-                return turn.text
-            }
+            await memory.configure(scope: scope, restoring: self?.contextCheckpoint)
             do {
-                if currentRun.messages == nil {
-                    let images = try await prepareImages()
-                    let prepared = try await memory.prepare(
-                        snapshot, intent: intent, scope: scope, budget: budget, images: images, summarize: summarize)
-                    try Task.checkCancellation()
-                    currentRun.messages = prepared.messages
-                    currentRun.sources = prepared.sources
-                    currentRun.needsReadingTool = prepared.needsReadingTool
-                    await self?.checkpoint?()
-                }
+                let limits = await capabilities()
+                try Task.checkCancellation()
+                let images = try await prepareImages()
+                currentRun.sources = AgentContextSources(snapshot)
                 while true {
                     try Task.checkCancellation()
+                    let readBudget = await memory.budget(capabilities: limits)
                     if let pending = currentRun.pending {
                         while pending.outputs.count < pending.turn.calls.count {
                             try Task.checkCancellation()
@@ -237,21 +259,31 @@ final class AgentModelTransport {
                             let execution: AgentToolExecution
                             if currentRun.toolsPaused {
                                 execution = AgentToolExecution(output: Self.pausedToolOutput)
+                            } else if additionalTools().contains(where: { $0.name == call.name && $0.reusesResult }),
+                                let output = currentRun.completedOutput(for: call)
+                            {
+                                execution = AgentToolExecution(output: output)
                             } else if call.name == "read_document",
-                                let material = currentRun.sources?.read(call, maxBytes: budget.limit / 12)
+                                let material = currentRun.sources?.read(call, maxBytes: readBudget.readByteLimit)
                             {
                                 execution = material
                             } else if call.name == "read_document", let readDocument {
-                                execution = await readDocument(call, budget.limit / 12)
-                            } else if ["read_image", "read_document"].contains(call.name)
+                                execution = await readDocument(call, readBudget.readByteLimit)
+                            } else if additionalTools().contains(where: { $0.name == call.name })
+                                || ["read_image", "read_document"].contains(call.name)
                                 || (snapshot.document?.mode == "source" && toolsAvailable())
                             {
-                                execution = await executeTool(call) { change in
+                                execution = try await executeTool(call, readBudget.readByteLimit) { change in
                                     await emit(AgentModelEvent(id: id, token: token, type: "change", change: change))
                                 }
-                            } else {
+                            } else if call.name == "edit_document" {
                                 execution = AgentToolExecution(
                                     output: "{\"error\":\"read_only\",\"message\":\"请切换到源码模式后再修改。\"}")
+                            } else {
+                                execution = AgentToolExecution(
+                                    output:
+                                        #"{"error":"tool_unavailable","message":"Use only the tools available for this request."}"#
+                                )
                             }
                             // Journal successful effects before observing cancellation. A retry
                             // resumes after these results instead of executing the same edit twice.
@@ -281,53 +313,52 @@ final class AgentModelTransport {
                         currentRun.pending = nil
                     }
                     try Task.checkCancellation()
-                    @MainActor func offeredTools() -> [ModelTool] {
-                        guard !currentRun.toolsPaused else { return [] }
-                        let visibleImages = Set(
-                            (currentRun.messages ?? []).flatMap { $0.images.map(\.id) }
-                                + currentRun.exchanges.flatMap { $0.outputs.flatMap { $0.images.map(\.id) } })
-                        let needsImages = !imageIDs.isSubset(of: visibleImages)
-                        return (needsImages ? imageTools() : [])
+                    let budget = await memory.budget(capabilities: limits)
+                    let summarize: AgentContextMemory.Summarize = { messages in
+                        let turn = try await Self.request(
+                            client, configuration: configuration, key: key, messages: messages,
+                            budget: budget, memory: memory
+                        ) { _ in }
+                        guard turn.calls.isEmpty else { throw ModelError.contextPreparation }
+                        return turn.text
+                    }
+                    let potentialTools =
+                        currentRun.toolsPaused
+                        ? []
+                        : additionalTools()
                             + (snapshot.document?.mode == "source" && toolsAvailable()
-                                ? AgentDocumentTools.definitions
-                                : currentRun.needsReadingTool ? [AgentDocumentTools.definitions[0]] : [])
-                    }
-                    var tools = offeredTools()
-                    var messages = try Self.messages(currentRun, systemMessage: systemMessage)
-                    while AgentContextBudget.cost(messages, exchanges: currentRun.exchanges, tools: tools)
-                        > budget.limit
-                    {
-                        guard let oldest = currentRun.exchanges.first else { throw ModelError.contextLimit }
-                        let record = try JSONSerialization.data(
-                            withJSONObject: [
-                                "answer": oldest.turn.text,
-                                "calls": oldest.turn.calls.map { ["name": $0.name, "arguments": $0.arguments] },
-                                "results": oldest.outputs.map {
-                                    ["content": $0.content, "imageIDs": $0.images.map(\.id)] as [String: Any]
-                                },
-                            ], options: .sortedKeys)
-                        let summary = try await AgentContextMemory.summarize(
-                            [String(decoding: record, as: UTF8.self)], previous: currentRun.toolSummary,
-                            budget: budget, using: summarize)
-                        try Task.checkCancellation()
-                        currentRun.toolSummary = summary
-                        currentRun.exchanges.removeFirst()
-                        for call in oldest.turn.calls {
-                            if let signature = currentRun.readSignatures.removeValue(forKey: call.id) {
-                                currentRun.seenToolResults.remove(signature)
-                            }
+                                ? AgentDocumentTools.definitions : [AgentDocumentTools.definitions[0]])
+                    let prepared = try await memory.prepare(
+                        snapshot, intent: intent, scope: scope, budget: budget, images: images,
+                        tools: potentialTools, exchanges: currentRun.exchanges, toolMemory: currentRun.context,
+                        onCheckpoint: { [weak self] state, projection in
+                            await self?.rememberContext(state, projection: projection, id: id, key: requestKey)
+                        }, summarize: summarize)
+                    try Task.checkCancellation()
+                    currentRun.sources = prepared.sources
+                    currentRun.context = prepared.toolMemory
+                    for callID in prepared.evictedReadIDs {
+                        if let signature = currentRun.readSignatures.removeValue(forKey: callID) {
+                            currentRun.seenToolResults.remove(signature)
                         }
-                        messages = try Self.messages(currentRun, systemMessage: systemMessage)
-                        tools = offeredTools()
                     }
-                    let turn = try await client.stream(
-                        configuration: configuration, key: key, messages: messages,
-                        tools: tools, exchanges: currentRun.exchanges
+                    let visibleImages = Set(
+                        prepared.messages.flatMap { $0.images.map(\.id) }
+                            + prepared.exchanges.flatMap { $0.outputs.flatMap { $0.images.map(\.id) } })
+                    let tools = potentialTools.filter {
+                        ($0.name != "read_image" || !imageIDs.isSubset(of: visibleImages))
+                            && ($0.name != "read_document" || snapshot.document?.mode == "source"
+                                || prepared.needsReadingTool)
+                    }
+                    let turn = try await Self.request(
+                        client, configuration: configuration, key: key, messages: prepared.messages,
+                        tools: tools, exchanges: prepared.exchanges, budget: budget, memory: memory
                     ) { [weak self] chunk in
                         guard await self?.activeID == id else { return }
                         await emit(AgentModelEvent(id: id, token: token, type: "text", text: chunk))
                     }
                     try Task.checkCancellation()
+                    self?.contextCheckpoint = await memory.checkpoint()
                     guard !tools.isEmpty || turn.calls.isEmpty else { throw ModelError.invalidResponse }
                     if turn.calls.isEmpty {
                         await emit(AgentModelEvent(id: id, token: token, type: "complete"))
@@ -338,10 +369,8 @@ final class AgentModelTransport {
                 }
             } catch {
                 if self?.activeID == id && !Task.isCancelled {
-                    if case ModelError.contextLimit = error {
-                        await memory.reduceBudget()
-                        currentRun.messages = nil
-                    }
+                    self?.contextCheckpoint = await memory.checkpoint()
+                    await self?.checkpoint?()
                     await emit(AgentModelEvent(id: id, token: token, type: "failure", failure: AgentFailure(error)))
                 }
             }
@@ -352,17 +381,28 @@ final class AgentModelTransport {
         }
     }
 
-    private static func messages(_ run: Run, systemMessage: ChatMessage) throws -> [ChatMessage] {
-        guard var messages = run.messages else { throw ModelError.invalidResponse }
-        // Recovery retains request materials and completed effects, while the
-        // installed app owns the current instructions and tool contract.
-        messages.removeAll { $0.role == "system" }
-        messages.insert(systemMessage, at: 0)
-        if let summary = run.toolSummary {
-            let data = try JSONSerialization.data(withJSONObject: ["toolHistorySummary": summary], options: .sortedKeys)
-            messages.insert(
-                ChatMessage(role: "user", content: String(decoding: data, as: UTF8.self)), at: messages.count - 1)
-        }
-        return messages
+    private nonisolated static func request(
+        _ client: ModelClient, configuration: ModelConfiguration, key: String, messages: [ChatMessage],
+        tools: [ModelTool] = [], exchanges: [ModelToolExchange] = [],
+        budget: AgentContextBudget, memory: AgentContextMemory,
+        onText: @escaping @Sendable (String) async -> Void
+    ) async throws -> ModelTurn {
+        let turn = try await client.stream(
+            configuration: configuration, key: key, messages: messages, tools: tools, exchanges: exchanges,
+            maxOutputTokens: budget.outputLimit(inputCost: budget.cost(messages, exchanges: exchanges, tools: tools)),
+            onText: onText)
+        await memory.observe(
+            inputTokens: turn.usage?.inputTokens,
+            estimatedTokens: AgentContextBudget.estimate(messages, exchanges: exchanges, tools: tools))
+        return turn
+    }
+
+    private func rememberContext(
+        _ state: AgentContextMemory.Checkpoint, projection: AgentContextMemory.ToolMemory, id: String, key: String
+    ) async {
+        guard activeID == id, let run, run.key == key else { return }
+        contextCheckpoint = state
+        run.context = projection
+        await checkpoint?()
     }
 }

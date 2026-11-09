@@ -10,7 +10,7 @@ final class RecoveryTests: AgentReaderTestCase {
         addTeardownBlock {
             if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
         }
-        return ReaderRecoveryStore(directory: root)
+        return ReaderRecoveryStore(directory: root.appendingPathComponent("Recovery"))
     }
 
     private func reader(_ text: String, store: ReaderRecoveryStore) async throws -> (ReaderSession, ReaderBridge, URL) {
@@ -25,7 +25,10 @@ final class RecoveryTests: AgentReaderTestCase {
         let name = UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
         addTeardownBlock { defaults.removePersistentDomain(forName: name) }
-        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings(), recoveryStore: store)
+        let session = ReaderSession(
+            defaults: defaults, modelSettings: isolatedModelSettings(), recoveryStore: store,
+            annotationStore: ReadingAnnotationStore(
+                directory: store.directory.deletingLastPathComponent().appendingPathComponent("Annotations")))
         addTeardownBlock { @MainActor in await session.closeDocument() }
         await session.restoreLastSession()
         return session
@@ -377,5 +380,68 @@ final class RecoveryTests: AgentReaderTestCase {
         } catch { XCTAssertTrue(FileManager.default.fileExists(atPath: file.path)) }
         values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
         XCTAssertEqual(values.isExcludedFromBackup, true)
+    }
+}
+
+extension RecoveryTests {
+    func testAnnotationsRestoreWithSourceUndoAndKeepSavedNotes() async throws {
+        let store = try store()
+        let original = "# Reading\n\nRemember this sentence.\n"
+        let (session, bridge, _) = try await reader(original, store: store)
+        let range = (original as NSString).range(of: "Remember this sentence.")
+        let saved = await session.setAnnotation(
+            ranges: [.init(start: range.location, end: NSMaxRange(range))], note: "A lasting thought",
+            token: session.documentToken, sourceRevision: bridge.sourceEditor.history.revision)
+        XCTAssertTrue(saved)
+        try await sourceMode(bridge)
+        let partial = original.replacingOccurrences(of: "this ", with: "")
+        XCTAssertTrue(bridge.sourceEditor.replace(expected: original, with: partial, id: "partial"))
+        let deleted = partial.replacingOccurrences(of: "Remember sentence.", with: "")
+        XCTAssertTrue(bridge.sourceEditor.replace(expected: partial, with: deleted, id: "delete"))
+        XCTAssertTrue(session.annotations.visible.isEmpty)
+        await session.checkpointForBackground()
+        bridge.detach()
+        _ = await session.document?.closeSavingChanges()
+        let next = await restored(ReaderRecoveryStore(directory: store.directory))
+        let (nextBridge, _) = try await mountReader(next)
+        XCTAssertTrue(next.annotations.visible.isEmpty)
+        XCTAssertTrue(nextBridge.moveSourceHistory(forward: false))
+        XCTAssertEqual(next.document?.text, partial)
+        XCTAssertEqual(next.annotations.visible.first?.note, "A lasting thought")
+        XCTAssertTrue(nextBridge.moveSourceHistory(forward: false))
+        XCTAssertEqual(next.document?.text, original)
+        XCTAssertEqual(next.annotations.visible.first?.ranges, [.init(start: range.location, end: NSMaxRange(range))])
+    }
+}
+
+extension RecoveryTests {
+    func testUnsubmittedAnnotationRestoresAndCheckpointDoesNotConfirmIME() async throws {
+        let store = try store()
+        let original = "# Reading\n\nA passage to annotate.\n"
+        let (session, bridge, _) = try await reader(original, store: store)
+        _ = try await bridge.webView.callAsyncJavaScript(
+            """
+            const paragraph=document.querySelector('.mdv-article p'),range=document.createRange();
+            range.selectNodeContents(paragraph);getSelection().removeAllRanges();getSelection().addRange(range);
+            """, arguments: [:], in: nil, contentWorld: .page)
+        _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "note"]])
+        try await wait { bridge.annotationHost.card != nil }
+        let card = try XCTUnwrap(bridge.annotationHost.card)
+        card.textView.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0))
+        XCTAssertNotNil(card.textView.markedTextRange)
+        await session.checkpointRecovery()
+        XCTAssertNotNil(card.textView.markedTextRange)
+        let loaded = try await store.load()
+        XCTAssertEqual(loaded?.annotationDraft?.text, "ni")
+        XCTAssertTrue(session.annotations.visible.isEmpty)
+        bridge.detach()
+        _ = await session.document?.closeSavingChanges()
+        let next = await restored(ReaderRecoveryStore(directory: store.directory))
+        let (nextBridge, _) = try await mountReader(next)
+        try await wait { nextBridge.annotationHost.card != nil }
+        XCTAssertEqual(nextBridge.annotationHost.card?.textView.text, "ni")
+        XCTAssertTrue(next.annotations.visible.isEmpty)
+        XCTAssertEqual(next.document?.text, original)
+        nextBridge.annotationHost.dismiss(force: true)
     }
 }

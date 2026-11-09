@@ -28,7 +28,7 @@ jobs:
                   && github.event.pull_request.head.repo.full_name == github.repository))
           && 'local-ci-owner' || 'local-ci' }}
     runs-on: [self-hosted, macOS, ARM64, justmarkdown]
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,7 +84,7 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath "$RUNNER_TEMP/LiveTestBuild" CODE_SIGNING_ALLOWED=NO build-for-testing
       - name: Run all offline tests on iPhone and iPad
-        timeout-minutes: 30
+        timeout-minutes: 35
         run: >-
           caffeinate -i python3 scripts/verify_ios.py
           --simulator-prefix 'MarkdownIt CI'

@@ -42,14 +42,18 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    private func navigationReader(markdown: String? = nil) async throws -> (ReaderSession, ReaderBridge, URL) {
+    private func navigationReader(markdown: String? = nil, startingNewDocument: Bool = false) async throws -> (
+        ReaderSession, ReaderBridge, URL
+    ) {
         let defaultsName = UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         addTeardownBlock { defaults.removePersistentDomain(forName: defaultsName) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
-        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        let session = ReaderSession(
+            defaults: defaults, modelSettings: isolatedModelSettings(),
+            annotationStore: ReadingAnnotationStore(directory: root.appendingPathComponent("annotations")))
         addTeardownBlock { @MainActor in await session.closeDocument() }
         let text: String
         if let markdown {
@@ -65,7 +69,7 @@ final class WebReaderTests: XCTestCase {
         let url = root.appendingPathComponent("navigation.md")
         try Data(text.utf8).write(to: url)
         await session.grant(root)
-        await session.open(url)
+        await session.open(url, startingNewDocument: startingNewDocument)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKeyWindow = scene.keyWindow
         let window = UIWindow(windowScene: scene)
@@ -93,6 +97,57 @@ final class WebReaderTests: XCTestCase {
         try await waitUntil { bridge.ready && session.rendererReady }
         if try await diagnostics(bridge)["outline"] as? Bool != true { _ = try await bridge.call("toggleOutline") }
         return (session, bridge, root)
+    }
+
+    @MainActor
+    func testNewBlankDocumentStartsFocusedInSourceAndSavesThroughSharedHistory() async throws {
+        let (session, bridge, _) = try await navigationReader(markdown: "", startingNewDocument: true)
+        let url = try XCTUnwrap(session.document?.fileURL)
+        let editor = bridge.sourceEditor
+        try await waitUntil { editor.textView.isFirstResponder && !editor.textView.isHidden }
+        XCTAssertEqual(session.mode, "source")
+        XCTAssertEqual(editor.textView.selectedRange, NSRange(location: 0, length: 0))
+        XCTAssertEqual(try Data(contentsOf: url).count, 0)
+        XCTAssertFalse(editor.history.canUndo)
+        let text = "A new reading note.\n"
+        editor.textView.insertText(text)
+        editor.commitInput()
+        XCTAssertEqual(editor.history.text, text)
+        XCTAssertTrue(bridge.moveSourceHistory(forward: false))
+        XCTAssertEqual(editor.history.text, "")
+        XCTAssertTrue(bridge.moveSourceHistory(forward: true))
+        XCTAssertEqual(editor.history.text, text)
+        XCTAssertEqual(session.recentDocuments.documents.count, 1)
+        await session.closeDocument()
+        XCTAssertNil(session.document)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), text)
+    }
+
+    @MainActor
+    func testLargeMarkdownAndHTMLTextRunsRetainExactAnnotationPositions() async throws {
+        let marker = "FINAL_TARGET_8427"
+        let body = String(repeating: "资料", count: 262_501)
+        for text in [
+            "# Long run\n\n" + body + marker + "\n", "# Long run\n\n<div>" + body + "&amp;" + marker + "</div>\n",
+        ] {
+            let (session, bridge, _) = try await navigationReader(markdown: text)
+            let selected = try await bridge.webView.callAsyncJavaScript(
+                """
+                const run = [...document.querySelectorAll('.mdv-article [data-reader-text]')].find(el => el.textContent.endsWith(marker));
+                const node = run.firstChild, at = node.textContent.lastIndexOf(marker);
+                const range = document.createRange(); range.setStart(node, at); range.setEnd(node, at + marker.length);
+                getSelection().removeAllRanges(); getSelection().addRange(range);
+                return getSelection().toString();
+                """, arguments: ["marker": marker], in: nil, contentWorld: .page)
+            XCTAssertEqual(selected as? String, marker)
+            _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "underline"]])
+            try await waitUntil { session.annotations.visible.count == 1 }
+            let expected = (text as NSString).range(of: marker)
+            XCTAssertEqual(
+                session.annotations.visible.first?.ranges, [.init(start: expected.location, end: NSMaxRange(expected))])
+            XCTAssertEqual(session.document?.text, text)
+            XCTAssertNil(session.errorMessage)
+        }
     }
 
     @MainActor
@@ -883,7 +938,10 @@ final class WebReaderTests: XCTestCase {
             const samples = [];
             for (const index of [4, 5, 4]) {
               const heading = headings[index];
-              window.scrollTo({ top: window.scrollY + heading.getBoundingClientRect().top - innerHeight / 3 + 12, behavior: 'instant' });
+              const movement = heading.getBoundingClientRect().top - innerHeight / 3 + 12;
+              // User scrolling releases the semantic anchor held during reflow.
+              document.querySelector('.mdv-article').dispatchEvent(new WheelEvent('wheel', {deltaY: movement, bubbles: true}));
+              window.scrollTo({ top: window.scrollY + movement, behavior: 'instant' });
               for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
               samples.push({ expected: heading.textContent,
                 current: document.querySelector('[aria-current="location"]')?.textContent,
@@ -1211,5 +1269,282 @@ private struct CloseMotionProbeView: View {
                 }
                 .modifier(ReaderDocumentCloseMotion(destination: probe.destination, reduceMotion: probe.reduceMotion))
         }
+    }
+
+}
+
+extension WebReaderTests {
+    @MainActor
+    func testUnderlinesJoinAcrossFormattingWithoutSwallowingUnmarkedText() async throws {
+        let markdown = "# Notes\n\nplain`code`tail other\n"
+        let (session, bridge, _) = try await navigationReader(markdown: markdown)
+        for phrase in ["plain", "code", "tail", "other"] {
+            _ = try await bridge.webView.callAsyncJavaScript(
+                """
+                const run=[...document.querySelectorAll('.mdv-article p [data-reader-text]')].find(e=>e.textContent.includes(phrase));
+                const walker=document.createTreeWalker(run,NodeFilter.SHOW_TEXT);let node;
+                while(node=walker.nextNode())if(node.textContent.includes(phrase))break;
+                const first=node.textContent.indexOf(phrase),range=document.createRange();range.setStart(node,first);range.setEnd(node,first+phrase.length);
+                getSelection().removeAllRanges();getSelection().addRange(range);
+                """, arguments: ["phrase": phrase], in: nil, contentWorld: .page)
+            _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "underline"]])
+            try await waitUntil {
+                session.annotations.visible.contains { record in
+                    let location = (markdown as NSString).range(of: phrase).location
+                    return record.ranges.contains { $0.start <= location && $0.end >= location + phrase.utf16.count }
+                }
+            }
+            await session.waitForAnnotations()
+        }
+        XCTAssertEqual(session.annotations.visible.count, 2)
+        let joined = try XCTUnwrap(session.annotations.visible.first)
+        let pieces = joined.ranges.map {
+            (markdown as NSString).substring(with: NSRange(location: $0.start, length: $0.end - $0.start))
+        }
+        XCTAssertEqual(pieces, ["plain", "code", "tail"])
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
+    @MainActor
+    func testWavesCoverInlineCodeBetweenOrdinaryText() async throws {
+        let markdown = "# Notes\n\n普通文字，以及 `inline code` 标签。\n"
+        let (session, bridge, _) = try await navigationReader(markdown: markdown)
+        _ = try await bridge.webView.callAsyncJavaScript(
+            """
+            const range=document.createRange();range.selectNodeContents(document.querySelector('.mdv-article p'));
+            getSelection().removeAllRanges();getSelection().addRange(range);
+            """, arguments: [:], in: nil, contentWorld: .page)
+        _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "underline"]])
+        try await waitUntil { session.annotations.visible.count == 1 }
+        await session.waitForAnnotations()
+        let result =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const code=document.querySelector('.mdv-article p code').getBoundingClientRect();
+                const waves=[...document.querySelectorAll('.jm-annotation-waves svg')].map(e=>{const r=e.getBoundingClientRect();return{left:r.left,right:r.right,top:r.top,bottom:r.bottom};});
+                return {code:{left:code.left,right:code.right,top:code.top,bottom:code.bottom},waves,
+                  covered:waves.some(r=>r.left<=code.left+code.width/2&&r.right>=code.left+code.width/2)};
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+        XCTAssertEqual(result?["covered"] as? Bool, true, "\(String(describing: result))")
+        let code = (markdown as NSString).range(of: "inline code")
+        XCTAssertTrue(
+            session.annotations.visible.first?.ranges.contains {
+                $0.start <= code.location && $0.end >= NSMaxRange(code)
+            } == true)
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
+    @MainActor
+    func testAnnotationsUseExactSourcePositionsAcrossFormattingCodeAndTables() async throws {
+        let markdown =
+            "# Notes\n\nsame **same** same &amp; `inline code`\n\n| one | two |\n| --- | --- |\n| cell | **bold cell** |\n\n```swift\nlet value = 42\n```\n"
+        let (session, bridge, _) = try await navigationReader(markdown: markdown)
+        for (selector, phrase) in [
+            ("strong", "same"), ("code", "inline code"), ("td strong", "bold cell"), ("pre code", "let value = 42\n"),
+        ] {
+            _ = try await bridge.webView.callAsyncJavaScript(
+                """
+                const element=[...document.querySelectorAll('.mdv-article '+selector)].find(e=>e.textContent===phrase);
+                if(!element)throw Error('Missing selected content');
+                const range=document.createRange();range.selectNodeContents(element);
+                const selection=getSelection();selection.removeAllRanges();selection.addRange(range);
+                """, arguments: ["selector": selector, "phrase": phrase], in: nil, contentWorld: .page)
+            _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "underline"]])
+            try await waitUntil {
+                session.annotations.visible.contains { note in
+                    note.ranges.contains { range in
+                        (markdown as NSString).substring(
+                            with: NSRange(location: range.start, length: range.end - range.start)) == phrase
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(session.annotations.visible.count, 4)
+        XCTAssertEqual(session.document?.text, markdown)
+        let spans =
+            try await bridge.webView.evaluateJavaScript(
+                "[...document.querySelectorAll('.jm-annotation-wave')].map(e=>e.textContent)") as? [String]
+        XCTAssertTrue(try XCTUnwrap(spans).contains("same"))
+        let bold = (markdown as NSString).range(of: "**same**")
+        let expected = AnnotationRange(start: bold.location + 2, end: NSMaxRange(bold) - 2)
+        let marked = try XCTUnwrap(session.annotations.visible.first { $0.ranges == [expected] })
+        XCTAssertTrue(marked.underlined)
+    }
+
+    @MainActor
+    func testNativeAnnotationCardSavesAndReopensWithoutChangingMarkdown() async throws {
+        let markdown = "# Notes\n\nA sentence worth remembering.\n"
+        let (session, bridge, root) = try await navigationReader(markdown: markdown)
+        _ = try await bridge.webView.evaluateJavaScript(
+            """
+            const element=document.querySelector('.mdv-article p');
+            const range=document.createRange();range.selectNodeContents(element);
+            getSelection().removeAllRanges();getSelection().addRange(range);
+            """)
+        _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "note"]])
+        try await waitUntil { bridge.annotationHost.card != nil }
+        let card = try XCTUnwrap(bridge.annotationHost.card)
+        try await waitUntil {
+            try await bridge.webView.evaluateJavaScript("(CSS.highlights.get('jm-annotation-active')?.size || 0)>0")
+                as? Bool == true
+        }
+        XCTAssertTrue(session.annotations.visible.isEmpty, "An unsaved draft only highlights its associated text")
+        XCTAssertTrue(card.textView.isFirstResponder)
+        card.textView.insertText("Keep this question open.\n再想一想。")
+        func find(_ view: UIView, identifier: String) -> UIButton? {
+            if view.accessibilityIdentifier == identifier { return view as? UIButton }
+            return view.subviews.compactMap { find($0, identifier: identifier) }.first
+        }
+        let done = try XCTUnwrap(find(card, identifier: "AnnotationDone"))
+        XCTAssertTrue(done.isEnabled)
+        done.sendActions(for: .touchUpInside)
+        try await waitUntil {
+            session.annotations.visible.first?.note == "Keep this question open.\n再想一想。"
+                && bridge.annotationHost.card == nil
+        }
+        XCTAssertEqual(session.document?.text, markdown)
+        let record = try XCTUnwrap(session.annotations.visible.first)
+        XCTAssertFalse(record.underlined)
+        await session.closeDocument()
+        await session.open(root.appendingPathComponent("navigation.md"))
+        bridge.update()
+        try await waitUntil { session.rendererReady }
+        XCTAssertEqual(session.annotations.visible.first?.note, record.note)
+        XCTAssertEqual(session.annotations.visible.first?.id, record.id)
+    }
+
+    @MainActor
+    func testAnnotationCardScrollsWithTheNativeDocumentUntilCompletelyOffscreen() async throws {
+        let (session, bridge, _) = try await navigationReader()
+        let text = try XCTUnwrap(session.document?.text)
+        let source = (text as NSString).range(of: "Paragraph content for navigation.")
+        let ranges = [AnnotationRange(start: source.location, end: NSMaxRange(source))]
+        let saved = await session.setAnnotation(
+            ranges: ranges, note: "A short note", token: session.documentToken,
+            sourceRevision: bridge.sourceEditor.history.revision)
+        XCTAssertTrue(saved)
+        _ = try await bridge.webView.evaluateJavaScript(
+            """
+            const element=document.querySelector('.jm-annotation-note');
+            const rect=element.getBoundingClientRect();
+            element.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:rect.x+rect.width/2,clientY:rect.y+rect.height/2}));
+            """)
+        try await waitUntil { bridge.annotationHost.card != nil }
+        let card = try XCTUnwrap(bridge.annotationHost.card)
+        XCTAssertTrue(card.superview === bridge.webView.scrollView)
+        let frame = card.frame
+        let scroll = bridge.webView.scrollView
+        scroll.setContentOffset(CGPoint(x: 0, y: 40), animated: false)
+        XCTAssertTrue(bridge.annotationHost.card === card)
+        XCTAssertEqual(card.frame, frame)
+        scroll.setContentOffset(
+            CGPoint(x: 0, y: frame.maxY + card.layer.shadowRadius * 2 + abs(card.layer.shadowOffset.height) + 1),
+            animated: false)
+        try await waitUntil { bridge.annotationHost.card == nil }
+        scroll.setContentOffset(.zero, animated: false)
+        XCTAssertNil(bridge.annotationHost.card)
+    }
+
+}
+
+extension WebReaderTests {
+    @MainActor
+    func testPencilWaveKeepsTextAndDrawingNodesStableUntilNativeCommit() async throws {
+        let markdown = "# Notes\n\nRemember this sentence while reading.\n"
+        let (session, bridge, _) = try await navigationReader(markdown: markdown)
+        _ = try await bridge.call("toggleOutline")
+        try await waitUntil {
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const node=document.querySelector('.mdv-article p [data-reader-text]').firstChild;
+                const range=document.createRange();range.setStart(node,0);range.setEnd(node,1);
+                const r=range.getBoundingClientRect();
+                return !!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('.mdv-article');
+                """, arguments: [:], in: nil, contentWorld: .page) as? Bool == true
+        }
+        let points =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const node=document.querySelector('.mdv-article p [data-reader-text]').firstChild;
+                const point=offset=>{const range=document.createRange();range.setStart(node,offset);range.setEnd(node,offset+1);const r=range.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};};
+                window.waveProbe={node,element:node.parentElement,text:node.textContent};
+                return [point(0),point(4),point(12)];
+                """, arguments: [:], in: nil, contentWorld: .page) as? [[String: Double]]
+        let positions = try XCTUnwrap(points)
+        func stroke(_ sequence: Int, phase: String, end: Int) async throws {
+            _ = try await bridge.call(
+                "annotationPencil",
+                arguments: [
+                    "payload": [
+                        "id": "stable-pencil", "sequence": sequence, "phase": phase,
+                        "start": positions[0], "point": positions[end],
+                    ]
+                ])
+        }
+        try await stroke(1, phase: "update", end: 1)
+        let first =
+            try await bridge.webView.evaluateJavaScript(
+                """
+                waveProbe.svg=document.querySelector('.jm-annotation-waves svg');
+                waveProbe.path=waveProbe.svg?.querySelector('path');
+                waveProbe.width=waveProbe.svg?.getBoundingClientRect().width;
+                !!waveProbe.path && waveProbe.svg.getBoundingClientRect().height>0;
+                """) as? Bool
+        XCTAssertEqual(first, true)
+        try await stroke(2, phase: "update", end: 2)
+        let stable =
+            try await bridge.webView.evaluateJavaScript(
+                """
+                waveProbe.node===waveProbe.element.firstChild && waveProbe.node.textContent===waveProbe.text &&
+                waveProbe.svg===document.querySelector('.jm-annotation-waves svg') &&
+                waveProbe.path===waveProbe.svg.querySelector('path') &&
+                waveProbe.svg.getBoundingClientRect().width>waveProbe.width;
+                """) as? Bool
+        XCTAssertEqual(stable, true)
+        try await stroke(3, phase: "commit", end: 2)
+        try await waitUntil { session.annotations.visible.count == 1 }
+        await session.waitForAnnotations()
+        let adopted =
+            try await bridge.webView.evaluateJavaScript(
+                """
+                ({sameNode:waveProbe.svg===document.querySelector('.jm-annotation-waves svg'),
+                  connected:waveProbe.svg.isConnected,count:document.querySelectorAll('.jm-annotation-waves svg').length});
+                """) as? [String: Any]
+        XCTAssertEqual(adopted?["sameNode"] as? Bool, true, "\(String(describing: adopted))")
+        XCTAssertEqual(adopted?["connected"] as? Bool, true)
+        XCTAssertEqual(adopted?["count"] as? Int, 1)
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
+    @MainActor
+    func testAnnotationMappingPreservesHTMLEntitiesAndPartialTableCells() async throws {
+        let markdown =
+            "# Mapping\n\n<div><p>HTML &amp; 中文</p></div>\n\n| one | two |\n| --- | --- |\n| alpha | beta |\n"
+        let (session, bridge, _) = try await navigationReader(markdown: markdown)
+        _ = try await bridge.webView.callAsyncJavaScript(
+            """
+            const element=[...document.querySelectorAll('.mdv-article p')].find(e=>e.textContent==='HTML & 中文');
+            const range=document.createRange();range.selectNodeContents(element);
+            getSelection().removeAllRanges();getSelection().addRange(range);
+            """, arguments: [:], in: nil, contentWorld: .page)
+        _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "underline"]])
+        try await waitUntil { session.annotations.visible.count == 1 }
+        let html = (markdown as NSString).range(of: "HTML &amp; 中文")
+        XCTAssertEqual(session.annotations.visible.first?.ranges, [.init(start: html.location, end: NSMaxRange(html))])
+        _ = try await bridge.webView.callAsyncJavaScript(
+            """
+            const cells=[...document.querySelectorAll('.mdv-article td')],a=cells[0].querySelector('[data-reader-text]').firstChild,b=cells[1].querySelector('[data-reader-text]').firstChild;
+            const range=document.createRange();range.setStart(a,2);range.setEnd(b,2);
+            getSelection().removeAllRanges();getSelection().addRange(range);
+            """, arguments: [:], in: nil, contentWorld: .page)
+        _ = try await bridge.call("annotationSelectionAction", arguments: ["payload": ["action": "underline"]])
+        try await waitUntil { session.annotations.visible.count == 2 }
+        let alpha = (markdown as NSString).range(of: "alpha")
+        let beta = (markdown as NSString).range(of: "beta")
+        let expected = [
+            AnnotationRange(start: alpha.location + 2, end: NSMaxRange(alpha)),
+            .init(start: beta.location, end: beta.location + 2),
+        ]
+        XCTAssertTrue(session.annotations.visible.contains { $0.ranges == expected })
     }
 }

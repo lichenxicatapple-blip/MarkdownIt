@@ -98,6 +98,22 @@
         }
       }
     },
+    "Add Annotation…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Annotation…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加批注…"
+          }
+        }
+      }
+    },
     "Allow" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -128,6 +144,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "允许发送到此 AI 服务？"
+          }
+        }
+      }
+    },
+    "Allow Web Search?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow Web Search?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许联网搜索？"
           }
         }
       }
@@ -179,6 +212,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请先允许向此 AI 服务发送内容，再重试。"
+          }
+        }
+      }
+    },
+    "Annotation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annotation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "批注"
           }
         }
       }
@@ -319,6 +368,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请检查服务地址、认证信息、接口类型和模型。"
+          }
+        }
+      }
+    },
+    "Choose Folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Folder"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择文件夹"
           }
         }
       }
@@ -612,6 +678,54 @@
         }
       }
     },
+    "Delete" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除"
+          }
+        }
+      }
+    },
+    "Delete Annotation?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Annotation?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除批注？"
+          }
+        }
+      }
+    },
+    "Delete Annotation…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Annotation…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除批注…"
+          }
+        }
+      }
+    },
     "Discard Changes and Close" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -625,6 +739,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "放弃修改并关闭"
+          }
+        }
+      }
+    },
+    "Document Changed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Document Changed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文档已更改"
           }
         }
       }
@@ -727,6 +858,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请输入模型 ID。"
+          }
+        }
+      }
+    },
+    "Enter a search API key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a search API key."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入搜索服务的 API Key。"
           }
         }
       }
@@ -1105,6 +1253,23 @@
         }
       }
     },
+    "New Document..." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Document..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建文档..."
+          }
+        }
+      }
+    },
     "No matching models" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1186,6 +1351,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "好"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
           }
         }
       }
@@ -1445,6 +1627,54 @@
         }
       }
     },
+    "Remove" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除"
+          }
+        }
+      }
+    },
+    "Remove Underline" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Underline"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除划线"
+          }
+        }
+      }
+    },
+    "Remove Underline?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Underline?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除划线？"
+          }
+        }
+      }
+    },
     "Remove reference" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1596,6 +1826,23 @@
         }
       }
     },
+    "Restoring reading session" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restoring reading session"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在恢复阅读现场"
+          }
+        }
+      }
+    },
     "Retry" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1664,6 +1911,57 @@
         }
       }
     },
+    "Saved connection information and API keys will be removed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved connection information and API keys will be removed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存的连接信息和所有 API Key 都将被移除。"
+          }
+        }
+      }
+    },
+    "Search API Key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search API Key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索 API Key"
+          }
+        }
+      }
+    },
+    "Search Service" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search Service"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索服务"
+          }
+        }
+      }
+    },
     "Search models" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1677,6 +1975,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜索模型"
+          }
+        }
+      }
+    },
+    "Search terms and selected webpage URLs will be sent to %@. Search results and page content will be shared with your AI service.\n\n%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search terms and selected webpage URLs will be sent to %@. Search results and page content will be shared with your AI service.\n\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索词和选定的网页地址将发送至 %@，搜索结果及网页正文将提供给你的 AI 服务。\n\n%@"
+          }
+        }
+      }
+    },
+    "Search terms will be sent to %@, and the results will be shared with your AI service.\n\n%@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search terms will be sent to %@, and the results will be shared with your AI service.\n\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索词将发送至 %@，搜索结果会提供给你配置的 AI 服务。\n\n%@"
           }
         }
       }
@@ -2157,22 +2488,6 @@
         }
       }
     },
-    "The saved connection settings and API key will be removed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The saved connection settings and API key will be removed."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将清除已保存的连接配置和 API Key。"
-          }
-        }
-      }
-    },
     "The undo has not been saved." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2203,6 +2518,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法访问这份文档，请通过“打开文档”重新选择。"
+          }
+        }
+      }
+    },
+    "This document references images in the folder below. Please allow access." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This document references images in the folder below. Please allow access."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文档引用了以下文件夹中的图片，请允许访问。"
           }
         }
       }
@@ -2254,6 +2586,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本次修改已撤销。"
+          }
+        }
+      }
+    },
+    "This file was changed outside the app. Choose which version to keep." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This file was changed outside the app. Choose which version to keep."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这份文件已被其他应用修改，请选择要保留的版本。"
           }
         }
       }
@@ -2360,6 +2709,23 @@
         }
       }
     },
+    "Unable to clear the saved reading session: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to clear the saved reading session: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法清除阅读现场：%@"
+          }
+        }
+      }
+    },
     "Unable to connect to the service" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2445,6 +2811,23 @@
         }
       }
     },
+    "Unable to preserve the reading session: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to preserve the reading session: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存阅读现场：%@"
+          }
+        }
+      }
+    },
     "Unable to read model settings." : {
       "localizations" : {
         "en" : {
@@ -2512,6 +2895,56 @@
         }
       }
     },
+    "Unable to restore the editor: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to restore the editor: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法恢复编辑现场：%@"
+          }
+        }
+      }
+    },
+    "Unable to restore the reading session: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to restore the reading session: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法恢复阅读现场：%@"
+          }
+        }
+      }
+    },
+    "Unable to save annotations: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to save annotations: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存批注：%@"
+          }
+        }
+      }
+    },
     "Unable to save connection information." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2559,6 +2992,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法撤销，请重试。"
+          }
+        }
+      }
+    },
+    "Underline" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Underline"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "划线"
           }
         }
       }
@@ -2631,6 +3080,57 @@
         }
       }
     },
+    "Untitled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untitled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未命名"
+          }
+        }
+      }
+    },
+    "Use File on Disk" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use File on Disk"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用文件中的内容"
+          }
+        }
+      }
+    },
+    "Use Recovered Changes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Recovered Changes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用恢复的修改"
+          }
+        }
+      }
+    },
     "Version %@ (%@)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2644,6 +3144,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "版本 %1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "Web Search" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web Search"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "联网搜索"
           }
         }
       }
@@ -2686,6 +3203,23 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "iCloud Drive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud Drive"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud 云盘"
+          }
+        }
+      }
+    },
     "{reason}. You can retry shortly." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2722,210 +3256,6 @@
     },
     "•" : {
       "shouldTranslate" : false
-    },
-    "Restoring reading session" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restoring reading session"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在恢复阅读现场"
-          }
-        }
-      }
-    },
-    "Document Changed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Document Changed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "文档已更改"
-          }
-        }
-      }
-    },
-    "Use Recovered Changes" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use Recovered Changes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用恢复的修改"
-          }
-        }
-      }
-    },
-    "Use File on Disk" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use File on Disk"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用文件中的内容"
-          }
-        }
-      }
-    },
-    "This file was changed outside the app. Choose which version to keep." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This file was changed outside the app. Choose which version to keep."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这份文件已被其他应用修改，请选择要保留的版本。"
-          }
-        }
-      }
-    },
-    "Unable to restore the reading session: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unable to restore the reading session: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法恢复阅读现场：%@"
-          }
-        }
-      }
-    },
-    "Unable to restore the editor: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unable to restore the editor: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法恢复编辑现场：%@"
-          }
-        }
-      }
-    },
-    "Unable to preserve the reading session: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unable to preserve the reading session: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法保存阅读现场：%@"
-          }
-        }
-      }
-    },
-    "Unable to clear the saved reading session: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unable to clear the saved reading session: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法清除阅读现场：%@"
-          }
-        }
-      }
-    },
-    "iCloud Drive" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "iCloud Drive"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "iCloud 云盘"
-          }
-        }
-      }
-    },
-    "This document references images in the folder below. Please allow access." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This document references images in the folder below. Please allow access."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "文档引用了以下文件夹中的图片，请允许访问。"
-          }
-        }
-      }
-    },
-    "Choose Folder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose Folder"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择文件夹"
-          }
-        }
-      }
     }
   },
   "version" : "1.0"

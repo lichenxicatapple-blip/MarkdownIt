@@ -8,11 +8,9 @@
     </BuildActionEntries>
   </BuildAction>
   <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="NO">
-    <Testables>
-      <TestableReference skipped="NO">
-        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F37510859879A3048E723556" BuildableName="MarkdownItLiveTests.xctest" BlueprintName="MarkdownItLiveTests" ReferencedContainer="container:MarkdownIt.xcodeproj" />
-      </TestableReference>
-    </Testables>
+    <TestPlans>
+      <TestPlanReference reference="container:MarkdownIt.xcodeproj/xcshareddata/xctestplans/Live.xctestplan" default="YES" />
+    </TestPlans>
     <EnvironmentVariables>
       <EnvironmentVariable key="CFNETWORK_DIAGNOSTICS" value="0" isEnabled="YES" />
     </EnvironmentVariables>

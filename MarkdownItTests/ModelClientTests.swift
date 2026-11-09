@@ -8,18 +8,23 @@ private final class MockResponseState: @unchecked Sendable {
     private var response = (status: 200, headers: ["Content-Type": "text/event-stream"], body: "")
     private var captured: URLRequest?
     private var count = 0
-    func configure(status: Int = 200, mime: String = "text/event-stream", headers: [String: String] = [:], body: String)
-    {
+    private var pages: [String] = []
+    func configure(
+        status: Int = 200, mime: String = "text/event-stream", headers: [String: String] = [:], body: String,
+        pages: [String] = []
+    ) {
         lock.withLock {
             response = (status, headers.merging(["Content-Type": mime], uniquingKeysWith: { a, _ in a }), body)
             captured = nil
             count = 0
+            self.pages = pages
         }
     }
     func record(_ request: URLRequest) -> (Int, [String: String], String) {
         lock.withLock {
             captured = request
             count += 1
+            if !pages.isEmpty { return (response.status, response.headers, pages[min(count - 1, pages.count - 1)]) }
             return response
         }
     }
@@ -29,7 +34,10 @@ private final class MockResponseState: @unchecked Sendable {
 
 private final class ModelURLProtocol: URLProtocol, @unchecked Sendable {
     static let fixture = MockResponseState()
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "example.test" }
+    override class func canInit(with request: URLRequest) -> Bool {
+        ["example.test", "api.deepseek.com", "api.anthropic.com", "dashscope.aliyuncs.com"].contains(
+            request.url?.host ?? "")
+    }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         var capturedRequest = request
@@ -786,6 +794,212 @@ final class ModelClientTests: XCTestCase {
         } catch {
             XCTAssertTrue(error.localizedDescription.contains("401"))
             XCTAssertFalse(error.localizedDescription.contains("test-only-key"))
+        }
+    }
+
+    func testOutputBudgetAndUsageAreConsistentAcrossProtocolsAndResponseFormats() async throws {
+        for api in ModelAPIProtocol.allCases {
+            let root: [String: Any] =
+                api == .responses
+                ? [
+                    "status": "completed",
+                    "output": [["type": "message", "content": [["type": "output_text", "text": "OK"]]]],
+                    "usage": ["input_tokens": 123, "output_tokens": 7],
+                ]
+                : [
+                    "choices": [["message": ["content": "OK"], "finish_reason": "stop"]],
+                    "usage": ["prompt_tokens": 123, "completion_tokens": 7],
+                ]
+            for streaming in [false, true] {
+                var payload = root
+                if streaming {
+                    if api == .responses {
+                        payload = ["type": "response.completed", "response": root]
+                    } else {
+                        payload["choices"] = [["delta": ["content": "OK"], "finish_reason": "stop"]]
+                    }
+                }
+                let data = try JSONSerialization.data(withJSONObject: payload)
+                let body =
+                    streaming
+                    ? "data: " + String(decoding: data, as: UTF8.self) + "\n\n"
+                    : String(decoding: data, as: UTF8.self)
+                for tools in [[], [AgentDocumentTools.definitions[0]]] {
+                    ModelURLProtocol.fixture.configure(
+                        mime: streaming ? "text/event-stream" : "application/json", body: body)
+                    let turn = try await client().stream(
+                        configuration: .init(
+                            baseURL: "https://example.test/v1", model: "chosen-model", apiProtocol: api),
+                        key: "test-only-key", messages: [.init(role: "user", content: "Hello")],
+                        tools: tools, maxOutputTokens: 6144
+                    ) { _ in }
+                    XCTAssertEqual(turn.text, "OK")
+                    XCTAssertEqual(turn.usage?.inputTokens, 123)
+                    XCTAssertEqual(turn.usage?.outputTokens, 7)
+                    let request = try XCTUnwrap(ModelURLProtocol.fixture.request()?.httpBody)
+                    let object = try ModelWireFormat.object(request)
+                    XCTAssertEqual(
+                        object[api == .responses ? "max_output_tokens" : "max_completion_tokens"] as? Int, 6144)
+                    if api == .responses { XCTAssertEqual(object["store"] as? Bool, false) }
+                }
+            }
+        }
+    }
+
+    func testCatalogDecodesIndependentContextAndGenerationLimits() throws {
+        let data = Data(
+            #"[{"id":"large","context_length":1000000,"max_output_tokens":64000},{"id":"small","context_window":32000,"max_completion_tokens":4000},{"id":"unknown","max_output_tokens":-1}]"#
+                .utf8)
+        let models = try JSONDecoder().decode([CatalogModel].self, from: data)
+        XCTAssertEqual(models[0].contextWindow, 1_000_000)
+        XCTAssertEqual(models[0].maxOutputTokens, 64_000)
+        XCTAssertEqual(models[1].maxOutputTokens, 4000)
+        XCTAssertNil(models[2].contextWindow)
+        XCTAssertNil(models[2].maxOutputTokens)
+    }
+
+    func testAtlasClaudeDeepSeekAndQwenCatalogLimitsKeepTheirSeparateMeanings() throws {
+        let json =
+            #"[{"id":"atlas","context_length":1050000,"max_output_length":131072},{"id":"claude","display_name":"Claude","max_input_tokens":1000000,"max_tokens":128000},{"id":"deepseek","context_window":1048576,"max_output_tokens":393216},{"model":"qwen","model_info":{"context_window":1000000,"max_input_tokens":983616,"max_output_tokens":65536}},{"id":"unknown","context_length":null,"max_output_length":true}]"#
+        let models = try JSONDecoder().decode([CatalogModel].self, from: Data(json.utf8))
+        XCTAssertEqual(models[0].capabilities, .init(contextWindow: 1_050_000, maxOutputTokens: 131_072))
+        XCTAssertEqual(models[1].capabilities, .init(maxInputTokens: 1_000_000, maxOutputTokens: 128_000))
+        XCTAssertNil(models[1].contextWindow, "An input-only limit must not become a total window")
+        XCTAssertEqual(models[2].capabilities, .init(contextWindow: 1_048_576, maxOutputTokens: 393_216))
+        XCTAssertEqual(
+            models[3].capabilities, .init(contextWindow: 1_000_000, maxInputTokens: 983_616, maxOutputTokens: 65_536))
+        XCTAssertEqual(models[4].capabilities, .init())
+    }
+
+    func testBundledCatalogMatchesTheExactServiceAndModelWithoutGuessingFromNames() throws {
+        let catalog = try XCTUnwrap(BundledModelCatalog.shared)
+        XCTAssertEqual(catalog.schemaVersion, 1)
+        XCTAssertEqual(catalog.revision.count, 40)
+        let configuration = ModelConfiguration(
+            baseURL: "https://API.OPENAI.COM:443/v1/responses/", model: "gpt-6.1-sol")
+        let limits = catalog.capabilities(for: configuration)
+        XCTAssertEqual(limits.contextWindow, 1_050_000)
+        XCTAssertEqual(limits.maxOutputTokens, 128_000)
+        XCTAssertEqual(limits.maxInputTokens, 922_000)
+        for url in ["https://proxy.example/v1", "http://api.openai.com/v1", "https://api.openai.com/other/v1"] {
+            XCTAssertEqual(catalog.capabilities(for: .init(baseURL: url, model: configuration.model)), .init())
+        }
+        XCTAssertEqual(
+            catalog.capabilities(for: .init(baseURL: configuration.baseURL, model: "gpt-new-unknown")), .init())
+        let remote = ModelCapabilities(contextWindow: 200_000, maxOutputTokens: 32_000)
+        XCTAssertEqual(
+            remote.fillingMissing(from: limits),
+            .init(contextWindow: 200_000, maxInputTokens: 922_000, maxOutputTokens: 32_000))
+    }
+
+    func testProviderCatalogPaginationAndHeadersStayOnTheConfiguredService() async throws {
+        ModelURLProtocol.fixture.configure(
+            mime: "application/json", body: "",
+            pages: [
+                #"{"output":{"total":2,"models":[{"model":"first","model_info":{"context_window":1000000}}]}}"#,
+                #"{"output":{"total":2,"models":[{"model":"last","model_info":{"max_output_tokens":65536}}]}}"#,
+            ])
+        let qwen = try await catalog().models(
+            baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", key: "test-only-key")
+        XCTAssertEqual(qwen.count, 2)
+        XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 2)
+        XCTAssertEqual(ModelURLProtocol.fixture.request()?.url?.path, "/api/v1/models")
+        XCTAssertEqual(ModelURLProtocol.fixture.request()?.url?.query, "page_no=2")
+        ModelURLProtocol.fixture.configure(
+            mime: "application/json", body: "",
+            pages: [
+                #"{"data":[{"id":"first","max_input_tokens":1000000}],"has_more":true,"last_id":"first"}"#,
+                #"{"data":[{"id":"last","max_tokens":128000}],"has_more":false,"last_id":"last"}"#,
+            ])
+        let claude = try await catalog().models(baseURL: "https://api.anthropic.com/v1", key: "test-only-key")
+        XCTAssertEqual(claude.count, 2)
+        XCTAssertEqual(ModelURLProtocol.fixture.request()?.value(forHTTPHeaderField: "anthropic-version"), "2026-10-21")
+        XCTAssertEqual(ModelURLProtocol.fixture.request()?.url?.query, "after_id=first")
+    }
+
+    func testUnknownOutputLimitsAreOmittedAndKnownChatLimitsUseTheProvidersField() throws {
+        for api in ModelAPIProtocol.allCases {
+            for tools in [[], [AgentDocumentTools.definitions[0]]] {
+                for base in [
+                    "https://example.test/v1", "https://api.deepseek.com",
+                    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                ] {
+                    let configuration = ModelConfiguration(baseURL: base, model: "fixture", apiProtocol: api)
+                    func body(_ limit: Int?) throws -> [String: Any] {
+                        let data =
+                            try tools.isEmpty
+                            ? ModelWireFormat.requestBody(configuration, messages: [], maxOutputTokens: limit)
+                            : ModelToolWire.requestBody(
+                                configuration, messages: [], tools: tools, exchanges: [], maxOutputTokens: limit)
+                        return try ModelWireFormat.object(data)
+                    }
+                    let unknown = try body(nil)
+                    for key in ["max_tokens", "max_output_tokens", "max_completion_tokens"] {
+                        XCTAssertNil(unknown[key])
+                    }
+                    let known = try body(131_072)
+                    let field =
+                        api == .responses
+                        ? "max_output_tokens" : base.contains("example.test") ? "max_completion_tokens" : "max_tokens"
+                    XCTAssertEqual(known[field] as? Int, 131_072)
+                }
+            }
+        }
+    }
+
+    func testContextErrorsRequireAnExplicitSignalAndDoNotConfuseOtherLimits() {
+        for value: [String: Any] in [
+            ["code": "context_length_exceeded"],
+            ["type": "invalid_request_error", "message": "prompt is too long"],
+            ["message": "Range of input length should be [1, 1000000]"],
+        ] {
+            guard case .contextLimit = ModelWireFormat.remoteError(value, fallback: .generationFailed) else {
+                return XCTFail("An explicit input overflow must be recognized")
+            }
+        }
+        for message in [
+            "Range of max_tokens should be [1, 65536]", "context window parameter is invalid",
+            "Too many tokens per minute", "request body exceeds 50 MB",
+        ] {
+            if case .contextLimit = ModelWireFormat.remoteError(["message": message], fallback: .generationFailed) {
+                XCTFail("Unrelated errors cannot trigger compaction: \(message)")
+            }
+        }
+    }
+
+    @MainActor
+    func testContextRejectionsDoNotRetryOrInventPersistedCapacities() async throws {
+        for localFailure in [true, false] {
+            ModelURLProtocol.fixture.configure(
+                status: 400, mime: "application/json",
+                body: #"{"error":{"code":"context_length_exceeded","message":"maximum context exceeded"}}"#)
+            let question = localFailure ? String(repeating: "问题", count: 10_000) : "Explain."
+            let snapshot = AgentSnapshot(
+                question: question, attachment: nil,
+                history: [.init(role: "user", markdown: question, attachment: nil)])
+            let budget = AgentContextBudget(capabilities: .init(contextWindow: 32_768))
+            let input = try AgentContextBuilder.build(snapshot, intent: "question")
+            XCTAssertEqual(
+                budget.fits(budget.cost(input, tools: [AgentDocumentTools.definitions[0]])), !localFailure,
+                "The fixture must distinguish local overflow from a request rejected by the service")
+            let transport = AgentModelTransport(client: client())
+            var failure: AgentFailure?
+            transport.start(
+                id: UUID().uuidString, token: "context-limit", snapshot: snapshot, intent: "question",
+                configuration: .init(baseURL: "https://example.test/v1", model: "fixture"),
+                key: "test-only-key", capabilities: { .init(contextWindow: 32_768) },
+                emit: { event in
+                    if event.type == "failure" { failure = event.failure }
+                })
+            let deadline = Date().addingTimeInterval(10)
+            while failure == nil && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(failure?.kind, "contextLimit")
+            XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), localFailure ? 0 : 1)
+            let state = try XCTUnwrap(transport.recovery()?.context)
+            let persisted = try ModelWireFormat.object(JSONEncoder().encode(state))
+            XCTAssertNil(persisted["learnedWindow"])
+            XCTAssertNil(persisted["contextWindow"])
+            transport.cancel()
         }
     }
 }

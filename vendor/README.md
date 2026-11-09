@@ -1,6 +1,6 @@
 # Offline dependencies
 
-These files are the app's pinned rendering dependencies and homepage font. The
+These files are the app's pinned rendering dependencies, homepage font and model capacity catalog. The
 app and its build do not download scripts or fonts from a CDN. Preview, selected
 references and AI replies use the same rendering stack.
 
@@ -16,6 +16,16 @@ into the app. Mermaid's bundled license-information comment is part of the origi
 script and must remain intact. Lucide's license file includes both its ISC and MIT
 notices. DOMPurify is distributed here under its upstream Apache-2.0 option.
 Project licensing does not replace these dependency licenses.
+
+`model-capabilities.json` is a native-only snapshot of Models.dev capacities,
+resolved from the Git revision recorded in the file and manifest. It retains
+provider overrides and exact model IDs; entries require an explicit HTTPS
+service endpoint. The app uses it only to supplement missing metadata for that
+same service and model. It does not fetch Models.dev at runtime or infer a
+proxy's limits from an upstream model name. The MIT notice is bundled alongside
+the catalog. Refresh it with `scripts/update_model_catalog.py --revision FULL_GIT_SHA`;
+the script records the source archive and generated output checksums. Review
+the resulting capacity changes before publishing an app update.
 
 The Newsreader font and its license have `target: native` in the manifest. Xcode
 copies them directly into the app bundle; `UIAppFonts` registers the font for the

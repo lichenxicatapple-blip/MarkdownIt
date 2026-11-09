@@ -125,6 +125,21 @@
       "size": 18,
       "compactSize": 18,
       "web": "x"
+    },
+    {
+      "action": "underline",
+      "native": "underline"
+    },
+    {
+      "action": "annotation",
+      "native": "text.bubble",
+      "web": "message-square-text",
+      "sizeToken": "size.annotationMarker",
+      "interaction": "A small auxiliary inline marker; the associated text is the primary target, so the shared 44pt chrome target does not apply."
+    },
+    {
+      "action": "delete-annotation",
+      "native": "trash"
     }
   ],
   "status": "Native SF Symbol mapping and web icon identifiers.",

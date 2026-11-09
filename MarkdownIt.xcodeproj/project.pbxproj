@@ -75,6 +75,25 @@
 		ECFCD77B0B658A0403429D29 /* ModelConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB8BE131312F4399AF5CC7BE /* ModelConnection.swift */; };
 		792133A3E49A44A8BB527601 /* ModelSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 792133A3E49A44A8BB527602 /* ModelSettingsStore.swift */; };
 		F30D57272925A9A9146A5B90 /* SourceEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE61EDD5C378BEF5CA586128 /* SourceEditor.swift */; };
+		1D3652A7F54D9D3D428440D5 /* AnnotationCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777A7C01863EE505DAA3C8ED /* AnnotationCardView.swift */; };
+		2067EAE008BA4372EBE3D289 /* ReaderAnnotationHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18834FCA2125D655C01EE908 /* ReaderAnnotationHost.swift */; };
+		36AFEF08CB03F3F61FE4B656 /* ReaderActionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEB69B7BDE87CD25AF8F38F /* ReaderActionMenu.swift */; };
+		4552CB8735D7DCCF72437637 /* AnnotationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627469454DAB65B05A23A6C4 /* AnnotationTests.swift */; };
+		4FE425A3546C55588313A914 /* ReaderPencilInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19BFBC920ADA829D81B0DD08 /* ReaderPencilInteraction.swift */; };
+		5FC1C9565ED0426EBD748D70 /* WebSearchAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C1101AA9AF42FAAFF46C56 /* WebSearchAuthorization.swift */; };
+		6FCBF03A15BF6086857A485A /* DocumentRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758453E472D5F3E2AD0767D4 /* DocumentRevision.swift */; };
+		7F234200056142B58978FDF5 /* WebSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997C9AA1EC274CBFAEA8CF39 /* WebSearchTests.swift */; };
+		A5785A603F1049D18A4D1450 /* WebPageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89136385BC4D4A02891C789A /* WebPageContent.swift */; };
+		C07E57000000000000000002 /* AgentContextBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07E57000000000000000001 /* AgentContextBudget.swift */; };
+		CA95A8C0C79564B6A35BE925 /* ReadingAnnotationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07071DC9318FC5F17A6704C7 /* ReadingAnnotationStore.swift */; };
+		CACA11000000000000000002 /* ModelCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACA11000000000000000001 /* ModelCapabilities.swift */; };
+		CACA11000000000000000004 /* vendor/model-capabilities.json in Resources */ = {isa = PBXBuildFile; fileRef = CACA11000000000000000003 /* vendor/model-capabilities.json */; };
+		CACA11000000000000000006 /* vendor/models.dev.LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = CACA11000000000000000005 /* vendor/models.dev.LICENSE */; };
+		D5A92EDCB4484F6A812C3091 /* NewDocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A92EDCB4484F6A812C3090 /* NewDocumentPicker.swift */; };
+		E1C71AC48370ED14C06F3263 /* ReadingAnnotations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DCCA5C7DE1FBFE524614F1A /* ReadingAnnotations.swift */; };
+		E744493F86BF409D9120B96D /* WebSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B964FFB463406DBA53454B /* WebSearchClient.swift */; };
+		EC64F2185C434E4ABE05AAA1 /* WebSearchSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F604CFDE6D2456D8F378644 /* WebSearchSettings.swift */; };
+		F5770605EF0B46F195F5A95D /* AgentWebSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7843626A3C4055ADB2A2FF /* AgentWebSearch.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +193,25 @@
 		F8979B91FC72FE9B258C1258 /* ReaderWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderWebView.swift; sourceTree = "<group>"; };
 		FDA62040CEE3AD5B798B01EE /* ReaderScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderScreen.swift; sourceTree = "<group>"; };
 		FE61EDD5C378BEF5CA586128 /* SourceEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEditor.swift; sourceTree = "<group>"; };
+		07071DC9318FC5F17A6704C7 /* ReadingAnnotationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingAnnotationStore.swift; sourceTree = "<group>"; };
+		18834FCA2125D655C01EE908 /* ReaderAnnotationHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderAnnotationHost.swift; sourceTree = "<group>"; };
+		19BFBC920ADA829D81B0DD08 /* ReaderPencilInteraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPencilInteraction.swift; sourceTree = "<group>"; };
+		1B7843626A3C4055ADB2A2FF /* AgentWebSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWebSearch.swift; sourceTree = "<group>"; };
+		29B964FFB463406DBA53454B /* WebSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSearchClient.swift; sourceTree = "<group>"; };
+		36C1101AA9AF42FAAFF46C56 /* WebSearchAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSearchAuthorization.swift; sourceTree = "<group>"; };
+		5BEB69B7BDE87CD25AF8F38F /* ReaderActionMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderActionMenu.swift; sourceTree = "<group>"; };
+		627469454DAB65B05A23A6C4 /* AnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownItTests/AnnotationTests.swift; sourceTree = "<group>"; };
+		758453E472D5F3E2AD0767D4 /* DocumentRevision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentRevision.swift; sourceTree = "<group>"; };
+		777A7C01863EE505DAA3C8ED /* AnnotationCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCardView.swift; sourceTree = "<group>"; };
+		7DCCA5C7DE1FBFE524614F1A /* ReadingAnnotations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingAnnotations.swift; sourceTree = "<group>"; };
+		7F604CFDE6D2456D8F378644 /* WebSearchSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSearchSettings.swift; sourceTree = "<group>"; };
+		89136385BC4D4A02891C789A /* WebPageContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPageContent.swift; sourceTree = "<group>"; };
+		997C9AA1EC274CBFAEA8CF39 /* WebSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownItTests/WebSearchTests.swift; sourceTree = "<group>"; };
+		C07E57000000000000000001 /* AgentContextBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentContextBudget.swift; sourceTree = "<group>"; };
+		CACA11000000000000000001 /* ModelCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCapabilities.swift; sourceTree = "<group>"; };
+		CACA11000000000000000003 /* vendor/model-capabilities.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "vendor/model-capabilities.json"; sourceTree = SOURCE_ROOT; };
+		CACA11000000000000000005 /* vendor/models.dev.LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = vendor/models.dev.LICENSE; sourceTree = SOURCE_ROOT; };
+		D5A92EDCB4484F6A812C3090 /* NewDocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewDocumentPicker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -211,6 +249,7 @@
 		049E250450F7D1BA24E303F2 /* Reader */ = {
 			isa = PBXGroup;
 			children = (
+				5BEB69B7BDE87CD25AF8F38F /* ReaderActionMenu.swift */,
 				A36B00000000000000000007 /* ReaderAlert.swift */,
 				BCC6FCC3E932E595BF99515F /* ReaderDesign.swift */,
 				DC56C4439C3D456595CB76A2 /* ReaderFloatingControls.swift */,
@@ -240,6 +279,7 @@
 				D12D6E747B94D775632FE765 /* MarkdownIt/MarkdownItApp.swift */,
 				B9408B8DD9849BFB76AC24CD /* Documents */,
 				049E250450F7D1BA24E303F2 /* Reader */,
+				A179C103ED1A8610CE3F9E65 /* Annotations */,
 				F2FE6D30852FDBD3E3662F65 /* Editor */,
 				4A6EDE7BBE25F25BF3568C5F /* AI */,
 				1E713FB9637DCE0009A44349 /* Privacy */,
@@ -251,6 +291,8 @@
 				97D539A62B20BCE7B3196C48 /* design/brand/production/MarkdownIt.icon */,
 				79A506B8C2D6409CB4310E11 /* vendor/Newsreader16pt-Regular.ttf */,
 				79A506B8C2D6409CB4310E12 /* vendor/Newsreader.LICENSE */,
+				CACA11000000000000000003 /* vendor/model-capabilities.json */,
+				CACA11000000000000000005 /* vendor/models.dev.LICENSE */,
 				4D4310404624E719957C7B19 /* MarkdownIt/Info.plist */,
 				20B5CBF8DA31AD3F6570D082 /* MarkdownIt/WebSource */,
 				68910E367482B922FCD5138D /* MarkdownIt/Localizable.xcstrings */,
@@ -265,11 +307,17 @@
 				28230E06A7041C46A98EC0F2 /* AgentContextBuilder.swift */,
 				9565B3CCADBF0EA01ADC5923 /* AgentDocumentTools.swift */,
 				54E723182B2E41ACAB9300E1 /* AgentImages.swift */,
+				36C1101AA9AF42FAAFF46C56 /* WebSearchAuthorization.swift */,
+				1B7843626A3C4055ADB2A2FF /* AgentWebSearch.swift */,
+				89136385BC4D4A02891C789A /* WebPageContent.swift */,
+				29B964FFB463406DBA53454B /* WebSearchClient.swift */,
+				7F604CFDE6D2456D8F378644 /* WebSearchSettings.swift */,
 				F2D29855477EEB2EC9FA8F66 /* AgentModelTransport.swift */,
 				7A840D9E3ECA797CF4C533D7 /* AgentPrompt.swift */,
 				866C1B029DE43981D28E0686 /* ConversationInput.swift */,
 				BF55A37DE0778973A3CDC325 /* DebugModelFixture.swift */,
 				00D374A9DF33AC9BFBFDC4E0 /* ModelCatalog.swift */,
+				CACA11000000000000000001 /* ModelCapabilities.swift */,
 				DBA59413B62CDA0027990F39 /* ModelClient.swift */,
 				AB8BE131312F4399AF5CC7BE /* ModelConnection.swift */,
 				792133A3E49A44A8BB527602 /* ModelSettingsStore.swift */,
@@ -281,6 +329,7 @@
 				47640BD493BB7D4616EE00FA /* NativeComposerHost.swift */,
 				A36B00000000000000000001 /* AgentContextSources.swift */,
 				A36B00000000000000000003 /* AgentContextMemory.swift */,
+				C07E57000000000000000001 /* AgentContextBudget.swift */,
 			);
 			name = AI;
 			path = MarkdownIt/AI;
@@ -289,6 +338,7 @@
 		8B7A6DECC0651D269EA794C7 /* MarkdownItTests */ = {
 			isa = PBXGroup;
 			children = (
+				627469454DAB65B05A23A6C4 /* AnnotationTests.swift */,
 				FA11AA220000000000000004 /* RecoveryTests.swift */,
 				A2284558378CD195BA6453A5 /* MarkdownItTests/SourceEditorTests.swift */,
 				C8667D50A48045E68BCB0437 /* MarkdownItTests/PrivacyPolicyTests.swift */,
@@ -300,6 +350,7 @@
 				9BBE604004ACE2C3F437A8A7 /* MarkdownItTests/CredentialTests.swift */,
 				10A55D141CC382BB5785BC44 /* MarkdownItTests/DocumentTests.swift */,
 				EF8582DBD0DBD2A94B2A0E8B /* MarkdownItTests/ModelClientTests.swift */,
+				997C9AA1EC274CBFAEA8CF39 /* WebSearchTests.swift */,
 				AB27878F6ADADBE6F7FC2D5C /* MarkdownItTests/ResourceAccessTests.swift */,
 				C425BE469C3E0513DB1DF4E1 /* MarkdownItTests/ResourceHandlerTests.swift */,
 				9321B787D39C58C626C4B53C /* MarkdownItTests/WebReaderTests.swift */,
@@ -316,6 +367,19 @@
 				8B9A2DD6D96B0B8DBF9FEA66 /* MarkdownItLiveTests/LiveModelTests.swift */,
 			);
 			name = MarkdownItLiveTests;
+			sourceTree = "<group>";
+		};
+		A179C103ED1A8610CE3F9E65 /* Annotations */ = {
+			isa = PBXGroup;
+			children = (
+				19BFBC920ADA829D81B0DD08 /* ReaderPencilInteraction.swift */,
+				18834FCA2125D655C01EE908 /* ReaderAnnotationHost.swift */,
+				777A7C01863EE505DAA3C8ED /* AnnotationCardView.swift */,
+				7DCCA5C7DE1FBFE524614F1A /* ReadingAnnotations.swift */,
+				07071DC9318FC5F17A6704C7 /* ReadingAnnotationStore.swift */,
+			);
+			name = Annotations;
+			path = MarkdownIt/Annotations;
 			sourceTree = "<group>";
 		};
 		A7DB76B08E654AB5A0B61322 /* Configuration */ = {
@@ -344,9 +408,11 @@
 		B9408B8DD9849BFB76AC24CD /* Documents */ = {
 			isa = PBXGroup;
 			children = (
+				758453E472D5F3E2AD0767D4 /* DocumentRevision.swift */,
 				70BEBD418B69151CBB0001E8 /* LocalResources.swift */,
 				AC5F13BD83ADEDB81E93D094 /* MarkdownDocument.swift */,
 				FA11AA220000000000000006 /* ResourceFolderPicker.swift */,
+				D5A92EDCB4484F6A812C3090 /* NewDocumentPicker.swift */,
 				303CDBD47CF745448FA15B92 /* RecentDocuments.swift */,
 				2172C88FBB8C4C788FEE66D6 /* RecentDocumentsView.swift */,
 			);
@@ -530,6 +596,8 @@
 				5739DA3F9E8F45C35088A644 /* MarkdownIt/InfoPlist.xcstrings in Resources */,
 				79A506B8C2D6409CB4310E13 /* vendor/Newsreader16pt-Regular.ttf in Resources */,
 				79A506B8C2D6409CB4310E14 /* vendor/Newsreader.LICENSE in Resources */,
+				CACA11000000000000000004 /* vendor/model-capabilities.json in Resources */,
+				CACA11000000000000000006 /* vendor/models.dev.LICENSE in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -554,9 +622,21 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4FE425A3546C55588313A914 /* ReaderPencilInteraction.swift in Sources */,
+				6FCBF03A15BF6086857A485A /* DocumentRevision.swift in Sources */,
+				36AFEF08CB03F3F61FE4B656 /* ReaderActionMenu.swift in Sources */,
+				2067EAE008BA4372EBE3D289 /* ReaderAnnotationHost.swift in Sources */,
+				1D3652A7F54D9D3D428440D5 /* AnnotationCardView.swift in Sources */,
+				E1C71AC48370ED14C06F3263 /* ReadingAnnotations.swift in Sources */,
+				CA95A8C0C79564B6A35BE925 /* ReadingAnnotationStore.swift in Sources */,
 				A36B00000000000000000008 /* ReaderAlert.swift in Sources */,
 				892B2E41ACAB9300E254E72318 /* ReaderImageMenu.swift in Sources */,
 				54E723182B2E41ACAB9300E2 /* AgentImages.swift in Sources */,
+				5FC1C9565ED0426EBD748D70 /* WebSearchAuthorization.swift in Sources */,
+				F5770605EF0B46F195F5A95D /* AgentWebSearch.swift in Sources */,
+				A5785A603F1049D18A4D1450 /* WebPageContent.swift in Sources */,
+				E744493F86BF409D9120B96D /* WebSearchClient.swift in Sources */,
+				EC64F2185C434E4ABE05AAA1 /* WebSearchSettings.swift in Sources */,
 				6576A37D958ABF84871D89CF /* AgentPrompt.swift in Sources */,
 				4A1F35129E874BBDBE9D708F /* ReaderFloatingControls.swift in Sources */,
 				FA11AA220000000000000001 /* ReaderRecovery.swift in Sources */,
@@ -566,6 +646,7 @@
 				9B9560F1A90F4066B5D46539 /* ModelDataConsent.swift in Sources */,
 				8D84AB73C0FA4331BB9A2328 /* RecentDocumentsView.swift in Sources */,
 				FA11AA220000000000000005 /* ResourceFolderPicker.swift in Sources */,
+				D5A92EDCB4484F6A812C3091 /* NewDocumentPicker.swift in Sources */,
 				131442CC3FD54F0C9EDCE7AD /* RecentDocuments.swift in Sources */,
 				7B76B0B30BC38DE3D4CD1FB2 /* AgentContextBuilder.swift in Sources */,
 				A431016B01381088DA1A7D79 /* AgentDocumentTools.swift in Sources */,
@@ -591,6 +672,8 @@
 				48026A6F6C7F2104233E0B57 /* ReaderViewport.swift in Sources */,
 				A36B00000000000000000002 /* AgentContextSources.swift in Sources */,
 				A36B00000000000000000004 /* AgentContextMemory.swift in Sources */,
+				C07E57000000000000000002 /* AgentContextBudget.swift in Sources */,
+				CACA11000000000000000002 /* ModelCapabilities.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -617,6 +700,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4552CB8735D7DCCF72437637 /* AnnotationTests.swift in Sources */,
 				FA11AA220000000000000003 /* RecoveryTests.swift in Sources */,
 				3845975BCC734C1AE4726236 /* MarkdownItTests/SourceEditorTests.swift in Sources */,
 				1B19B584E67C472CBE2B195F /* MarkdownItTests/PrivacyPolicyTests.swift in Sources */,
@@ -627,6 +711,7 @@
 				3EC3BBE5750354D9C6FB7565 /* MarkdownItTests/CredentialTests.swift in Sources */,
 				C73F708F859CDD6CD47AE260 /* MarkdownItTests/DocumentTests.swift in Sources */,
 				B21A45D9E46B7D9E113C14C7 /* MarkdownItTests/ModelClientTests.swift in Sources */,
+				7F234200056142B58978FDF5 /* WebSearchTests.swift in Sources */,
 				D27E528818FE286A0C70083B /* MarkdownItTests/ResourceAccessTests.swift in Sources */,
 				24BCB6E68901992A02A625BE /* MarkdownItTests/ResourceHandlerTests.swift in Sources */,
 				92C539D0B7DE7D34E15C0CA3 /* MarkdownItTests/WebReaderTests.swift in Sources */,

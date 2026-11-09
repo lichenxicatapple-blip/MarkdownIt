@@ -43,7 +43,8 @@ final class LocalizationTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let markdown = "# 保留原文\n\nEnglish and 中文 stay as written.\n\n<span data-l10n=\"Contents\">作者自己的文字</span>\n"
+        let markdown =
+            "# 保留原文\n\nEnglish and 中文 stay as written.\n\n<span class=\"author-text\" data-l10n=\"Contents\">作者自己的文字</span>\n"
         let file = root.appendingPathComponent("阅读.md")
         try Data(markdown.utf8).write(to: file)
         for (preferred, language, contents, source, send, retry) in [
@@ -86,7 +87,7 @@ final class LocalizationTests: XCTestCase {
                     contents: document.querySelector('.mdv-outline').getAttribute('aria-label'),
                     send: document.querySelector('.mdv-agent-send').getAttribute('aria-label'),
                     retry: t('Retry in {duration}', { duration: formatSeconds(1) }),
-                    author: document.querySelector('.mdv-article span').textContent };
+                    author: document.querySelector('.mdv-article .author-text').textContent };
                 })()
                 """)
             let values = try XCTUnwrap(result as? [String: String])

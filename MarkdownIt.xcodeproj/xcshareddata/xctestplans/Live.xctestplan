@@ -1,0 +1,21 @@
+{
+  "configurations": [
+    {
+      "id": "507B5DEA-F9DE-4BC3-88B1-C1D5D64969BA",
+      "name": "Default",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {},
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:MarkdownIt.xcodeproj",
+        "identifier": "F37510859879A3048E723556",
+        "name": "MarkdownItLiveTests"
+      }
+    }
+  ],
+  "version": 1
+}

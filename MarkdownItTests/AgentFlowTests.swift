@@ -48,7 +48,7 @@ private final class AgentFixtureQueue: @unchecked Sendable {
                 let instructions =
                     root["instructions"] as? String
                     ?? (root["messages"] as? [[String: Any]])?.first?["content"] as? String ?? ""
-                if instructions.hasPrefix("你只负责压缩对话材料") { return summaryFixture }
+                if instructions.hasPrefix("你只负责整理对话材料") { return summaryFixture }
             }
             return fixtures.isEmpty ? AgentFixture(status: 503) : fixtures.removeFirst()
         }
@@ -63,6 +63,15 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "agent.example.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        if request.httpMethod == "GET", request.url?.path.hasSuffix("/models") == true {
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(#"{"data":[{"id":"fixture-model","context_window":32768}]}"#.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         var fixture = Self.queue.next(request)
         if fixture.calls.contains(where: { $0.arguments == "$first-image" }) {
             let body = Self.queue.requests().last ?? Data()
@@ -306,7 +315,8 @@ final class AgentFlowTests: AgentReaderTestCase {
         addTeardownBlock { defaults.removePersistentDomain(forName: name) }
         let next = ReaderSession(
             defaults: defaults,
-            modelClient: ModelClient(session: URLSession(configuration: configuration)), modelKey: { "fixture-key" },
+            modelClient: ModelClient(session: URLSession(configuration: configuration)),
+            modelCatalog: ModelCatalog(session: URLSession(configuration: configuration)), modelKey: { "fixture-key" },
             modelSettings: isolatedModelSettings(), recoveryStore: ReaderRecoveryStore(directory: directory))
         addTeardownBlock { @MainActor in await next.closeDocument() }
         await next.restoreLastSession()
@@ -368,6 +378,7 @@ final class AgentFlowTests: AgentReaderTestCase {
                 summary: AgentFixture(
                     text: "The user asked about the document. The earlier answer discussed its contents."))
             let (session, bridge, _, _) = try await reader("# Document\n\nCurrent content.\n", api: api)
+            _ = try await session.modelCatalog.models(baseURL: session.configuration.baseURL, key: "fixture-key")
             _ = try await bridge.call("toggleAgent")
             try await send("Explain the document.", bridge: bridge)
             try await completed(bridge)
@@ -386,6 +397,10 @@ final class AgentFlowTests: AgentReaderTestCase {
             let reply = try XCTUnwrap(visible?[1]["text"] as? String)
             XCTAssertTrue(reply.contains("END_OF_EARLIER_REPLY"))
             XCTAssertGreaterThanOrEqual(reply.count, earlier.count - 1)
+            let recovery = try XCTUnwrap(session.agentTransport.recovery())
+            XCTAssertNotNil(recovery.context?.summary)
+            try session.agentTransport.restore(
+                JSONDecoder().decode(AgentModelTransport.Recovery.self, from: JSONEncoder().encode(recovery)))
             try await send("One more follow-up.", bridge: bridge)
             try await completed(bridge, count: 6)
             XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, requests.count + 1)
@@ -405,6 +420,7 @@ final class AgentFlowTests: AgentReaderTestCase {
                 AgentFixture(calls: [call]), AgentFixture(text: "The ending says EXACT_END_TARGET."),
             ])
             let (session, bridge, _, _) = try await reader(text, api: api)
+            _ = try await session.modelCatalog.models(baseURL: session.configuration.baseURL, key: "fixture-key")
             _ = try await bridge.call("toggleAgent")
             try await send("What does the ending say?", bridge: bridge)
             try await completed(bridge)
@@ -462,18 +478,185 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertNil(properties["offset"])
     }
 
+    func testWebSearchResultsStayNativeAndRemainAvailableAfterRecoveryAndFollowup() async throws {
+        let call = ModelToolCall(
+            id: "search-first", name: "web_search", arguments: #"{"query":"公开资料","language":"zh-Hans"}"#)
+        for api in ModelAPIProtocol.allCases {
+            WebSearchFixture.state.reset()
+            AgentFixtureProtocol.queue.reset([
+                AgentFixture(calls: [call]),
+                AgentFixture(text: "参考[公开来源](https://source.example.org/reading)。"),
+                AgentFixture(text: "根据刚才取得的公开资料继续回答。"),
+            ])
+            let (session, bridge, _, _) = try await reader(
+                "# 文档\n\nPRIVATE_DOCUMENT_CONTEXT\n", api: api, webSearchClient: WebSearchFixture.client())
+            try session.saveConfiguration(
+                session.configuration, key: session.apiKey,
+                search: .init(provider: .serper, keys: ["serper": "search-secret-only"]))
+            _ = try await bridge.call("toggleAgent")
+            try await send("联网查阅公开资料", bridge: bridge)
+            try await wait { session.searchAuthorization.request != nil }
+            XCTAssertEqual(session.searchAuthorization.request?.query, "公开资料")
+            XCTAssertEqual(WebSearchFixture.state.captured().count, 0, "Permission must precede the network request")
+            session.searchAuthorization.finish(allowed: true)
+            try await completed(bridge)
+            XCTAssertEqual(WebSearchFixture.state.captured().count, 1)
+            let searchBody = String(
+                decoding: try XCTUnwrap(WebSearchFixture.state.captured().first?.httpBody), as: UTF8.self)
+            XCTAssertFalse(searchBody.contains("PRIVATE_DOCUMENT_CONTEXT"))
+            XCTAssertFalse(searchBody.contains("fixture-key"))
+            let requests = AgentFixtureProtocol.queue.requests()
+            XCTAssertEqual(requests.count, 2)
+            XCTAssertTrue(String(decoding: requests[0], as: UTF8.self).contains("web_search"))
+            XCTAssertTrue(String(decoding: requests[1], as: UTF8.self).contains("Verified external information"))
+            for request in requests {
+                XCTAssertFalse(String(decoding: request, as: UTF8.self).contains("search-secret-only"))
+            }
+            let saved = try JSONEncoder().encode(XCTUnwrap(session.agentTransport.recovery()))
+            XCTAssertFalse(String(decoding: saved, as: UTF8.self).contains("search-secret-only"))
+            try session.agentTransport.restore(JSONDecoder().decode(AgentModelTransport.Recovery.self, from: saved))
+            try await send("刚才的来源还说明了什么？", bridge: bridge)
+            try await completed(bridge, count: 4)
+            let followup = String(decoding: try XCTUnwrap(AgentFixtureProtocol.queue.requests().last), as: UTF8.self)
+            XCTAssertTrue(followup.contains("searchResults"))
+            XCTAssertTrue(followup.contains("Verified external information"))
+            XCTAssertTrue(followup.contains("source.example.org"))
+            XCTAssertEqual(WebSearchFixture.state.captured().count, 1)
+            XCTAssertEqual(session.document?.text, "# 文档\n\nPRIVATE_DOCUMENT_CONTEXT\n")
+        }
+    }
+
+    func testWebPageReadsPersistWithTheirTurnAndRemainAvailableAfterRelaunch() async throws {
+        let call = ModelToolCall(
+            id: "page-first", name: "read_webpage",
+            arguments: #"{"url":"https://source.example.org/article","characterOffset":null,"query":null}"#)
+        for api in ModelAPIProtocol.allCases {
+            WebSearchFixture.state.reset(
+                body: Data(#"{"text":"This is extracted webpage text.","metadata":{"title":"Public reading"}}"#.utf8))
+            AgentFixtureProtocol.queue.reset([
+                AgentFixture(calls: [call]), AgentFixture(text: "[来源](https://source.example.org/article)说明了这一点。"),
+                AgentFixture(text: "根据刚才读到的正文继续回答。"),
+            ])
+            let (session, bridge, _, _) = try await reader(
+                "# 文档\n\n请参考公开链接。", api: api, webSearchClient: WebSearchFixture.client())
+            try session.saveConfiguration(
+                session.configuration, key: session.apiKey,
+                search: .init(provider: .serper, keys: ["serper": "page-secret-only"]))
+            _ = try await bridge.call("toggleAgent")
+            try await send("请阅读这个网页", bridge: bridge)
+            try await wait { session.searchAuthorization.request != nil }
+            XCTAssertEqual(session.searchAuthorization.request?.query, "https://source.example.org/article")
+            session.searchAuthorization.finish(allowed: true)
+            try await completed(bridge)
+            XCTAssertEqual(WebSearchFixture.state.captured().first?.url?.host, "scrape.serper.dev")
+            let recovery = try JSONEncoder().encode(XCTUnwrap(session.agentTransport.recovery()))
+            XCTAssertFalse(String(decoding: recovery, as: UTF8.self).contains("page-secret-only"))
+            try session.agentTransport.restore(JSONDecoder().decode(AgentModelTransport.Recovery.self, from: recovery))
+            try await send("接着说明", bridge: bridge)
+            try await completed(bridge, count: 4)
+            let followup = String(decoding: try XCTUnwrap(AgentFixtureProtocol.queue.requests().last), as: UTF8.self)
+            XCTAssertTrue(followup.contains("webPages"))
+            XCTAssertTrue(followup.contains("This is extracted webpage text."))
+            let request = try ModelWireFormat.object(Data(followup.utf8))
+            let messages = try XCTUnwrap(request[api == .responses ? "input" : "messages"] as? [[String: Any]])
+            let user = try XCTUnwrap(messages.first { $0["role"] as? String == "user" }?["content"] as? String)
+            let materials = try ModelWireFormat.object(Data(user.utf8))
+            let pages = try XCTUnwrap(materials["webPages"] as? [[String: Any]])
+            XCTAssertEqual(pages.first?["url"] as? String, "https://source.example.org/article")
+            XCTAssertEqual(WebSearchFixture.state.captured().count, 1)
+            XCTAssertEqual(session.document?.text, "# 文档\n\n请参考公开链接。")
+        }
+    }
+
+    func testUnconfiguredSearchHasNoToolOrNetworkAndDoesNotBlockReading() async throws {
+        for api in ModelAPIProtocol.allCases {
+            WebSearchFixture.state.reset()
+            AgentFixtureProtocol.queue.reset([AgentFixture(text: "依据文档说明。")])
+            let (session, bridge, _, _) = try await reader(
+                "# 文档\n\n正文。\n", api: api, webSearchClient: WebSearchFixture.client())
+            _ = try await bridge.call("toggleAgent")
+            try await send("解释正文", bridge: bridge)
+            try await completed(bridge)
+            let body = try ModelWireFormat.object(XCTUnwrap(AgentFixtureProtocol.queue.requests().first))
+            for tool in body["tools"] as? [[String: Any]] ?? [] {
+                let name = tool["name"] as? String ?? (tool["function"] as? [String: Any])?["name"] as? String
+                XCTAssertNotEqual(name, "web_search")
+            }
+            XCTAssertEqual(WebSearchFixture.state.captured().count, 0)
+            XCTAssertNil(session.searchAuthorization.request)
+            XCTAssertFalse(
+                String(decoding: try JSONSerialization.data(withJSONObject: body), as: UTF8.self).contains(
+                    "searchSettings"))
+        }
+    }
+
+    func testDecliningSearchRemovesTheToolForThisAnswerAndKeepsReadingAvailable() async throws {
+        let call = ModelToolCall(
+            id: "search-declined", name: "web_search", arguments: #"{"query":"public source","language":null}"#)
+        WebSearchFixture.state.reset()
+        AgentFixtureProtocol.queue.reset([AgentFixture(calls: [call]), AgentFixture(text: "根据已有文档回答。")])
+        let (session, bridge, _, _) = try await reader(
+            "# 文档\n\n正文。", api: .responses, webSearchClient: WebSearchFixture.client())
+        try session.saveConfiguration(
+            session.configuration, key: session.apiKey,
+            search: .init(provider: .serper, keys: ["serper": "search-test-only"]))
+        _ = try await bridge.call("toggleAgent")
+        try await send("搜索相关资料", bridge: bridge)
+        try await wait { session.searchAuthorization.request != nil }
+        session.searchAuthorization.finish(allowed: false)
+        try await completed(bridge)
+        XCTAssertEqual(WebSearchFixture.state.captured().count, 0)
+        XCTAssertNil(session.searchAuthorization.request)
+        let continuation = try ModelWireFormat.object(XCTUnwrap(AgentFixtureProtocol.queue.requests().last))
+        XCTAssertFalse(
+            (continuation["tools"] as? [[String: Any]] ?? []).contains { $0["name"] as? String == "web_search" })
+        XCTAssertTrue(
+            String(decoding: try JSONSerialization.data(withJSONObject: continuation), as: UTF8.self).contains(
+                "search_permission"))
+    }
+
+    func testRepeatedSearchReusesTheJournalWithoutAnotherPaidRequest() async throws {
+        WebSearchFixture.state.reset()
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(calls: [
+                .init(id: "search-once", name: "web_search", arguments: #"{"query":"public source","language":null}"#)
+            ]),
+            AgentFixture(calls: [
+                .init(id: "search-again", name: "web_search", arguments: #"{"language":null,"query":"public source"}"#)
+            ]),
+            AgentFixture(text: "依据已取得的来源回答。"),
+        ])
+        let (session, bridge, _, _) = try await reader(
+            "# 文档\n\n正文。", api: .responses, webSearchClient: WebSearchFixture.client())
+        try session.saveConfiguration(
+            session.configuration, key: session.apiKey,
+            search: .init(provider: .serper, keys: ["serper": "search-test-only"]))
+        _ = try await bridge.call("toggleAgent")
+        try await send("搜索公开资料", bridge: bridge)
+        try await wait { session.searchAuthorization.request != nil }
+        session.searchAuthorization.finish(allowed: true)
+        try await completed(bridge)
+        XCTAssertEqual(WebSearchFixture.state.captured().count, 1)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 3)
+        XCTAssertTrue(
+            String(decoding: try XCTUnwrap(AgentFixtureProtocol.queue.requests().last), as: UTF8.self).contains(
+                "repeated_without_progress"))
+    }
+
     private func reader(
         _ text: String, api: ModelAPIProtocol = .chatCompletions,
         baseURL: String = "https://agent.example.test/v1", model: String = "fixture-model",
         modelKey: @escaping @MainActor () -> String = { "fixture-key" }, dataSharingAllowed: Bool = true,
-        recoveryStore: ReaderRecoveryStore? = nil
+        recoveryStore: ReaderRecoveryStore? = nil, webSearchClient: WebSearchClient? = nil
     ) async throws -> (ReaderSession, ReaderBridge, UIWindow, URL) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AgentFixtureProtocol.self]
         return try await makeReader(
             text, api: api, baseURL: baseURL, model: model,
             modelClient: ModelClient(session: URLSession(configuration: configuration)),
-            modelKey: modelKey, dataSharingAllowed: dataSharingAllowed, recoveryStore: recoveryStore)
+            modelKey: modelKey, dataSharingAllowed: dataSharingAllowed, recoveryStore: recoveryStore,
+            modelCatalog: ModelCatalog(session: URLSession(configuration: configuration)),
+            webSearchClient: webSearchClient)
     }
 
     private func completed(_ bridge: ReaderBridge, count: Int = 2, timeout: TimeInterval = 30) async throws {
@@ -983,6 +1166,42 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
     }
 
+    func testConversationComposerFitsAShortReadingViewport() async throws {
+        let (_, bridge, window, _) = try await reader("# Reading\n\nA passage to discuss.\n")
+        defer { window.endEditing(true) }
+        try await sourceMode(bridge)
+        bridge.webView.autoresizingMask = []
+        bridge.webView.frame = CGRect(x: 0, y: 0, width: 750, height: 178)
+        _ = try await bridge.call("toggleAgent")
+        try await wait {
+            let open = try await self.state(bridge)["open"] as? Bool == true
+            let settled =
+                try await bridge.webView.evaluateJavaScript(
+                    "document.querySelector('.mdv-app').getAnimations({subtree:true}).every(a=>a.playState==='finished')"
+                ) as? Bool == true
+            return open && settled
+        }
+        for reference in [true, false] {
+            if !reference {
+                _ = try await bridge.webView.evaluateJavaScript(
+                    "document.querySelector('.mdv-reference-remove')?.click()")
+            }
+            let geometry =
+                try await bridge.webView.callAsyncJavaScript(
+                    """
+                    const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,bottom:r.bottom};};
+                    return {height:innerHeight,panel:rect(document.querySelector('.mdv-agent')),
+                      send:rect(document.querySelector('.mdv-agent-send')),input:rect(document.querySelector('.mdv-agent-input'))};
+                    """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+            let height = try XCTUnwrap(geometry?["height"] as? Double)
+            let send = try XCTUnwrap(geometry?["send"] as? [String: Double])
+            XCTAssertLessThanOrEqual(
+                send["bottom"] ?? .infinity, height, "reference=\(reference), \(String(describing: geometry))")
+            let input = try XCTUnwrap(geometry?["input"] as? [String: Double])
+            XCTAssertLessThanOrEqual(input["bottom"] ?? .infinity, height, "\(String(describing: geometry))")
+        }
+    }
+
     func testConversationInputClearsDockedKeyboardWithoutDoubleCountingItsHeight() async throws {
         let (_, bridge, window, _) = try await reader("# Reading\n\nA passage to discuss.\n")
         defer { window.endEditing(true) }
@@ -1222,6 +1441,58 @@ final class AgentFlowTests: AgentReaderTestCase {
             ) as? Bool == true
         }
         return bridge
+    }
+
+    func testConversationFadesOnlyTheEdgesWithOffscreenContent() async throws {
+        let bridge = try await scrollingConversation()
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').style.maxHeight = '140px';")
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "(() => { const s = document.querySelector('.mdv-agent-scroll'); return s.clientHeight === 140 && s.scrollHeight > s.clientHeight; })()"
+            ) as? Bool == true
+        }
+        func expectEdges(top: Bool, bottom: Bool) async throws {
+            try await wait {
+                try await bridge.webView.callAsyncJavaScript(
+                    "const s = document.querySelector('.mdv-agent-scroll'); return s.hasAttribute('data-scrolled') === top && s.hasAttribute('data-more-below') === bottom;",
+                    arguments: ["top": top, "bottom": bottom], in: nil, contentWorld: .page) as? Bool == true
+            }
+            let style =
+                try await bridge.webView.evaluateJavaScript(
+                    "(() => { const s = getComputedStyle(document.querySelector('.mdv-agent-scroll')); return { top: s.getPropertyValue('--mdv-scroll-top-alpha').trim(), bottom: s.getPropertyValue('--mdv-scroll-bottom-alpha').trim(), mask: s.maskImage }; })()"
+                ) as? [String: String]
+            XCTAssertEqual(style?["top"], top ? "transparent" : "#000")
+            XCTAssertEqual(style?["bottom"], bottom ? "transparent" : "#000")
+            XCTAssertTrue(style?["mask"]?.contains("linear-gradient") == true)
+        }
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const s = document.querySelector('.mdv-agent-scroll'); s.dispatchEvent(new WheelEvent('wheel',{deltaY:-100})); s.scrollTop = 0;"
+        )
+        try await expectEdges(top: false, bottom: true)
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').scrollTop = 100;")
+        try await expectEdges(top: true, bottom: true)
+        let screenshot: UIImage = try await withCheckedThrowingContinuation { continuation in
+            bridge.webView.takeSnapshot(with: nil) { image, error in
+                if let image {
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(throwing: error ?? ModelError.invalidResponse)
+                }
+            }
+        }
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "Conversation top and bottom scroll fades"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').scrollTop = 100000;")
+        try await expectEdges(top: true, bottom: false)
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-send').click(); document.querySelector('.mdv-conversation').textContent = 'Short reply.';"
+        )
+        try await expectEdges(top: false, bottom: false)
     }
 
     func testReplyFollowsViewportChangesAndYieldsToManualBrowsing() async throws {
@@ -1853,7 +2124,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             }
             transport.start(
                 id: "before-termination", token: "document", snapshot: snapshot, intent: "question",
-                configuration: configuration, key: "fixture-key",
+                configuration: configuration, key: "fixture-key", capabilities: { .init(contextWindow: 32_768) },
                 emit: { event in
                     if event.type == "failure" { XCTFail("Unexpected failure before checkpoint") }
                 })
@@ -1864,17 +2135,16 @@ final class AgentFlowTests: AgentReaderTestCase {
             XCTAssertTrue(saved.pendingOutputs.isEmpty)
             let restored = AgentModelTransport(client: client)
             var old = try ModelWireFormat.object(JSONEncoder().encode(saved))
-            var messages = try XCTUnwrap(old["messages"] as? [[String: Any]])
-            XCTAssertEqual(messages.first?["role"] as? String, "system")
-            messages[0]["content"] = "LEGACY_BYTE_READING_INSTRUCTIONS"
-            old["messages"] = messages
+            // Disposable messages from an older installed version must not
+            // replace the current tool contract when restoring its journal.
+            old["messages"] = [["role": "system", "content": "LEGACY_BYTE_READING_INSTRUCTIONS"]]
             try restored.restore(
                 JSONDecoder().decode(
                     AgentModelTransport.Recovery.self, from: JSONSerialization.data(withJSONObject: old)))
             var finished = false
             restored.start(
                 id: "manual-retry", token: "document", snapshot: snapshot, intent: "question",
-                configuration: configuration, key: "fixture-key",
+                configuration: configuration, key: "fixture-key", capabilities: { .init(contextWindow: 32_768) },
                 emit: { event in
                     if event.type == "failure" { XCTFail("Invalid tool arguments must not fail the answer") }
                     if event.type == "complete" { finished = true }
@@ -1924,7 +2194,7 @@ final class AgentFlowTests: AgentReaderTestCase {
                 baseURL: "https://agent.example.test/v1", model: "fixture", apiProtocol: .chatCompletions),
             key: "fixture-key",
             toolsAvailable: { true },
-            executeTool: { call, _ in
+            executeTool: { call, _, _ in
                 executed.append(call.name)
                 return AgentToolExecution(output: "unchanged", revision: "same")
             },
@@ -1963,7 +2233,7 @@ final class AgentFlowTests: AgentReaderTestCase {
                 id: UUID().uuidString, token: "document", snapshot: snapshot, intent: "question",
                 configuration: .init(baseURL: "https://agent.example.test/v1", model: "fixture"), key: "fixture-key",
                 toolsAvailable: { true },
-                executeTool: { _, _ in
+                executeTool: { _, _, _ in
                     count += 1
                     let revision = progress ? String(count) : "unchanged"
                     return AgentToolExecution(output: "{\"revision\":\"" + revision + "\"}", revision: revision)
@@ -2139,7 +2409,8 @@ final class AgentFlowTests: AgentReaderTestCase {
         let host = try XCTUnwrap(bridge.imageMenu)
         let interaction = try XCTUnwrap(
             bridge.webView.subviews.flatMap(\.interactions).compactMap { $0 as? UIEditMenuInteraction }
-                .first { $0.delegate === host })
+                .first { $0.delegate is ReaderActionMenu })
+        let actionMenu = try XCTUnwrap(interaction.delegate as? ReaderActionMenu)
         let menuView = try XCTUnwrap(interaction.view)
         XCTAssertTrue(menuView.superview === bridge.webView)
         XCTAssertFalse(menuView.isUserInteractionEnabled, "The AI menu host must leave image gestures to WebKit")
@@ -2148,7 +2419,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             let config = UIEditMenuConfiguration(identifier: id as NSString, sourcePoint: CGPoint(x: 50, y: 100))
             host.show(id: id, token: session.documentToken, reference: reference, point: config.sourcePoint)
             return try XCTUnwrap(
-                host.editMenuInteraction(interaction, menuFor: config, suggestedActions: [])?.children.first
+                actionMenu.editMenuInteraction(interaction, menuFor: config, suggestedActions: [])?.children.first
                     as? UIAction)
         }
         let first = try action("captured-image")
@@ -2171,6 +2442,8 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertEqual(
             AgentFixtureProtocol.queue.requests().count, 0, "Showing and choosing the menu never sends a model request")
         host.detach()
+        XCTAssertTrue(menuView.superview === bridge.webView)
+        bridge.detach()
         XCTAssertNil(interaction.view)
         XCTAssertNil(menuView.superview)
     }

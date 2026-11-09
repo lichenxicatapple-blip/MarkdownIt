@@ -1,16 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum ReaderAccessibilityAction { case tools, ai, more, open, recents }
+private enum ReaderAccessibilityAction { case tools, ai, more, open, create, recents }
 private enum HomeItem: CaseIterable, Hashable {
-    case mark, slogan, openDocument, recentDocuments
+    case mark, slogan, openDocument, newDocument, recentDocuments
 
     var spacingBefore: CGFloat {
         switch self {
         case .mark: 0
         case .slogan: ReaderDesign.homeBrandGap
         case .openDocument: ReaderDesign.homeGroupGap
-        case .recentDocuments: ReaderDesign.homeActionGap
+        case .newDocument, .recentDocuments: ReaderDesign.homeActionGap
         }
     }
 }
@@ -21,6 +21,7 @@ struct ReaderScreen: View {
     @State private var modelSettingsPresented = false
     @State private var modelSettingsOpening = false
     @State private var importing = false
+    @State private var newDocumentExport: NewDocumentExport?
     @State private var toolsExpanded = false
     @State private var modelSettingsSaved = false
     @State private var homeVisible = false
@@ -163,6 +164,17 @@ struct ReaderScreen: View {
             }
         }
         .modifier(ResourceFolderPermission(session: session))
+        .background {
+            NewDocumentPicker(document: newDocumentExport) { url in
+                newDocumentExport = nil
+                if let url {
+                    Task { await session.open(url, startingNewDocument: true) }
+                } else {
+                    focusedAction = .create
+                }
+            }
+            .frame(width: 0, height: 0)
+        }
         .sheet(
             isPresented: $modelSettingsPresented,
             onDismiss: {
@@ -195,6 +207,7 @@ struct ReaderScreen: View {
         } message: {
             Text("This file was changed outside the app. Choose which version to keep.")
         }
+        .background { WebSearchConsentPresenter(authorization: session.searchAuthorization) }
         .alert(
             "Allow Sending to This AI Service?",
             isPresented: alertPresentation(\.needsDataSharingConsent)
@@ -312,30 +325,43 @@ struct ReaderScreen: View {
                 .buttonStyle(.glassProminent).controlSize(.large)
                 .accessibilityIdentifier("OpenDocument")
                 .accessibilityFocused($focusedAction, equals: .open)
+        case .newDocument:
+            homeTextButton("New Document...") {
+                do {
+                    newDocumentExport = try NewDocumentExport(filename: String(localized: "Untitled"))
+                } catch {
+                    session.errorMessage = error.localizedDescription
+                }
+            }
+            .accessibilityIdentifier("NewDocument")
+            .accessibilityFocused($focusedAction, equals: .create)
+            .disabled(newDocumentExport != nil)
         case .recentDocuments:
-            Button {
-                recentsPresented = true
-            } label: {
-                Text("Recent Documents...")
-                    .frame(minWidth: ReaderDesign.hitTarget, minHeight: ReaderDesign.hitTarget)
-                    .contentShape(Rectangle())
-            }
-            .font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
-            .accessibilityIdentifier("RecentDocuments")
-            .accessibilityFocused($focusedAction, equals: .recents)
-            .popover(isPresented: $recentsPresented, arrowEdge: .top) {
-                RecentDocumentsView(
-                    store: session.recentDocuments, compact: horizontalSizeClass == .compact,
-                    open: { try await session.openRecent($0) }
-                )
-                .presentationCompactAdaptation(.sheet)
-                .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-                .presentationBackgroundInteraction(.disabled)
-            }
-            .onChange(of: recentsPresented) { _, presented in
-                if !presented && session.document == nil { focusedAction = .recents }
-            }
+            homeTextButton("Recent Documents...") { recentsPresented = true }
+                .accessibilityIdentifier("RecentDocuments")
+                .accessibilityFocused($focusedAction, equals: .recents)
+                .popover(isPresented: $recentsPresented, arrowEdge: .top) {
+                    RecentDocumentsView(
+                        store: session.recentDocuments, compact: horizontalSizeClass == .compact,
+                        open: { try await session.openRecent($0) }
+                    )
+                    .presentationCompactAdaptation(.sheet)
+                    .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                    .presentationBackgroundInteraction(.disabled)
+                }
+                .onChange(of: recentsPresented) { _, presented in
+                    if !presented && session.document == nil { focusedAction = .recents }
+                }
         }
+    }
+
+    private func homeTextButton(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .frame(minWidth: ReaderDesign.hitTarget, minHeight: ReaderDesign.hitTarget)
+                .contentShape(Rectangle())
+        }
+        .font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
     }
 
     private var showsOutlineControl: Bool { session.mode == "preview" && session.hasOutline }

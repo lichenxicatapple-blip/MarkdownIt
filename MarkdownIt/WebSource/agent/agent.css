@@ -33,9 +33,11 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-agent-grabber { display: none; }
 #mdv-reading-concept .mdv-app .mdv-agent-collapse { position: absolute; z-index: 3; top: var(--mdv-agent-control-inset); right: var(--mdv-agent-control-inset); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 0; border-radius: 50%; color: var(--mdv-muted); background: color-mix(in srgb, var(--mdv-paper) 85%, transparent); }
 #mdv-reading-concept .mdv-app .mdv-agent-collapse svg { width: var(--mdv-reader-chrome-canvas); height: var(--mdv-reader-chrome-canvas); }
-#mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; margin-top: var(--mdv-agent-scroll-edge); padding: calc(var(--mdv-agent-content-inset) - var(--mdv-agent-scroll-edge)) var(--mdv-agent-content-inset) var(--mdv-agent-content-inset); scrollbar-width: thin; }
-#mdv-reading-concept .mdv-agent-scroll[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 var(--mdv-agent-scroll-edge)); }
-#mdv-reading-concept .mdv-conversation { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+#mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; padding: 0 var(--mdv-agent-content-inset); scrollbar-width: thin; }
+#mdv-reading-concept .mdv-agent-scroll { --mdv-scroll-top-alpha: #000; --mdv-scroll-bottom-alpha: #000; mask-image: linear-gradient(to bottom, var(--mdv-scroll-top-alpha), #000 var(--mdv-agent-scroll-edge), #000 calc(100% - var(--mdv-agent-scroll-edge)), var(--mdv-scroll-bottom-alpha)); }
+#mdv-reading-concept .mdv-agent-scroll[data-scrolled] { --mdv-scroll-top-alpha: transparent; }
+#mdv-reading-concept .mdv-agent-scroll[data-more-below] { --mdv-scroll-bottom-alpha: transparent; }
+#mdv-reading-concept .mdv-conversation { display: flex; flex-direction: column; gap: 28px; min-width: 0; padding: var(--mdv-agent-content-inset) 0; }
 #mdv-reading-concept .mdv-turn { min-width: 0; }
 #mdv-reading-concept .mdv-user-turn { margin-left: 24px; background: var(--mdv-chrome); border-radius: 18px 18px 5px 18px; padding: 12px 14px; }
 #mdv-reading-concept .mdv-user-turn:first-child { margin-right: 40px; }

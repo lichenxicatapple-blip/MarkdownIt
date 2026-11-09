@@ -45,6 +45,8 @@ enum AgentContextBuilder {
         let documentID: String?
         let reference: Reference?
         let background: Background?
+        let searchResults: [WebSearchResult]?
+        let webPages: [WebPageExcerpt]?
     }
     private struct AssistantTurn: Encodable {
         let answer: String
@@ -55,12 +57,15 @@ enum AgentContextBuilder {
         var values: [Document] = []
         private var ids: [String: String] = [:]
         var inlineLimit: Int?
+        var inlineDocumentIDs: Set<String>?
 
         mutating func register(_ markdown: String?, name: String?) -> String? {
             guard let markdown else { return nil }
             if let id = ids[markdown] { return id }
             let id = AgentContextSources.id(markdown)
-            let inline = inlineLimit.map { markdown.utf8.count <= $0 } ?? true
+            let inline =
+                (inlineLimit.map { AgentContextBudget.textTokens(markdown) <= $0 } ?? true)
+                && (inlineDocumentIDs.map { $0.contains(id) } ?? true)
             ids[markdown] = id
             values.append(
                 Document(
@@ -74,7 +79,8 @@ enum AgentContextBuilder {
     static func build(
         _ snapshot: AgentSnapshot, intent: String,
         appLanguage: String = Bundle.main.preferredLocalizations.first ?? "en",
-        inlineLimit: Int? = nil, quoteLimit: Int? = nil, summary: String? = nil
+        inlineLimit: Int? = nil, quoteLimit: Int? = nil, summary: String? = nil,
+        inlineDocumentIDs: Set<String>? = nil
     ) throws -> [ChatMessage] {
         let history = snapshot.history
         guard intent == "question",
@@ -89,7 +95,7 @@ enum AgentContextBuilder {
                 end > start, attachment.text.utf16.count == end - start
             else { throw ModelError.invalidResponse }
         }
-        var documents = Documents(inlineLimit: inlineLimit)
+        var documents = Documents(inlineLimit: inlineLimit, inlineDocumentIDs: inlineDocumentIDs)
         var documentIDs: [String?] = []
         var referenceIDs: [String?] = []
         for turn in history {
@@ -135,7 +141,8 @@ enum AgentContextBuilder {
                 let reference = turn.attachment.map { value in
                     let sourceEdit = value.mode == "source"
                     let content = sourceEdit ? value.text : value.markdown
-                    let inline = (quoteLimit ?? inlineLimit).map { content.utf8.count <= $0 } ?? true
+                    let inline =
+                        (quoteLimit ?? inlineLimit).map { AgentContextBudget.textTokens(content) <= $0 } ?? true
                     return Reference(
                         scope: value.scope == "document" ? "document" : "selection",
                         format: sourceEdit ? "markdown-source" : "markdown",
@@ -150,7 +157,8 @@ enum AgentContextBuilder {
                         UserTurn(
                             request: turn.markdown,
                             documentID: documentIDs[index], reference: reference,
-                            background: index == history.count - 1 ? background : nil)))
+                            background: index == history.count - 1 ? background : nil,
+                            searchResults: snapshot.searchResults?[index], webPages: snapshot.webPages?[index])))
             })
     }
 

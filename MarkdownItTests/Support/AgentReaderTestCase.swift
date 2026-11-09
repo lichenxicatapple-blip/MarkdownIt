@@ -36,7 +36,8 @@ class AgentReaderTestCase: XCTestCase {
         _ text: String, api: ModelAPIProtocol = .chatCompletions,
         baseURL: String, model: String,
         modelClient: ModelClient, modelKey: @escaping @MainActor () -> String,
-        dataSharingAllowed: Bool = true, recoveryStore: ReaderRecoveryStore? = nil
+        dataSharingAllowed: Bool = true, recoveryStore: ReaderRecoveryStore? = nil,
+        modelCatalog: ModelCatalog? = nil, webSearchClient: WebSearchClient? = nil
     ) async throws -> (
         ReaderSession, ReaderBridge, UIWindow, URL
     ) {
@@ -54,7 +55,12 @@ class AgentReaderTestCase: XCTestCase {
         let session = ReaderSession(
             defaults: defaults,
             modelClient: modelClient,
-            modelKey: modelKey, modelSettings: isolatedModelSettings(), recoveryStore: recoveryStore)
+            modelCatalog: modelCatalog ?? ModelCatalog(session: modelClient.session),
+            webSearchClient: webSearchClient ?? WebSearchClient(),
+            modelKey: modelKey, modelSettings: isolatedModelSettings(), recoveryStore: recoveryStore,
+            annotationStore: ReadingAnnotationStore(
+                directory: (recoveryStore?.directory.deletingLastPathComponent() ?? root).appendingPathComponent(
+                    "Annotations")))
         addTeardownBlock { @MainActor in
             if let document = session.document, !document.documentState.contains(.closed) {
                 await session.closeDocument()

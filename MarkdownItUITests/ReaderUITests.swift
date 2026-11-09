@@ -616,6 +616,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     func testReaderNavigationEditingSettingsAndRotation() throws {
+        try useComponentSynchronization()
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
@@ -682,8 +683,13 @@ final class ReaderUITests: XCTestCase {
         base.typeText("https://example.test/v1")
         waitForVisibleSoftwareKeyboard(in: app)
         XCTAssertEqual(app.menuItems.count, 0)
-        app.buttons["ModelPicker"].tap()
-        app.buttons["自定义…"].tap()
+        let picker = app.buttons["ModelPicker"]
+        XCTAssertTrue(picker.isHittable)
+        picker.tap()
+        let custom = app.buttons["自定义…"]
+        XCTAssertTrue(custom.waitForExistence(timeout: 5))
+        XCTAssertTrue(custom.isHittable)
+        custom.tap()
         let model = app.textFields["ModelID"]
         model.tap()
         model.typeText("test-model")
@@ -761,7 +767,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["ResetModelSettings"].tap()
         let confirmation = app.alerts["重置模型设置？"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
-        XCTAssertTrue(confirmation.staticTexts["将清除已保存的连接配置和 API Key。"].exists)
+        XCTAssertTrue(confirmation.staticTexts["已保存的连接信息和所有 API Key 都将被移除。"].exists)
         record("model-settings-reset-confirmation")
         confirmation.buttons["取消"].tap()
         XCTAssertEqual(base.value as? String, "https://ui-fixture.markdownit.invalid/v1")
@@ -876,7 +882,57 @@ final class ReaderUITests: XCTestCase {
         record("model-settings-connection-footer")
     }
 
-    func testModelSelectionLoadsProviderChoicesAndKeepsCustomEntryAfterFailure() {
+    func testNewDocumentCreatesLocalMarkdownAndStartsEditing() throws {
+        // Closing the focused editor can leave XCTest waiting on a stale animation-idle notification.
+        try useComponentSynchronization()
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        let name = "Reading note " + UUID().uuidString.prefix(8)
+        app.launchArguments = ["--ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let create = app.buttons["NewDocument"]
+        XCTAssertTrue(create.waitForExistence(timeout: 25))
+        record("home-with-new-document")
+        create.tap()
+        let filename = app.textFields["DOCPicker.filenameTextField"]
+        XCTAssertTrue(filename.waitForExistence(timeout: 8))
+        record("new-document-save-dialog")
+        let cancel = app.buttons["Cancel"]
+        if cancel.exists && cancel.isHittable { cancel.tap() } else { app.navigationBars.firstMatch.swipeDown() }
+        XCTAssertTrue(filename.waitForNonExistence(timeout: 8))
+        XCTAssertTrue(create.waitForExistence(timeout: 8))
+        waitForEnabled(create)
+        XCTAssertTrue(create.isHittable)
+        XCTAssertFalse(app.textViews["SourceEditor"].exists)
+        create.tap()
+        XCTAssertTrue(filename.waitForExistence(timeout: 8))
+        filename.tap()
+        filename.typeText(
+            String(repeating: XCUIKeyboardKey.delete.rawValue, count: (filename.value as? String ?? "").count))
+        filename.typeText(name + "\n")
+        XCTAssertEqual(filename.value as? String, name)
+        record("new-document-named")
+        let save = app.buttons["DOCPicker.actionButton"]
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 12))
+        XCTAssertEqual(editor.value as? String, "")
+        record("new-document-empty-source")
+        let content = "A newly created Markdown document."
+        editor.typeText(content)
+        XCTAssertEqual(editor.value as? String, content)
+        app.buttons["CloseDocument"].tap()
+        XCTAssertTrue(app.buttons["OpenDocument"].waitForExistence(timeout: 8))
+        app.buttons["RecentDocuments"].tap()
+        let recent = app.staticTexts[name + ".md"]
+        XCTAssertTrue(recent.waitForExistence(timeout: 8))
+        recent.tap()
+        XCTAssertTrue(app.webViews.staticTexts[content].waitForExistence(timeout: 12))
+    }
+
+    func testModelSelectionLoadsProviderChoicesAndKeepsCustomEntryAfterFailure() throws {
+        try useComponentSynchronization()
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-agent-fixture",
@@ -927,7 +983,8 @@ final class ReaderUITests: XCTestCase {
         record("model-selection-custom-saved")
     }
 
-    func testModelSelectionSearchesNamesAndIDsAndKeepsCurrentChoiceFirst() {
+    func testModelSelectionSearchesNamesAndIDsAndKeepsCurrentChoiceFirst() throws {
+        try useComponentSynchronization()
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-agent-fixture",
@@ -1370,7 +1427,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 8))
         input.tap()
         input.typeText("请修改第一段，让它更简洁。")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app)
+        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
         allowDataSharingIfRequested(app)
         XCTAssertTrue(app.webViews.staticTexts["请切换到源码模式后再修改。"].waitForExistence(timeout: 12))
         record("ai-preview-read-only")
@@ -1382,7 +1439,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["GlobalAI"].tap()
         input.tap()
         input.typeText("解释这份文档。")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app)
+        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
         XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
         let answerEnd = app.webViews.staticTexts["保留原有格式"]
         let visibleAnswer = XCTNSPredicateExpectation(
@@ -1410,17 +1467,17 @@ final class ReaderUITests: XCTestCase {
                     && frame.width > 0 && frame.height > 0 && viewportFrame.contains(frame)
                     && viewportFrame.contains(sendFrame) && input.isHittable && send.isHittable
             }
+            record("ai-source-reading-" + name)
             XCTAssertEqual(
                 XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: layout, object: input)], timeout: 8),
                 .completed,
                 "Rotated input \(input.frame), send \(send.frame), viewport \(viewport.frame), "
                     + "expected input/send gap \(inputSendGap), hittable \(input.isHittable)/\(send.isHittable)"
             )
-            record("ai-source-reading-" + name)
         }
         input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         input.typeText("请修改第一段，让它更简洁。")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app)
+        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
         XCTAssertTrue(app.webViews.staticTexts["已修改这句话，其余内容保持原样。"].waitForExistence(timeout: 12))
         XCTAssertTrue(app.webViews.buttons["撤销这次修改"].exists)
         record("ai-source-edit-applied")
@@ -1774,11 +1831,32 @@ final class ReaderUITests: XCTestCase {
 
     private func tapAfterTyping(
         _ control: XCUIElement, in app: XCUIApplication,
+        beside input: XCUIElement? = nil,
         file: StaticString = #filePath, line: UInt = #line
     ) {
         // Synthetic typing temporarily hides the software keyboard. Resolve the
         // next hit point after its return has restored the visible layout.
-        waitForVisibleSoftwareKeyboard(in: app, file: file, line: line)
+        let keyboard = waitForVisibleSoftwareKeyboard(in: app, file: file, line: line)
+        if let input {
+            // A returning keyboard can exist while the Web button and native
+            // input still describe different layouts. Resolve their shared row
+            // above the fully visible keyboard before choosing a touch point.
+            let aligned = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    let keys = keyboard.frame
+                    let field = input.frame
+                    let button = control.frame
+                    return !keys.isEmpty && app.windows.firstMatch.frame.contains(keys)
+                        && abs(field.maxX - button.minX) < 1
+                        && field.minY <= button.midY && button.midY <= field.maxY
+                        && max(field.maxY, button.maxY) <= keys.minY
+                        && input.isHittable && control.isHittable
+                }, object: nil)
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [aligned], timeout: 5), .completed,
+                "Native input \(input.frame), control \(control.frame), keyboard \(keyboard.frame)",
+                file: file, line: line)
+        }
         XCTAssertEqual(
             app.menuItems.count, 0, "Typing must not introduce an unrelated editing menu",
             file: file, line: line)
@@ -1871,7 +1949,8 @@ final class ReaderUITests: XCTestCase {
         record("question-software-return-newline")
     }
 
-    func testUnconfiguredAIShowsPromptAndSettingsReturnsToInput() {
+    func testUnconfiguredAIShowsPromptAndSettingsReturnsToInput() throws {
+        try useComponentSynchronization()
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
@@ -1953,4 +2032,169 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "a question")).count, 1)
         record("question-send-button")
     }
+}
+
+extension ReaderUITests {
+    func testAnnotationsUseSystemSelectionAndOneNativeEditor() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(en)", "-AppleLocale",
+            "en_US",
+        ]
+        app.launch()
+        let paragraph = app.webViews.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "这是一份可以实际滚动"))
+            .firstMatch
+        XCTAssertTrue(paragraph.waitForExistence(timeout: 25))
+        waitForEnabled(app.buttons["OutlineToggle"])
+        paragraph.press(forDuration: 1.2)
+        if !app.menuItems.firstMatch.waitForExistence(timeout: 6) {
+            paragraph.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        record("annotation-selection-menu")
+        let add = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "label == %@ AND elementType IN %@", "Add Annotation…",
+                [XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue])
+        ).firstMatch
+        // UIKit paginates the standard edit menu according to available width.
+        // Follow its visible paging control, just as a reader would.
+        var pages = Set<[String]>()
+        while !add.exists {
+            let titles = app.menuItems.allElementsBoundByIndex.map(\.label)
+            let next = app.buttons["Next Page"]
+            guard pages.insert(titles).inserted, next.exists, next.isHittable else { break }
+            next.tap()
+        }
+        XCTAssertTrue(add.waitForExistence(timeout: 6))
+        XCTAssertTrue(add.isHittable)
+        add.tap()
+        let input = app.textViews["AnnotationInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 6))
+        waitForVisibleSoftwareKeyboard(in: app)
+        input.typeText("A lasting thought.")
+        let done = app.buttons["AnnotationDone"]
+        XCTAssertTrue(done.isHittable)
+        done.tap()
+        XCTAssertTrue(input.waitForNonExistence(timeout: 6))
+        let marker = app.webViews.buttons["Annotation"].firstMatch
+        XCTAssertTrue(marker.waitForExistence(timeout: 6))
+        marker.tap()
+        XCTAssertTrue(input.waitForExistence(timeout: 6))
+        XCTAssertEqual(input.value as? String, "A lasting thought.")
+        record("native-annotation-card")
+        app.buttons["AnnotationCancel"].tap()
+        XCTAssertTrue(input.waitForNonExistence(timeout: 6))
+    }
+    private func openSearchSettings(_ app: XCUIApplication, title: String = "Model Settings") {
+        showTools(app)
+        app.buttons["More"].tap()
+        app.buttons[title].tap()
+        XCTAssertTrue(app.buttons["SearchProvider"].waitForExistence(timeout: 8))
+    }
+
+    private func chooseSearchProvider(_ title: String, in app: XCUIApplication) {
+        app.buttons["SearchProvider"].tap()
+        let provider = app.buttons[title]
+        XCTAssertTrue(provider.waitForExistence(timeout: 5))
+        provider.tap()
+    }
+
+    private func saveSearchSettings(_ app: XCUIApplication) {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let hide = app.buttons.matching(NSPredicate(format: "label IN %@", ["Hide keyboard", "Hide Keyboard"]))
+                .firstMatch
+            if hide.exists && hide.isHittable {
+                hide.tap()
+                XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+            }
+            app.buttons["SettingsDone"].tap()
+        } else {
+            tapAfterTyping(app.buttons["SettingsDone"], in: app)
+        }
+        XCTAssertTrue(app.buttons["SettingsDone"].waitForNonExistence(timeout: 8))
+    }
+
+    func testOptionalSearchConfigurationKeepsProviderKeysAndResetIsExplicit() throws {
+        try useComponentSynchronization()
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        openSearchSettings(app, title: "模型设置")
+        XCTAssertFalse(app.secureTextFields["SearchAPIKey"].exists)
+        chooseSearchProvider("Serper", in: app)
+        app.buttons["SettingsDone"].tap()
+        let missing = app.alerts["请输入搜索服务的 API Key。"]
+        XCTAssertTrue(missing.waitForExistence(timeout: 5))
+        missing.buttons["好"].tap()
+        let key = app.secureTextFields["SearchAPIKey"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+        key.typeText("serper-ui-test-only")
+        tapAfterTyping(app.buttons["SearchProvider"], in: app)
+        app.buttons["Brave Search"].tap()
+        XCTAssertTrue((key.value as? String ?? "").isEmpty)
+        app.buttons["SearchProvider"].tap()
+        app.buttons["Serper"].tap()
+        XCTAssertFalse((key.value as? String ?? "").isEmpty)
+        record("search-settings-configured")
+        app.buttons["SettingsDone"].tap()
+        XCTAssertTrue(app.buttons["SettingsDone"].waitForNonExistence(timeout: 8))
+        openSearchSettings(app, title: "模型设置")
+        XCTAssertFalse((key.value as? String ?? "").isEmpty)
+        app.buttons["ResetModelSettings"].tap()
+        let reset = app.alerts["重置模型设置？"]
+        XCTAssertTrue(reset.waitForExistence(timeout: 5))
+        reset.buttons["重置"].tap()
+        XCTAssertTrue(key.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(app.textFields["ModelBaseURL"].value as? String, "https://api.example.com/v1")
+        app.buttons["取消"].tap()
+    }
+
+    func testConfiguredSearchConsentCanBeDeclinedThenAllowedAndRendersSourceLinks() throws {
+        try useComponentSynchronization()
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        openSearchSettings(app)
+        chooseSearchProvider("Serper", in: app)
+        let key = app.secureTextFields["SearchAPIKey"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+        key.typeText("serper-ui-test-only")
+        saveSearchSettings(app)
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        let input = app.textViews["QuestionInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 8))
+        input.tap()
+        input.typeText("SEARCH_PUBLIC_REFERENCE")
+        tapAfterTyping(app.webViews.buttons["Send message"], in: app, beside: input)
+        allowDataSharingIfRequested(app)
+        let cancel = app.alerts.buttons["CancelSearchDataSharing"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 8))
+        record("search-first-use-consent")
+        cancel.tap()
+        XCTAssertTrue(
+            app.webViews.staticTexts["Continue using the document without web search."].waitForExistence(timeout: 8))
+        input.tap()
+        input.typeText("SEARCH_PUBLIC_REFERENCE again")
+        tapAfterTyping(app.webViews.buttons["Send message"], in: app, beside: input)
+        let allow = app.alerts.buttons["AllowSearchDataSharing"].firstMatch
+        XCTAssertTrue(allow.waitForExistence(timeout: 8))
+        allow.tap()
+        XCTAssertTrue(app.webViews.links["Markdown reference"].waitForExistence(timeout: 8))
+        record("search-answer-source-link")
+    }
+
 }

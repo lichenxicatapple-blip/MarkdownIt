@@ -1,83 +1,44 @@
 import UIKit
-import WebKit
 
 /// A tap exposes the image's AI action through UIKit. WebKit keeps ownership of
 /// long presses, image recognition, copying and sharing.
 @MainActor
-final class ReaderImageMenu: NSObject, @MainActor UIEditMenuInteractionDelegate {
+final class ReaderImageMenu {
     private struct Selection {
         let id: String
         let token: String
         let reference: AgentAttachment
         let point: CGPoint
     }
-    private weak var webView: WKWebView?
-    private let menuHost = UIView()
-    private lazy var interaction = UIEditMenuInteraction(delegate: self)
+    private let menu: ReaderActionMenu
     private var selection: Selection?
     var onAsk: ((AgentAttachment, String, CGPoint) -> Void)?
     var onDismiss: ((String) -> Void)?
 
-    init(webView: WKWebView) {
-        self.webView = webView
-        super.init()
-        // Keep the AI menu's interaction off WebKit's interaction view. A second
-        // edit-menu interaction there suppresses its image menu on iPadOS.
-        menuHost.frame = webView.bounds
-        menuHost.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        menuHost.isUserInteractionEnabled = false
-        menuHost.accessibilityElementsHidden = true
-        webView.addSubview(menuHost)
-        menuHost.addInteraction(interaction)
-    }
+    init(menu: ReaderActionMenu) { self.menu = menu }
 
     func show(id: String, token: String, reference: AgentAttachment, point: CGPoint) {
-        guard let webView, webView.window != nil, point.x.isFinite, point.y.isFinite,
-            reference.images?.isEmpty == false, reference.mode == "preview"
-        else { return }
-        let bounds = webView.bounds
-        let anchor = CGPoint(
-            x: min(max(point.x, bounds.minX), bounds.maxX),
-            y: min(max(point.y, bounds.minY), bounds.maxY))
-        selection = Selection(id: id, token: token, reference: reference, point: anchor)
-        interaction.presentEditMenu(
-            with: UIEditMenuConfiguration(
-                identifier: id as NSString, sourcePoint: menuHost.convert(anchor, from: webView)))
-    }
-
-    func editMenuInteraction(
-        _ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
-        suggestedActions: [UIMenuElement]
-    ) -> UIMenu? {
-        guard let selection, configuration.identifier as? String == selection.id else { return nil }
+        guard reference.images?.isEmpty == false, reference.mode == "preview" else { return }
+        let selection = Selection(id: id, token: token, reference: reference, point: point)
+        self.selection = selection
         let ask = UIAction(title: String(localized: "Reference in AI Chat…"), image: UIImage(systemName: "bubble.left"))
         {
             [weak self] _ in
             self?.onAsk?(selection.reference, selection.token, selection.point)
         }
-        return UIMenu(children: [ask])
-    }
-
-    func editMenuInteraction(
-        _ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
-        animator: any UIEditMenuInteractionAnimating
-    ) {
-        guard let id = configuration.identifier as? String else { return }
-        if selection?.id == id { selection = nil }
-        onDismiss?(id)
+        menu.show(id: id, at: point, actions: [ask]) { [weak self] in
+            if self?.selection?.id == id { self?.selection = nil }
+            self?.onDismiss?(id)
+        }
     }
 
     func dismiss() {
-        let id = selection?.id
+        menu.dismiss()
         selection = nil
-        interaction.dismissMenu()
-        if let id { onDismiss?(id) }
     }
 
     func detach() {
         dismiss()
-        menuHost.removeInteraction(interaction)
-        menuHost.removeFromSuperview()
         onAsk = nil
         onDismiss = nil
     }

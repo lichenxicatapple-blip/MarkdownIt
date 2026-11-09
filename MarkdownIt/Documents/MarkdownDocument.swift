@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import OSLog
 import Synchronization
@@ -12,7 +11,7 @@ final class MarkdownDocument: UIDocument {
     var persistedRevision: String { savedRevision.withLock { $0 } }
 
     private static func revision(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        DocumentRevision.data(data)
     }
     private var encoding = String.Encoding.utf8
     private var byteOrderMark = Data()

@@ -10,9 +10,20 @@ struct MarkdownItApp: App {
         var defaults = UserDefaults.standard
         var modelClient = ModelClient()
         var modelCatalog = ModelCatalog()
+        var webSearchClient = WebSearchClient()
         let modelSettings = ModelSettingsStore()
+        var annotationStore = ReadingAnnotationStore()
         #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                let annotationDirectory = ReadingAnnotationStore.applicationDirectory(testing: true)
+                annotationStore = ReadingAnnotationStore(directory: annotationDirectory)
+                if !ProcessInfo.processInfo.arguments.contains("--ui-test-keep-state"),
+                    FileManager.default.fileExists(atPath: annotationDirectory.path)
+                {
+                    do { try FileManager.default.removeItem(at: annotationDirectory) } catch {
+                        fatalError("Unable to reset isolated annotation test data: \(error)")
+                    }
+                }
                 let name = "dev.catli.MarkdownIt.ui-testing"
                 defaults = UserDefaults(suiteName: name) ?? .standard
                 if !ProcessInfo.processInfo.arguments.contains("--ui-test-keep-state") {
@@ -32,6 +43,7 @@ struct MarkdownItApp: App {
                 if ProcessInfo.processInfo.arguments.contains("--ui-test-agent-fixture") {
                     modelClient = DebugModelFixture.client()
                     modelCatalog = DebugModelFixture.catalog()
+                    webSearchClient = DebugModelFixture.searchClient()
                     try? modelSettings.save(
                         SavedModelSettings(
                             configuration: ModelConfiguration(
@@ -42,10 +54,13 @@ struct MarkdownItApp: App {
         #endif
         _session = StateObject(
             wrappedValue: ReaderSession(
-                defaults: defaults, modelClient: modelClient, modelCatalog: modelCatalog, modelSettings: modelSettings,
+                defaults: defaults, modelClient: modelClient, modelCatalog: modelCatalog,
+                webSearchClient: webSearchClient,
+                modelSettings: modelSettings,
                 recoveryStore: ReaderRecoveryStore(
                     directory: ReaderRecoveryStore.applicationDirectory(
-                        testing: ProcessInfo.processInfo.arguments.contains("--ui-testing")))))
+                        testing: ProcessInfo.processInfo.arguments.contains("--ui-testing"))),
+                annotationStore: annotationStore))
     }
 
     var body: some Scene {

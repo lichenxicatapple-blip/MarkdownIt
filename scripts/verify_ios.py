@@ -27,14 +27,13 @@ TEST_TARGETS = {"unit": "MarkdownItTests", "ui": "MarkdownItUITests"}
 TEST_PLANS = ROOT / "MarkdownIt.xcodeproj/xcshareddata/xctestplans"
 
 
-def validate_test_plan():
-    """The shared plan must enable every test in both offline targets."""
-    plan = json.loads((TEST_PLANS / "Full.xctestplan").read_text())
+def validate_test_plan(live=False):
+    """Each shared plan must enable every test in its complete set of targets."""
+    plan = json.loads((TEST_PLANS / ("Live.xctestplan" if live else "Full.xctestplan")).read_text())
     targets = plan["testTargets"]
-    if len(targets) != len(TEST_TARGETS) or {item["target"]["name"] for item in targets} != set(
-        TEST_TARGETS.values()
-    ):
-        raise ValueError("The offline test plan must contain both unit and UI targets")
+    expected = {"MarkdownItLiveTests"} if live else set(TEST_TARGETS.values())
+    if len(targets) != len(expected) or {item["target"]["name"] for item in targets} != expected:
+        raise ValueError("The test plan must contain all requested targets")
     for target in targets:
         if (
             target.get("enabled") is False
@@ -44,24 +43,27 @@ def validate_test_plan():
             raise ValueError("The offline test plan must run every test")
 
 
-def test_run_specification(products):
+def test_run_specification(products, live=False):
     """Reject prebuilt products that silently narrow the full test plan."""
     specifications = list(products.glob("*.xctestrun"))
     if len(specifications) != 1:
         raise ValueError("Test products must contain exactly one .xctestrun specification")
     specification = specifications[0]
     metadata = plistlib.loads(specification.read_bytes())
-    if metadata.get("TestPlan", {}).get("Name") != "Full":
-        raise ValueError("Test products must be built with the Full test plan")
+    plan = "Live" if live else "Full"
+    if metadata.get("TestPlan", {}).get("Name") != plan:
+        raise ValueError(f"Test products must be built with the {plan} test plan")
     configurations = metadata.get("TestConfigurations")
     if not configurations or any(not item.get("IsEnabled") for item in configurations):
         raise ValueError("Compiled test configurations must all be enabled")
     for configuration in configurations:
         targets = configuration["TestTargets"]
-        if len(targets) != len(TEST_TARGETS) or {
-            target["BlueprintName"] for target in targets
-        } != set(TEST_TARGETS.values()):
-            raise ValueError("Compiled test products must contain both offline targets")
+        expected = {"MarkdownItLiveTests"} if live else set(TEST_TARGETS.values())
+        if (
+            len(targets) != len(expected)
+            or {target["BlueprintName"] for target in targets} != expected
+        ):
+            raise ValueError("Compiled test products must contain all requested targets")
         if any(
             target.get("SkipTestIdentifiers") or "OnlyTestIdentifiers" in target
             for target in targets
@@ -387,9 +389,18 @@ def test_summary(bundle, expected_targets, expected_cases=()):
 
 
 def verify_family(
-    family, runtime, devices, specification, output, suite, prefix, cancel, test_cases=()
+    family,
+    runtime,
+    devices,
+    specification,
+    output,
+    suite,
+    prefix,
+    cancel,
+    test_cases=(),
+    live=False,
 ):
-    """Execute the requested offline tests on one dedicated simulator."""
+    """Execute one explicit test scope on a dedicated simulator."""
     started = time.monotonic()
     name = f"{prefix} {family}"
     device = next((item for item in devices if item["name"] == name), None)
@@ -415,11 +426,13 @@ def verify_family(
     selected = (
         list(dict.fromkeys(test_cases))
         if test_cases
+        else ["MarkdownItLiveTests"]
+        if live
         else list(TEST_TARGETS.values())
         if suite == "all"
         else [TEST_TARGETS[suite]]
     )
-    scope = "targeted" if test_cases else suite
+    scope = "live" if live else "targeted" if test_cases else suite
     print(f"{family}: running {scope}: {', '.join(selected)}", flush=True)
     started = time.monotonic()
     code = run_tests(
@@ -470,7 +483,7 @@ def verify_family(
         "testCounts": counts,
         "suite": suite,
         "scope": scope,
-        "testPlan": "Full",
+        "testPlan": "Live" if live else "Full",
         "preparationSeconds": round(preparation_seconds, 1),
         "executionSeconds": round(execution_seconds, 1),
         "testSelectors": selected,
@@ -522,12 +535,23 @@ def main():
     parser.add_argument(
         "--simulator-prefix", default="MarkdownIt", help="Name prefix for dedicated simulators"
     )
+    parser.add_argument(
+        "--live-config",
+        type=Path,
+        help="Explicitly run the separate real-service target using a private external JSON configuration",
+    )
     args = parser.parse_args()
+    if args.live_config:
+        if args.test_case or args.suite != "all" or args.test_products:
+            parser.error("Live verification runs its complete target with a fresh signed build")
+        args.live_config = args.live_config.expanduser().resolve()
+        if not args.live_config.is_file() or args.live_config.stat().st_mode & 0o077:
+            parser.error("Live configuration must be an existing private file (0600)")
     if not args.simulator_prefix.strip():
         parser.error("simulator-prefix must not be empty")
     if args.test_case and args.suite != "all":
         parser.error("Use either --test-case or --suite, not both")
-    validate_test_plan()
+    validate_test_plan(live=bool(args.live_config))
     if not (ROOT / "MarkdownIt.xcodeproj/project.pbxproj").is_file():
         raise SystemExit("Missing MarkdownIt.xcodeproj. Use a complete project checkout.")
     cancel = threading.Event()
@@ -593,9 +617,9 @@ def verify(args, cancel):
                 "-project",
                 "MarkdownIt.xcodeproj",
                 "-scheme",
-                "MarkdownIt",
+                "MarkdownItLive" if args.live_config else "MarkdownIt",
                 "-testPlan",
-                "Full",
+                "Live" if args.live_config else "Full",
                 "-destination",
                 "generic/platform=iOS Simulator",
                 "-derivedDataPath",
@@ -607,8 +631,19 @@ def verify(args, cancel):
         )
         if code:
             return code
-    specification = test_run_specification(products)
+    specification = test_run_specification(products, live=bool(args.live_config))
     validate_test_product_signatures(specification)
+    if args.live_config:
+        metadata = plistlib.loads(specification.read_bytes())
+        for configuration in metadata["TestConfigurations"]:
+            for target in configuration["TestTargets"]:
+                target.setdefault("EnvironmentVariables", {}).update(
+                    {
+                        "MARKDOWNIT_LIVE_CONFIG": str(args.live_config),
+                        "CFNETWORK_DIAGNOSTICS": "0",
+                    }
+                )
+        specification.write_bytes(plistlib.dumps(metadata))
     start_simulator_client()
     families = [args.family] if args.family else ["iPhone", "iPad"]
     results = verify_families(
@@ -621,6 +656,7 @@ def verify(args, cancel):
         prefix=args.simulator_prefix,
         cancel=cancel,
         test_cases=args.test_case,
+        live=bool(args.live_config),
     )
     (output / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     print(output, flush=True)

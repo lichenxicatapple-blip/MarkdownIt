@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 struct AgentTextEdit: Codable, Sendable, Equatable {
@@ -43,7 +42,7 @@ final class AgentDocumentTools {
     init(session: ReaderSession) { self.session = session }
 
     nonisolated static func revision(_ text: String) -> String {
-        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        DocumentRevision.text(text)
     }
 
     nonisolated static let definitions = [
@@ -116,7 +115,13 @@ final class AgentDocumentTools {
                 }
                 let id = UUID().uuidString.lowercased()
                 try Task.checkCancellation()
-                guard replace(session, expected: current, next: next, id: id, token: token) else {
+                guard
+                    replace(
+                        session, expected: current, next: next, id: id, token: token,
+                        changes: planned.map {
+                            .init(start: $0.range.location, removed: $0.range.length, inserted: $0.after.utf16.count)
+                        })
+                else {
                     return result(["error": "stale_document", "message": "原文已变化，未执行这次修改。"])
                 }
                 undoRecords[id] = UndoRecord(token: token, after: next)
@@ -188,11 +193,14 @@ final class AgentDocumentTools {
         return text
     }
 
-    private func replace(_ session: ReaderSession, expected: String, next: String, id: String, token: String)
+    private func replace(
+        _ session: ReaderSession, expected: String, next: String, id: String, token: String,
+        changes: [SourceHistory.Edit.Delta]
+    )
         -> Bool
     {
         guard session.documentToken == token, session.mode == "source", !session.isClosingDocument else { return false }
-        return session.bridge?.applySourceEdit(before: expected, after: next, id: id) == true
+        return session.bridge?.applySourceEdit(before: expected, after: next, id: id, changes: changes) == true
     }
 
     private func save(_ session: ReaderSession, token: String) async -> Bool {

@@ -16,6 +16,7 @@ struct ModelClient: Sendable {
     func stream(
         configuration: ModelConfiguration, key: String, messages: [ChatMessage],
         tools: [ModelTool] = [], exchanges: [ModelToolExchange] = [],
+        maxOutputTokens: Int? = nil,
         onText: @Sendable (String) async -> Void
     ) async throws -> ModelTurn {
         let endpoint = try configuration.endpoint()
@@ -31,8 +32,8 @@ struct ModelClient: Sendable {
         request.httpBody =
             try allowsTools
             ? ModelToolWire.requestBody(
-                configuration, messages: messages, tools: tools, exchanges: exchanges)
-            : ModelWireFormat.requestBody(configuration, messages: messages)
+                configuration, messages: messages, tools: tools, exchanges: exchanges, maxOutputTokens: maxOutputTokens)
+            : ModelWireFormat.requestBody(configuration, messages: messages, maxOutputTokens: maxOutputTokens)
         let (bytes, response) = try await session.bytes(for: request, delegate: ModelRequestPolicy.shared)
         guard let http = response as? HTTPURLResponse else { throw ModelError.invalidResponse }
         guard (200...299).contains(http.statusCode) else {
@@ -69,7 +70,9 @@ struct ModelClient: Sendable {
             try Task.checkCancellation()
             if !update.text.isEmpty { await onText(update.text) }
             if let failure = update.failure { throw failure }
-            return ModelTurn(text: update.text)
+            return ModelTurn(
+                text: update.text,
+                usage: ModelTokenUsage(try ModelWireFormat.object(data), api: configuration.apiProtocol))
         }
         var frames = ServerSentEvents()
         var decoder = ModelStreamDecoder(api: configuration.apiProtocol, allowsTools: allowsTools)
@@ -83,7 +86,11 @@ struct ModelClient: Sendable {
                 await onText(update.text)
             }
             if let failure = update.failure { throw failure }
-            if update.completed { return try decoder.tools.result(text: text, api: configuration.apiProtocol) }
+            if update.completed {
+                var turn = try decoder.tools.result(text: text, api: configuration.apiProtocol)
+                turn.usage = decoder.usage
+                return turn
+            }
         }
         if let frame = try frames.finish() {
             let update = try decoder.consume(frame)
@@ -92,7 +99,11 @@ struct ModelClient: Sendable {
                 await onText(update.text)
             }
             if let failure = update.failure { throw failure }
-            if update.completed { return try decoder.tools.result(text: text, api: configuration.apiProtocol) }
+            if update.completed {
+                var turn = try decoder.tools.result(text: text, api: configuration.apiProtocol)
+                turn.usage = decoder.usage
+                return turn
+            }
         }
         throw decoder.receivedText || decoder.tools.hasCalls ? ModelError.interrupted : ModelError.invalidResponse
     }

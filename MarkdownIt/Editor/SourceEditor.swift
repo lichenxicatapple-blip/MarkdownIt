@@ -178,10 +178,12 @@ final class SourceEditor: NSObject, UITextViewDelegate {
     }
 
     @discardableResult
-    func replace(expected: String, with text: String, id: String? = nil) -> Bool {
+    func replace(expected: String, with text: String, id: String? = nil, changes: [SourceHistory.Edit.Delta]? = nil)
+        -> Bool
+    {
         commitInput()
         guard history.text == expected else { return false }
-        history.record(text, before: selection, id: id ?? UUID().uuidString.lowercased())
+        history.record(text, before: selection, id: id ?? UUID().uuidString.lowercased(), changes: changes)
         return true
     }
 
@@ -233,6 +235,13 @@ final class SourceEditor: NSObject, UITextViewDelegate {
             self.onAsk?(self.textView.selectedRange)
         }
         return UIMenu(children: suggestedActions + [UIMenu(options: .displayInline, children: [ai])])
+    }
+
+    func requestFocus() {
+        restoreFocus = true
+        if !textView.isHidden, textView.isUserInteractionEnabled, textView.window != nil {
+            restoreFocus = !textView.becomeFirstResponder()
+        }
     }
 
     func updateLayout(frame: CGRect, visible: Bool, opacity: CGFloat, interactive: Bool = true) {

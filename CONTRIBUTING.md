@@ -8,7 +8,7 @@
 | --- | --- |
 | 系统与 IDE | macOS、Xcode 27.1 |
 | 模拟器 | 已安装的 iOS 26+ 运行时 |
-| 维护工具 | Python 3.10+、Node.js 22+ |
+| 维护工具 | Python 3.11+、Node.js 22+ |
 | Swift 格式 | 根目录 `.swift-format` |
 | Python 检查 | Ruff 0.14.14，规则位于 `pyproject.toml` |
 
@@ -30,6 +30,8 @@ python3 scripts/build_native_web.py --check
 提交生成的 `Resources/Web`、`Resources/Sample`、`Reader/ReaderDesign.swift` 和品牌资源，不要直接修改生成文件。依赖更新见[离线依赖](vendor/README.md)，品牌母版、配色与生成位置见[品牌说明](design/brand/README.md)。
 
 `python3 scripts/build_native_web.py --check --audit-dependencies` 额外联网检查固定 npm 版本的公开漏洞公告，CI 使用同一入口；普通构建和 `--check` 不联网。
+
+模型容量目录使用 `python3 scripts/update_model_catalog.py --revision FULL_GIT_SHA` 从审核过的 Models.dev 提交更新。工具提取供应商覆盖后的容量，保留准确模型 ID，更新目录、MIT 许可与依赖清单；可用 `--archive` 指定该 revision 的本地源码归档以重现生成。提交前审核容量差异，再执行资源校验和两端回归。普通 App 构建及运行不下载该目录。
 
 界面翻译维护在 `MarkdownIt/Localizable.xcstrings`，系统权限说明维护在 `InfoPlist.xcstrings`。原生文案使用 SwiftUI 本地化 API 或 `String(localized:)`，由 Xcode 提取。新增或修改翻译后重新生成 Web 资源；生成器检查翻译是否完整、占位符是否一致及 Web 文案是否遗漏。验证时在 scheme 的 Application Language 中分别选择 English 和简体中文，并检查未支持语言的英文回退；不翻译文档内容和文件名。
 
@@ -63,8 +65,8 @@ xcodebuild -project MarkdownIt.xcodeproj -scheme MarkdownIt \
 | 单元测试 | `MarkdownItTests` | 文档、权限、上下文、协议解析、输入处理与撤销栈 | 在 iPhone、iPad 模拟器上运行 |
 | WebKit 集成测试 | 同一目标中的 `WebReaderTests`、`AgentFlowTests` | 原生与 Web 同步、渲染、目录、编辑工具及模拟网络交互 | 在两端模拟器上运行 |
 | UI 测试 | `MarkdownItUITests` | 实际控件操作、软键盘、旋转、前后台切换及面板开合 | 在两端模拟器上完整运行 |
-| 真实模型测试 | `MarkdownItLiveTests` | 两种协议、多轮对话、编辑与撤销重做、答复语言、直接识图及按需读图 | 只编译，不发送请求 |
-| 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、系统合成与设备恢复 | 人工执行，不进入自动化 CI |
+| 真实服务测试 | `MarkdownItLiveTests` | 模型容量、上下文整理、两种协议、多轮对话、编辑、识图，以及联网搜索与网页正文读取 | 只编译，不发送请求 |
+| 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、Pencil 划线及随手写、系统合成与设备恢复 | 人工执行，不进入自动化 CI |
 
 ### 离线自动化测试
 
@@ -82,7 +84,7 @@ xcodebuild -project MarkdownIt.xcodeproj -scheme MarkdownIt \
 
 图片系统菜单用例直接长按文档图片，检查复制、分享和识图操作实际可用，再验证菜单关闭；不预热识图服务，不跳过或重试。
 
-图片系统菜单、连续对话滚动及 AI 阅读编辑用例通过 `UIInteractionSynchronization` 保留 XCTest 的主线程空闲同步，并以目标控件的可点击性、内容和布局判断交互完成。系统交互可能保留暂停的屏外动画，或在界面更新完成后仍缺少全局动画完成通知；该适配只在上述用例中对被测 App 关闭全局动画空闲等待。适配使用 XCTest 私有方法，限定于 UI 测试目标，在用例结束、目标 App 退出后恢复；其余用例、App 动画及其他系统进程的同步不变。升级 Xcode 时必须复核方法签名，不匹配会令测试失败，不能静默忽略。
+图片系统菜单、连续对话滚动、AI 阅读编辑、模型选择与搜索、首次模型配置及综合阅读导航中的模型配置用例通过 `UIInteractionSynchronization` 保留 XCTest 的主线程空闲同步，并以目标控件的可点击性、内容和布局判断交互完成。系统交互可能保留暂停的屏外动画，或在界面更新完成后仍缺少全局动画完成通知；该适配只在上述用例中对被测 App 关闭全局动画空闲等待。适配使用 XCTest 私有方法，限定于 UI 测试目标，在用例结束、目标 App 退出后恢复；其余用例、App 动画及其他系统进程的同步不变。升级 Xcode 时必须复核方法签名，不匹配会令测试失败，不能静默忽略。
 
 粘贴与撤销的集成用例通过 UIKit 的显式输入项验证事务分组，不读取共享剪贴板。真实剪贴板读取由 UI 用例使用系统粘贴控件验证，并检查撤销与重做；测试内容仅写入模拟器的本地剪贴板。
 
@@ -96,7 +98,7 @@ python3 scripts/verify_ios.py
 
 测试前在后台启动当前 Xcode 的 Device Hub，初始化系统软键盘用例依赖的模拟器输入服务；仅完成 `simctl boot` 不足以提供这一运行条件，Mac 可以保持锁屏。
 
-Xcode 输出实时显示并保留完整日志，控制台可查看当前测试及结果。XCTest 首次报告动画同步超时时，脚本记录用例与等待操作，在 App 和测试进程仍存活时采集调用栈，再中断本轮并报告失败；持续输出等待日志不代表测试正常推进。其他设备继续执行，不自动重试或计为通过。XCTest 单项超时及连续 10 分钟无输出中断作为兜底。CI 的完整测试步骤上限为 30 分钟，整项任务上限为 40 分钟，包含构建、检查和诊断上传。运行期间使用系统 `caffeinate` 防止空闲休眠。
+Xcode 输出实时显示并保留完整日志，控制台可查看当前测试及结果。XCTest 首次报告动画同步超时时，脚本记录用例与等待操作，在 App 和测试进程仍存活时采集调用栈，再中断本轮并报告失败；持续输出等待日志不代表测试正常推进。其他设备继续执行，不自动重试或计为通过。XCTest 单项超时及连续 10 分钟无输出中断作为兜底。CI 的完整测试步骤上限为 35 分钟，整项任务上限为 45 分钟，包含构建、检查和诊断上传。运行期间使用系统 `caffeinate` 防止空闲休眠。
 
 关闭 Xcode 失败后自动执行的整机 `sysdiagnose`，避免用例已经失败后再等待最长十分钟收集系统数据。`.xcresult` 仍保留结果、UI 层级、截图和录屏；脚本另外收集限时的文档错误日志，动画同步阻塞时采集相关进程调用栈。
 
@@ -148,12 +150,20 @@ Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重
 
 选择 `MarkdownItLive` scheme，运行 [LiveModelTests.swift](MarkdownItLiveTests/LiveModelTests.swift) 的全部用例。该目标仅接受 HTTPS Atlas 端点，缺少配置时测试失败，不自动跳过或降级为模拟请求。
 
-1. 在仓库外准备权限为 `0600` 的私有 JSON 文件，包含 `baseURL`、`model`、`key`，以及可选的 `apiProtocol`（`responses` 或 `chatCompletions`；省略时分别测试两种协议）。
+1. 在仓库外准备权限为 `0600` 的私有 JSON 文件，包含 `baseURL`、`model`、`key`，搜索联调使用的 `serperKey`，以及可选的 `apiProtocol`（`responses` 或 `chatCompletions`；省略时分别测试两种协议）。
 2. 将 `MarkdownItLive` 复制为本机非共享 scheme，在 Test → Arguments 中维护本机环境变量；Test 不沿用 Run 的参数与环境变量。
 3. 添加 `MARKDOWNIT_LIVE_CONFIG` 指向配置文件，设置 `CFNETWORK_DIAGNOSTICS=0`。
 4. 分别选择 iPhone 与 iPad 模拟器运行该 scheme。
 
-选择支持工具调用的模型与接口组合；只验证一种协议时填写 `apiProtocol`。实体设备运行时，将配置文件放入测试宿主 App 的沙盒，环境变量支持以 `~/` 开头的应用内路径。
+命令行复用同一构建、签名及两端执行流程：
+
+```sh
+python3 scripts/verify_ios.py --live-config /私有目录/live-model.json --output /tmp/markdownit-live
+```
+
+`--live-config` 明确选择独立的 Live 计划并执行该目标的全部用例，不改变默认离线回归或 CI，也不接受排除或局部选择。配置文件需要 `0600` 权限；路径只写入本次临时测试产物，密钥不加入命令参数或测试附件。
+
+选择支持工具调用与识图的模型和接口组合；只验证一种协议时填写 `apiProtocol`。实体设备运行时，将配置文件放入测试宿主 App 的沙盒，环境变量支持以 `~/` 开头的应用内路径。
 
 测试使用独立样本文档和 Keychain 服务，结束删除测试凭据。真实调用可能计费；不提交私有 scheme、配置路径、凭据或包含它们的附件。
 
@@ -167,6 +177,8 @@ Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重
 4. 用手指和触控板分别反复展开、收起底部操作，并在快速反向操作后再次收起；展开动作保持同一高度，组外仍可操作正文。
 5. 在两个横屏方向和竖屏之间切换，继续在源码与 AI 输入区输入，确认内容、阅读位置和控件布局正确。
 6. 重复切到其他 App 再返回，检查正文、目录、滚动和输入；锁屏解锁及重新连接键盘后再次检查。
+7. 阅读时用 Pencil 在文字下方分别画直线、波浪线和略斜笔画，核对起笔容差、即时波浪线与抬笔保存；竖向笔势滚动正文，溢出的表格和代码可横向滚动。检查手掌接触及划线过程中的连续性。
+8. 用系统选择菜单分别创建划线、批注及两者共存，检查复制和 AI 引用仍是实际选区。用 Pencil 随手写编辑批注，保留候选与未提交输入；查看已有批注后滚动正文，核对卡片一体移动及完全离屏后的关闭。结合旋转、分屏、大字号和深色外观检查布局。
 
 真机检查结果记录在对应 PR 或 Issue，注明构建版本、设备、系统、键盘及实际操作结论。CI 通过不代表这些检查已经完成；未执行或失败的项目仍需补验，不能记为通过。
 

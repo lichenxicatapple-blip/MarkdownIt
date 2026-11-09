@@ -11,6 +11,7 @@ struct ModelSettingsView: View {
     @FocusState private var customModelFocused: Bool
     @State private var key = ""
     @State private var apiProtocol: ModelAPIProtocol = .responses
+    @State private var search = WebSearchSettings()
     @State private var confirmingReset = false
     @State private var errorMessage: String?
 
@@ -21,6 +22,7 @@ struct ModelSettingsView: View {
         _model = State(initialValue: session.configuration.model)
         _apiProtocol = State(initialValue: session.configuration.apiProtocol)
         _key = State(initialValue: session.apiKey)
+        _search = State(initialValue: session.searchSettings)
         _errorMessage = State(initialValue: session.modelSettingsError)
     }
 
@@ -47,13 +49,7 @@ struct ModelSettingsView: View {
                         .textContentType(.oneTimeCode)
                         .accessibilityLabel("Base URL").accessibilityIdentifier("ModelBaseURL")
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("API Key").font(.subheadline).foregroundStyle(.secondary)
-                        SecureField("", text: $key).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .textContentType(.oneTimeCode)
-                            .keyboardType(.asciiCapable)
-                            .accessibilityLabel("API Key").accessibilityIdentifier("ModelAPIKey")
-                    }
+                    apiKeyField($key, label: "API Key", identifier: "ModelAPIKey")
                     NavigationLink {
                         ModelSelectionView(
                             catalog: session.modelCatalog, baseURL: baseURL, key: key, model: $model,
@@ -79,9 +75,8 @@ struct ModelSettingsView: View {
                                 .accessibilityLabel("Model ID").accessibilityIdentifier("ModelID")
                         }
                     }
-                } footer: {
-                    Text("Connection information will be stored only in this device’s Keychain.")
                 }
+                searchSection
                 Section {
                     Button("Reset", role: .destructive) {
                         confirmingReset = true
@@ -117,7 +112,7 @@ struct ModelSettingsView: View {
         .background {
             ReaderAlert(
                 isPresented: $confirmingReset, title: String(localized: "Reset Model Settings?"),
-                message: String(localized: "The saved connection settings and API key will be removed."),
+                message: String(localized: "Saved connection information and API keys will be removed."),
                 actions: [
                     .init(id: "cancel", title: String(localized: "Cancel"), style: .cancel) {},
                     .init(id: "reset", title: String(localized: "Reset"), style: .destructive, perform: resetSettings),
@@ -131,6 +126,39 @@ struct ModelSettingsView: View {
         .onDisappear {
             session.modelCatalog.cancel()
             key = ""
+            search.keys.removeAll()
+        }
+    }
+
+    private var searchSection: some View {
+        Section {
+            Picker("Search Service", selection: $search.provider) {
+                Text("Off").tag(Optional<WebSearchProvider>.none)
+                ForEach(WebSearchProvider.allCases, id: \.self) { provider in
+                    Text(verbatim: provider.title).tag(Optional(provider))
+                }
+            }
+            .accessibilityIdentifier("SearchProvider")
+            if let provider = search.provider {
+                apiKeyField(
+                    Binding(
+                        get: { search.keys[provider.rawValue] ?? "" }, set: { search.keys[provider.rawValue] = $0 }),
+                    label: "Search API Key", identifier: "SearchAPIKey")
+            }
+        } header: {
+            Text("Web Search")
+        } footer: {
+            Text("Connection information will be stored only in this device’s Keychain.")
+        }
+    }
+
+    private func apiKeyField(_ value: Binding<String>, label: LocalizedStringKey, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("API Key").font(.subheadline).foregroundStyle(.secondary)
+            SecureField("", text: value)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .textContentType(.oneTimeCode).keyboardType(.asciiCapable)
+                .accessibilityLabel(Text(label)).accessibilityIdentifier(identifier)
         }
     }
 
@@ -142,12 +170,14 @@ struct ModelSettingsView: View {
 
     private func saveSettings() {
         do {
-            try session.saveConfiguration(draftConfiguration, key: key)
+            try session.saveConfiguration(draftConfiguration, key: key, search: search)
             onSaved()
             dismiss()
         } catch ModelConfigurationError.missingModel where customModel {
             showError(String(localized: "Enter a Model ID."))
         } catch let error as ModelConfigurationError {
+            showError(error.localizedDescription)
+        } catch let error as WebSearchSettingsError {
             showError(error.localizedDescription)
         } catch {
             showError(String(localized: "Unable to save connection information."))
@@ -161,6 +191,7 @@ struct ModelSettingsView: View {
             model = ""
             key = ""
             apiProtocol = .responses
+            search = WebSearchSettings()
             customModel = false
             customModelFocused = false
         } catch { showError(String(localized: "Unable to reset connection information.")) }

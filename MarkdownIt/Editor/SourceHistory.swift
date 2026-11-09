@@ -40,11 +40,35 @@ final class SourceUndoManager: UndoManager {
 final class SourceHistory {
     enum InputKind: String, Codable, Sendable { case typing, backwardDelete, forwardDelete, composition, transaction }
 
+    struct Edit: Sendable {
+        enum Action: Sendable { case record, undo, redo }
+        let id: String
+        struct Delta: Codable, Equatable, Sendable {
+            let start: Int
+            let removed: Int
+            let inserted: Int
+        }
+        let changes: [Delta]
+        let action: Action
+        init(id: String, start: Int, removed: Int, inserted: Int, action: Action) {
+            self.init(id: id, changes: [Delta(start: start, removed: removed, inserted: inserted)], action: action)
+        }
+        init(id: String, changes: [Delta], action: Action) {
+            self.id = id
+            self.changes = changes
+            self.action = action
+        }
+    }
+
     struct Snapshot: Codable, Equatable, Sendable {
         let text: String
         let revision: Int
         fileprivate let undo: [Transaction]
         fileprivate let redo: [Transaction]
+
+        func edits(forward: Bool) -> [Edit] {
+            (forward ? redo : undo).reversed().map { $0.edit(forward: forward) }
+        }
     }
 
     fileprivate struct Transaction: Codable, Equatable, Sendable {
@@ -55,6 +79,26 @@ final class SourceHistory {
         let kind: InputKind
         let beforeSelection: SourceSelection
         let afterSelection: SourceSelection
+        let changes: [Edit.Delta]?
+
+        func edit(forward: Bool) -> Edit {
+            let deltas: [Edit.Delta]
+            if let changes {
+                deltas =
+                    forward
+                    ? changes
+                    : changes.reversed().map {
+                        .init(start: $0.start, removed: $0.inserted, inserted: $0.removed)
+                    }
+            } else {
+                deltas = [
+                    .init(
+                        start: start, removed: (forward ? before : after).utf16.count,
+                        inserted: (forward ? after : before).utf16.count)
+                ]
+            }
+            return Edit(id: id, changes: deltas, action: forward ? .redo : .undo)
+        }
     }
 
     private final class Entry {
@@ -65,10 +109,11 @@ final class SourceHistory {
         let kind: InputKind
         let beforeSelection: SourceSelection
         var afterSelection: SourceSelection
+        let changes: [Edit.Delta]?
 
         init(
             id: String, start: Int, before: String, after: String, kind: InputKind,
-            beforeSelection: SourceSelection, afterSelection: SourceSelection
+            beforeSelection: SourceSelection, afterSelection: SourceSelection, changes: [Edit.Delta]? = nil
         ) {
             self.id = id
             self.start = start
@@ -77,18 +122,19 @@ final class SourceHistory {
             self.kind = kind
             self.beforeSelection = beforeSelection
             self.afterSelection = afterSelection
+            self.changes = changes
         }
 
         convenience init(_ value: Transaction) {
             self.init(
                 id: value.id, start: value.start, before: value.before, after: value.after, kind: value.kind,
-                beforeSelection: value.beforeSelection, afterSelection: value.afterSelection)
+                beforeSelection: value.beforeSelection, afterSelection: value.afterSelection, changes: value.changes)
         }
 
         var snapshot: Transaction {
             Transaction(
                 id: id, start: start, before: before, after: after, kind: kind,
-                beforeSelection: beforeSelection, afterSelection: afterSelection)
+                beforeSelection: beforeSelection, afterSelection: afterSelection, changes: changes)
         }
     }
 
@@ -105,6 +151,7 @@ final class SourceHistory {
     private var restoring = false
     private let undoTarget = UndoTarget()
     var onChange: ((SourceSelection, String?, String?) -> Void)?
+    var onEdit: ((Edit) -> Void)?
 
     init() {
         undoTarget.history = self
@@ -114,6 +161,7 @@ final class SourceHistory {
 
     var canUndo: Bool { !undo.isEmpty }
     var canRedo: Bool { !redo.isEmpty }
+    var transactionIDs: Set<String> { Set(undo.map(\.id) + redo.map(\.id)) }
 
     func reset(_ value: String) {
         undoManager.reset()
@@ -144,6 +192,25 @@ final class SourceHistory {
                     Self.valid(beforeSelection, length: value.length),
                     value.substring(with: NSRange(location: start, length: expected.utf16.count)) == expected
                 else { throw CocoaError(.fileReadCorruptFile) }
+                if let changes = transaction.changes {
+                    let beforeLength =
+                        forward ? value.length : value.length - expected.utf16.count + replacement.utf16.count
+                    let afterLength =
+                        forward ? value.length - expected.utf16.count + replacement.utf16.count : value.length
+                    var length = beforeLength
+                    var previousStart = beforeLength
+                    guard !changes.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+                    for change in changes {
+                        guard change.start >= transaction.start, change.removed >= 0, change.inserted >= 0,
+                            change.start <= previousStart, change.removed <= previousStart - change.start,
+                            change.start <= length, change.removed <= length - change.start,
+                            change.inserted <= Int.max - (length - change.removed)
+                        else { throw CocoaError(.fileReadCorruptFile) }
+                        previousStart = change.start
+                        length = length - change.removed + change.inserted
+                    }
+                    guard length == afterLength else { throw CocoaError(.fileReadCorruptFile) }
+                }
                 value.replaceCharacters(in: NSRange(location: start, length: expected.utf16.count), with: replacement)
                 guard Self.valid(afterSelection, length: value.length) else { throw CocoaError(.fileReadCorruptFile) }
             }
@@ -172,7 +239,8 @@ final class SourceHistory {
 
     func record(
         _ value: String, before: SourceSelection, after selection: SourceSelection? = nil,
-        kind requestedKind: InputKind = .transaction, id: String = UUID().uuidString.lowercased()
+        kind requestedKind: InputKind = .transaction, id: String = UUID().uuidString.lowercased(),
+        changes: [Edit.Delta]? = nil
     ) {
         guard value != text else { return }
         let patch = Self.difference(
@@ -224,7 +292,7 @@ final class SourceHistory {
         if !merged {
             let transaction = Entry(
                 id: id, start: patch.start, before: patch.before, after: patch.after, kind: kind,
-                beforeSelection: before, afterSelection: after)
+                beforeSelection: before, afterSelection: after, changes: changes)
             entry = transaction
             undo.append(transaction)
             register(transaction, forward: false)
@@ -240,6 +308,14 @@ final class SourceHistory {
         {
             group = nil
         }
+        onEdit?(
+            Edit(
+                id: entry.id,
+                changes: changes ?? [
+                    .init(
+                        start: patch.start, removed: patch.before.utf16.count,
+                        inserted: patch.after.utf16.count)
+                ], action: .record))
         onChange?(after, entry.id, "applied")
     }
 
@@ -281,6 +357,7 @@ final class SourceHistory {
         group = nil
         guard !restoring else { return }
         revision += 1
+        onEdit?(entry.snapshot.edit(forward: forward))
         onChange?(forward ? entry.afterSelection : entry.beforeSelection, entry.id, forward ? "applied" : "undone")
     }
 

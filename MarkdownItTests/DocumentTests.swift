@@ -3,6 +3,15 @@ import XCTest
 @testable import MarkdownIt
 
 final class DocumentTests: XCTestCase {
+    func testNewDocumentSeedIsEmptyMarkdownAndRemovedWhenReleased() throws {
+        var document: NewDocumentExport? = try NewDocumentExport(filename: "阅读笔记")
+        let url = try XCTUnwrap(document?.fileURL)
+        XCTAssertEqual(url.lastPathComponent, "阅读笔记.md")
+        XCTAssertEqual(try Data(contentsOf: url).count, 0)
+        document = nil
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.deletingLastPathComponent().path))
+    }
+
     @MainActor
     func testUnsupportedDocumentDoesNotReplaceCurrentDocumentOrHistory() async throws {
         let suite = UUID().uuidString

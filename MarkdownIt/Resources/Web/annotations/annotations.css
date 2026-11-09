@@ -1,0 +1,9 @@
+#mdv-reading-concept .mdv-article { position: relative; }
+#mdv-reading-concept .jm-annotation-waves { position: absolute; left: 0; top: 0; width: 100%; height: 0; pointer-events: none; }
+#mdv-reading-concept .jm-annotation-waves svg { position: absolute; display: block; overflow: hidden; pointer-events: none; }
+#mdv-reading-concept .jm-annotation-waves path { fill: none; stroke: var(--mdv-annotation-wave); stroke-linecap: round; }
+#mdv-reading-concept .jm-annotation-note { background-color: var(--mdv-annotation-mark); }
+#mdv-reading-concept ::highlight(jm-annotation-active) { background-color: var(--mdv-annotation-active); }
+#mdv-reading-concept .jm-annotation-tail { white-space: nowrap; }
+#mdv-reading-concept .mdv-article .jm-annotation-icon { display: inline-flex; align-items: center; justify-content: center; vertical-align: .35em; width: calc(var(--mdv-annotation-marker) * var(--jm-font-scale, 1)); min-width: 0; height: calc(var(--mdv-annotation-marker) * var(--jm-font-scale, 1)); min-height: 0; margin: 0 .25em 0 .2em; padding: 0; border: 0; background: transparent; color: var(--mdv-annotation-wave); user-select: none; -webkit-user-select: none; }
+#mdv-reading-concept .jm-annotation-icon svg { width: 100%; height: 100%; }

@@ -10,7 +10,7 @@
 
 | Source | Responsibility |
 | --- | --- |
-| [README](README.md) | Concise product introduction, language links and one reading screenshot |
+| [README](README.md) | Concise product introduction, language links and approved product screenshots |
 | [Design specification](design/README.md) | Visual hierarchy, responsive layout, component behavior, rendering scope and motion |
 | [Native architecture](docs/native-architecture.md) | Module relationships, state ownership, file access, context versions, tools and transport |
 | [Privacy](docs/privacy.md) | Data, credentials and network flows |
