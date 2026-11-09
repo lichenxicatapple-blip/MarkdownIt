@@ -1121,10 +1121,16 @@ final class ReaderUITests: XCTestCase {
         let recent = app.buttons["RecentDocuments"]
         XCTAssertTrue(recent.waitForExistence(timeout: 8))
         let open = app.buttons["OpenDocument"]
+        let create = app.buttons["NewDocument"]
         XCTAssertEqual(recent.label, "最近打开...")
         XCTAssertGreaterThanOrEqual(recent.frame.height, 44)
-        XCTAssertGreaterThan(recent.frame.minY, open.frame.maxY)
-        XCTAssertEqual(recent.frame.midX, open.frame.midX, accuracy: 1)
+        XCTAssertTrue(create.exists)
+        XCTAssertEqual(open.frame.midY, create.frame.midY, accuracy: 1)
+        XCTAssertEqual(open.frame.width, create.frame.width, accuracy: 1)
+        XCTAssertEqual(open.frame.height, create.frame.height, accuracy: 1)
+        let actions = open.frame.union(create.frame)
+        XCTAssertGreaterThan(recent.frame.minY, actions.maxY)
+        XCTAssertEqual(recent.frame.midX, actions.midX, accuracy: 1)
         record("home-recent-secondary-action")
         recent.tap()
         let empty = app.staticTexts["RecentDocumentsEmpty"]

@@ -726,6 +726,31 @@ final class AgentFlowTests: AgentReaderTestCase {
         }
     }
 
+    func testConversationControlsKeepSystemSymbolsAcrossMessageUpdates() async throws {
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "First answer."), AgentFixture(text: "Second answer.")])
+        let (_, bridge, _, _) = try await reader("# Reading\n\nA passage to discuss.\n")
+        _ = try await bridge.call("toggleAgent")
+        for (index, question) in ["First question.", "Follow-up question."].enumerated() {
+            try await send(question, bridge: bridge)
+            try await completed(bridge, count: (index + 1) * 2)
+            let icons =
+                try await bridge.webView.evaluateJavaScript(
+                    """
+                    [...document.querySelectorAll('.mdv-agent-control svg')].map(svg=>({
+                      native:!!svg.dataset.nativeSymbol, mask:!!svg.querySelector('mask image'),
+                      paths:svg.querySelectorAll('path').length, stroke:getComputedStyle(svg).stroke
+                    }))
+                    """) as? [[String: Any]]
+            XCTAssertEqual(icons?.count, 2)
+            for icon in icons ?? [] {
+                XCTAssertEqual(icon["native"] as? Bool, true)
+                XCTAssertEqual(icon["mask"] as? Bool, true, "SF artwork must survive icon refresh: \(icon)")
+                XCTAssertEqual(icon["paths"] as? Int, 0, "Lucide must not replace an installed system symbol")
+                XCTAssertEqual(icon["stroke"] as? String, "none", "The native mask must receive only one color fill")
+            }
+        }
+    }
+
     private func reader(
         _ text: String, api: ModelAPIProtocol = .chatCompletions,
         baseURL: String = "https://agent.example.test/v1", model: String = "fixture-model",
@@ -1274,7 +1299,8 @@ final class AgentFlowTests: AgentReaderTestCase {
                     """
                     const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,bottom:r.bottom};};
                     return {height:innerHeight,panel:rect(document.querySelector('.mdv-agent')),
-                      send:rect(document.querySelector('.mdv-agent-send')),input:rect(document.querySelector('.mdv-agent-input'))};
+                      send:rect(document.querySelector('.mdv-agent-send')),input:rect(document.querySelector('.mdv-agent-input')),
+                      grabber:rect(document.querySelector('.mdv-agent-grabber')),scroll:rect(document.querySelector('.mdv-agent-scroll'))};
                     """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
             let height = try XCTUnwrap(geometry?["height"] as? Double)
             let send = try XCTUnwrap(geometry?["send"] as? [String: Double])
@@ -1282,6 +1308,11 @@ final class AgentFlowTests: AgentReaderTestCase {
                 send["bottom"] ?? .infinity, height, "reference=\(reference), \(String(describing: geometry))")
             let input = try XCTUnwrap(geometry?["input"] as? [String: Double])
             XCTAssertLessThanOrEqual(input["bottom"] ?? .infinity, height, "\(String(describing: geometry))")
+            let grabber = try XCTUnwrap(geometry?["grabber"] as? [String: Double])
+            let scroll = try XCTUnwrap(geometry?["scroll"] as? [String: Double])
+            XCTAssertLessThanOrEqual(
+                grabber["bottom"] ?? .infinity, scroll["y"] ?? 0,
+                "Conversation scrolling must not begin in the panel's dismissal handle")
         }
     }
 

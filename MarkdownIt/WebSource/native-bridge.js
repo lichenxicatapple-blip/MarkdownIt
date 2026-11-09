@@ -80,6 +80,10 @@
         const source = nativeSymbols[(chrome ? 'reader-' : '') + svg.dataset.lucide];
         if (!source) return;
         svg.dataset.nativeSymbol = 'true';
+        // Lucide refreshes all data-lucide nodes, including existing SVGs.
+        // Native artwork owns this node from now on and uses one filled mask.
+        svg.removeAttribute('data-lucide');
+        svg.setAttribute('stroke', 'none');
         const mask = 'native-symbol-' + (++nativeSymbolSequence);
         const inset = chrome ? 0 : 1;
         const size = 24 - inset * 2;

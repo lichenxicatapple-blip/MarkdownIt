@@ -376,6 +376,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         for (name, color) in [
             "paper": UIColor.systemBackground, "chrome": .secondarySystemBackground, "ink": .label,
             "muted": .secondaryLabel, "line": .separator, "accent": webView.tintColor ?? .systemBlue,
+            "destructive": .systemRed,
         ] {
             var r: CGFloat = 0
             var g: CGFloat = 0
