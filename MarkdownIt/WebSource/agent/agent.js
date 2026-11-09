@@ -212,8 +212,10 @@
       input.style.height = Math.max(parseFloat(style.minHeight), input.scrollHeight) + 'px';
     }
     function updateScrollEdge() {
-      scroll.toggleAttribute('data-scrolled', scroll.scrollTop > 1);
-      scroll.toggleAttribute('data-more-below', scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 1);
+      const overflow = scroll.scrollHeight - scroll.clientHeight;
+      // WebKit can retain an old scroll offset after content shrinks to fit.
+      scroll.toggleAttribute('data-scrolled', overflow > 1 && scroll.scrollTop > 1);
+      scroll.toggleAttribute('data-more-below', overflow - scroll.scrollTop > 1);
     }
     function keepAtBottom() {
       if (followBottom && isOpen) scroll.scrollTop = scroll.scrollHeight;

@@ -912,7 +912,8 @@ final class ReaderUITests: XCTestCase {
         filename.typeText(name + "\n")
         XCTAssertEqual(filename.value as? String, name)
         record("new-document-named")
-        let save = app.buttons["DOCPicker.actionButton"]
+        // This system button has no identifier on iOS 26; the fixture pins its language to English.
+        let save = app.buttons["Save"]
         XCTAssertTrue(save.isHittable)
         save.tap()
         let editor = app.textViews["SourceEditor"]
@@ -2062,7 +2063,8 @@ extension ReaderUITests {
         var pages = Set<[String]>()
         while !add.exists {
             let titles = app.menuItems.allElementsBoundByIndex.map(\.label)
-            let next = app.buttons["Next Page"]
+            let next = app.buttons.matching(NSPredicate(format: "label IN %@", ["Next Page", "Forward"]))
+                .firstMatch
             guard pages.insert(titles).inserted, next.exists, next.isHittable else { break }
             next.tap()
         }
