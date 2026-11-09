@@ -65,6 +65,7 @@ def reader_design(spec):
         "homeBrandGap": "space.homeBrandGap",
         "homeGroupGap": "space.homeGroupGap",
         "homeActionGap": "space.homeActionGap",
+        "homeDocumentGap": "space.homeDocumentGap",
         "recentsWidth": "size.recentsWidth",
         "recentsMaxHeight": "size.recentsMaxHeight",
     }

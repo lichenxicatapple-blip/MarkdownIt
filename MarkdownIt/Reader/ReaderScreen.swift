@@ -329,7 +329,7 @@ struct ReaderScreen: View {
             .accessibilityLabel(homeSlogan.joined(separator: " "))
             .accessibilityIdentifier("HomeSlogan")
         case .documentActions:
-            HStack(spacing: ReaderDesign.homeActionGap) {
+            HStack(spacing: ReaderDesign.homeDocumentGap) {
                 homeDocumentButton("Open Document", systemImage: "doc", action: openDocument)
                     .accessibilityIdentifier("OpenDocument")
                     .accessibilityFocused($focusedAction, equals: .open)

@@ -31,11 +31,12 @@ enum ReaderDesign {
     static let chromeInset: CGFloat = 8
     static let homeMark: CGFloat = 120
     static let homeSlogan: CGFloat = 22
-    static let homeActionsWidth: CGFloat = 440
+    static let homeActionsWidth: CGFloat = 360
     static let homeEntranceOffset: CGFloat = 18
     static let homeBrandGap: CGFloat = 20
     static let homeGroupGap: CGFloat = 28
     static let homeActionGap: CGFloat = 8
+    static let homeDocumentGap: CGFloat = 16
     static let recentsWidth: CGFloat = 360
     static let recentsMaxHeight: CGFloat = 540
     static var annotationPaper: UIColor { palette(light: 0xFFFD_F8FF, dark: 0x2829_23FF) }
