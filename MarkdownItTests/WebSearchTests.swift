@@ -258,7 +258,7 @@ final class WebSearchTests: AgentReaderTestCase {
         for provider in WebSearchProvider.allCases {
             let tools = AgentWebSearch(
                 settings: .init(provider: provider, keys: [provider.rawValue: "test-only"]),
-                client: WebSearchFixture.client(), authorize: { _, _ in true }
+                client: WebSearchFixture.client(), authorize: { _ in true }
             ).definitions
             XCTAssertEqual(tools.contains { $0.name == "read_webpage" }, provider != .brave)
         }
@@ -275,7 +275,7 @@ final class WebSearchTests: AgentReaderTestCase {
         let tool = AgentWebSearch(
             settings: .init(provider: .serper, keys: ["serper": "page-secret-only"]),
             client: WebSearchFixture.client(), onPage: { recorded.append($0) },
-            authorize: { _, _ in
+            authorize: { _ in
                 grants += 1
                 return true
             })
@@ -334,8 +334,8 @@ final class WebSearchTests: AgentReaderTestCase {
         WebSearchFixture.state.reset()
         let denied = AgentWebSearch(
             settings: .init(provider: .serper, keys: ["serper": "test-only"]), client: client,
-            authorize: { _, value in
-                XCTAssertEqual(value, url.absoluteString)
+            authorize: { provider in
+                XCTAssertEqual(provider, .serper)
                 return false
             })
         let result = try await denied.execute(
@@ -384,25 +384,25 @@ final class WebSearchTests: AgentReaderTestCase {
         defer { defaults.removePersistentDomain(forName: name) }
         defaults.set(["google.serper.dev"], forKey: "search.allowedServices")
         let authorization = WebSearchAuthorization(defaults: defaults)
-        let declined = Task { await authorization.authorize(provider: .serper, query: "first") { true } }
+        let declined = Task { await authorization.authorize(provider: .serper) { true } }
         try await wait { authorization.request != nil }
         authorization.finish(allowed: false)
         let wasDeclined = await declined.value
         XCTAssertFalse(wasDeclined)
-        let cancelled = Task { await authorization.authorize(provider: .serper, query: "second") { true } }
+        let cancelled = Task { await authorization.authorize(provider: .serper) { true } }
         try await wait { authorization.request != nil }
         cancelled.cancel()
         let wasCancelled = await cancelled.value
         XCTAssertFalse(wasCancelled)
         XCTAssertNil(authorization.request)
-        let allowed = Task { await authorization.authorize(provider: .serper, query: "third") { true } }
+        let allowed = Task { await authorization.authorize(provider: .serper) { true } }
         try await wait { authorization.request != nil }
         authorization.finish(allowed: true)
         let wasAllowed = await allowed.value
         XCTAssertTrue(wasAllowed)
-        let remembered = await authorization.authorize(provider: .serper, query: "fourth") { true }
+        let remembered = await authorization.authorize(provider: .serper) { true }
         XCTAssertTrue(remembered)
-        let different = Task { await authorization.authorize(provider: .brave, query: "fifth") { true } }
+        let different = Task { await authorization.authorize(provider: .brave) { true } }
         try await wait { authorization.request?.provider == .brave }
         authorization.finish(allowed: false)
         let otherAllowed = await different.value
@@ -413,7 +413,7 @@ final class WebSearchTests: AgentReaderTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         let authorization = WebSearchAuthorization(defaults: defaults)
-        let task = Task { await authorization.authorize(provider: .serper, query: "public query") { true } }
+        let task = Task { await authorization.authorize(provider: .serper) { true } }
         try await wait { authorization.request != nil }
         let id = try XCTUnwrap(authorization.request?.id)
         authorization.isPresented = false

@@ -31,6 +31,7 @@ enum ReaderDesign {
     static let chromeInset: CGFloat = 8
     static let homeMark: CGFloat = 120
     static let homeSlogan: CGFloat = 22
+    static let homeActionsWidth: CGFloat = 440
     static let homeEntranceOffset: CGFloat = 18
     static let homeBrandGap: CGFloat = 20
     static let homeGroupGap: CGFloat = 28

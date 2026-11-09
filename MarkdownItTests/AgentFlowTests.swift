@@ -431,7 +431,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             let names = tools.compactMap {
                 api == .responses ? $0["name"] as? String : ($0["function"] as? [String: Any])?["name"] as? String
             }
-            XCTAssertEqual(names, ["read_document"])
+            XCTAssertEqual(names, ["get_current_time", "read_document"])
             XCTAssertLessThan(requests[0].count, 20_000)
             let continuation = String(decoding: requests[1], as: UTF8.self)
             XCTAssertTrue(continuation.contains("EXACT_END_TARGET"))
@@ -496,7 +496,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             _ = try await bridge.call("toggleAgent")
             try await send("联网查阅公开资料", bridge: bridge)
             try await wait { session.searchAuthorization.request != nil }
-            XCTAssertEqual(session.searchAuthorization.request?.query, "公开资料")
+            XCTAssertEqual(session.searchAuthorization.request?.provider, .serper)
             XCTAssertEqual(WebSearchFixture.state.captured().count, 0, "Permission must precede the network request")
             session.searchAuthorization.finish(allowed: true)
             try await completed(bridge)
@@ -545,7 +545,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             _ = try await bridge.call("toggleAgent")
             try await send("请阅读这个网页", bridge: bridge)
             try await wait { session.searchAuthorization.request != nil }
-            XCTAssertEqual(session.searchAuthorization.request?.query, "https://source.example.org/article")
+            XCTAssertEqual(session.searchAuthorization.request?.provider, .serper)
             session.searchAuthorization.finish(allowed: true)
             try await completed(bridge)
             XCTAssertEqual(WebSearchFixture.state.captured().first?.url?.host, "scrape.serper.dev")
@@ -641,6 +641,89 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertTrue(
             String(decoding: try XCTUnwrap(AgentFixtureProtocol.queue.requests().last), as: UTF8.self).contains(
                 "repeated_without_progress"))
+    }
+
+    func testCurrentTimeIsAvailableInBothModesAndProtocols() async throws {
+        for api in ModelAPIProtocol.allCases {
+            for editing in [false, true] {
+                AgentFixtureProtocol.queue.reset([
+                    AgentFixture(calls: [.init(id: "clock", name: "get_current_time", arguments: "{}")]),
+                    AgentFixture(text: "The current time has been read."),
+                ])
+                let (session, bridge, _, _) = try await reader("# Document\n\nContent.\n", api: api)
+                if editing { try await sourceMode(bridge) }
+                _ = try await bridge.call("toggleAgent")
+                try await send("What is the current system time?", bridge: bridge)
+                try await completed(bridge)
+                let requests = AgentFixtureProtocol.queue.requests()
+                XCTAssertEqual(requests.count, 2)
+                let toolResult = String(decoding: try XCTUnwrap(requests.last), as: UTF8.self)
+                XCTAssertTrue(toolResult.contains("currentTime"))
+                XCTAssertTrue(toolResult.contains("timeZone"))
+                XCTAssertEqual(session.document?.text, "# Document\n\nContent.\n")
+            }
+        }
+    }
+
+    func testClearHistoryCancelsGenerationAndKeepsDraftReferenceAndDocumentUndo() async throws {
+        let original = "# Document\n\nSelected passage.\n"
+        for api in ModelAPIProtocol.allCases {
+            let arguments: [String: Any] = [
+                "revision": AgentDocumentTools.revision(original),
+                "edits": [["before": "Selected passage.", "after": "Revised passage."]],
+            ]
+            let call = ModelToolCall(
+                id: "edit-before-clear", name: "edit_document",
+                arguments: String(decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self))
+            AgentFixtureProtocol.queue.reset([
+                AgentFixture(calls: [call]),
+                AgentFixture(text: "The passage is revised.", waitsAfterText: true, complete: false),
+                AgentFixture(text: "This is a new conversation."),
+            ])
+            let (session, bridge, _, _) = try await reader(original, api: api)
+            try await sourceMode(bridge)
+            _ = try await bridge.call("toggleAgent")
+            try await send("RETIRED_QUESTION: replace Selected passage. with Revised passage.", bridge: bridge)
+            try await wait {
+                (try await self.state(bridge)["turns"] as? [[String: Any]])?.last?["state"] as? String == "streaming"
+            }
+            try selectSource("Revised passage.", bridge: bridge)
+            _ = try await bridge.call("askSelection")
+            try await wait {
+                (try await self.state(bridge)["reference"] as? String)?.contains("Revised passage.") == true
+            }
+            _ = try await bridge.webView.evaluateJavaScript(
+                "const field=document.querySelector('.mdv-agent-input'); field.value='Unsent follow-up'; field.dispatchEvent(new Event('input',{bubbles:true}));"
+            )
+            _ = try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('[data-agent-action=clear-history]').click()")
+            try await wait { session.needsAgentHistoryClear }
+            session.finishAgentHistoryClear(confirmed: false)
+            XCTAssertNotNil(session.agentTransport.activeID)
+            let retained = try await state(bridge)
+            XCTAssertEqual((retained["turns"] as? [[String: Any]])?.count, 2)
+
+            _ = try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('[data-agent-action=clear-history]').click()")
+            try await wait { session.needsAgentHistoryClear }
+            session.finishAgentHistoryClear(confirmed: true)
+            try await wait { (try await self.state(bridge)["turns"] as? [[String: Any]])?.isEmpty == true }
+            let cleared = try await state(bridge)
+            XCTAssertEqual(cleared["draft"] as? String, "Unsent follow-up")
+            XCTAssertTrue((cleared["reference"] as? String)?.contains("Revised passage.") == true)
+            XCTAssertEqual(cleared["open"] as? Bool, true)
+            XCTAssertNil(session.agentTransport.activeID)
+            XCTAssertNil(session.agentTransport.recovery())
+            XCTAssertEqual(session.document?.text, original.replacingOccurrences(of: "Selected", with: "Revised"))
+            XCTAssertTrue(bridge.sourceEditor.history.canUndo)
+
+            try await send("Unsent follow-up", bridge: bridge)
+            try await completed(bridge)
+            let next = String(decoding: try XCTUnwrap(AgentFixtureProtocol.queue.requests().last), as: UTF8.self)
+            XCTAssertFalse(next.contains("RETIRED_QUESTION"))
+            session.performSourceHistory(forward: false)
+            try await wait { session.document?.text == original }
+        }
     }
 
     private func reader(
@@ -1895,7 +1978,11 @@ final class AgentFlowTests: AgentReaderTestCase {
             let wire = String(decoding: requests[1], as: UTF8.self)
             XCTAssertTrue(wire.contains("edit-1"))
             XCTAssertTrue(wire.contains("saved"))
-            XCTAssertEqual((continuation["tools"] as? [[String: Any]])?.count, 2)
+            let tools = try XCTUnwrap(continuation["tools"] as? [[String: Any]])
+            let names = tools.compactMap {
+                (api == .responses ? $0 : $0["function"] as? [String: Any] ?? [:])["name"] as? String
+            }
+            XCTAssertEqual(Set(names), ["get_current_time", "read_document", "edit_document"])
             XCTAssertFalse(wire.contains("fixture-key"))
             // Deliver the native save acknowledgement only after a later history action.
             _ = try await bridge.webView.evaluateJavaScript(
@@ -2284,7 +2371,11 @@ final class AgentFlowTests: AgentReaderTestCase {
             let context = try ModelWireFormat.object(Data(XCTUnwrap(parts.first?["text"] as? String).utf8))
             let inventory = try XCTUnwrap((context["background"] as? [String: Any])?["images"] as? [[String: Any]])
             XCTAssertEqual(inventory.count, 1, "Image-looking code and unused paths must not become image tools")
-            XCTAssertNil(first["tools"], "All selected pixels are already present; no image read tool is needed")
+            let tools = try XCTUnwrap(first["tools"] as? [[String: Any]])
+            let names = tools.compactMap {
+                (api == .responses ? $0 : $0["function"] as? [String: Any] ?? [:])["name"] as? String
+            }
+            XCTAssertEqual(names, ["get_current_time"], "Selected pixels must not require an image read tool")
             let imageURL: String? =
                 api == .responses
                 ? parts.last?["image_url"] as? String : (parts.last?["image_url"] as? [String: String])?["url"]
@@ -2335,7 +2426,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             let names = tools.compactMap {
                 (api == .responses ? $0 : $0["function"] as? [String: Any] ?? [:])["name"] as? String
             }
-            XCTAssertEqual(names, ["read_image"], "Preview must never offer document edit tools")
+            XCTAssertEqual(names, ["get_current_time", "read_image"], "Preview must never offer document edit tools")
             let subsequent = try ModelWireFormat.object(requests[1])
             let subsequentItems = try XCTUnwrap(
                 subsequent[api == .responses ? "input" : "messages"] as? [[String: Any]])

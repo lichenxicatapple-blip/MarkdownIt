@@ -365,7 +365,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 symbols[name] = "data:image/png;base64," + data.base64EncodedString()
             }
         }
-        for (name, symbol) in ["reader-chevron-right": "chevron.right", "reader-chevron-down": "chevron.down"] {
+        for (name, symbol) in [
+            "reader-chevron-right": "chevron.right", "reader-chevron-down": "chevron.down", "reader-trash-2": "trash",
+        ] {
             if let data = ReaderChromeSymbols.image(symbol)?.pngData() {
                 symbols[name] = "data:image/png;base64," + data.base64EncodedString()
             }
@@ -546,6 +548,10 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         case "agentCancel":
             if body["token"] as? String == session.documentToken {
                 session.agentTransport.cancel(id: body["id"] as? String)
+            }
+        case "agentClearHistory":
+            if let token = body["token"] as? String {
+                session.requestAgentHistoryClear(token: token)
             }
         case "agentUndo":
             if let id = body["id"] as? String, let change = body["change"] as? String,

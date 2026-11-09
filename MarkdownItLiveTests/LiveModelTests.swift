@@ -81,6 +81,45 @@ final class LiveModelTests: AgentReaderTestCase {
     }
 
     /// Secrets live outside the repository and are never attached to test reports.
+    func testAtlasUsesNativeCurrentTimeWithoutChangingTheDocument() async throws {
+        let (live, protocols) = try liveConfiguration()
+        let service = try isolatedCredential(live.key)
+        let document = "# Reading journal\n\nA quiet moment to read.\n"
+        for api in protocols {
+            let (session, bridge, _, _) = try await makeReader(
+                document, api: api, baseURL: live.baseURL, model: live.model,
+                modelClient: ModelClient(), modelKey: { self.readCredential(service) })
+            _ = try await bridge.call("toggleAgent")
+            let started = Date()
+            try await send("请调用 get_current_time，告诉我当前日期、时间和时区。", bridge: bridge)
+            try await liveCompleted(bridge)
+            let recovery = try XCTUnwrap(session.agentTransport.recovery())
+            let exchange = try XCTUnwrap(
+                recovery.exchanges.first { $0.turn.calls.contains { $0.name == "get_current_time" } })
+            let call = try XCTUnwrap(exchange.turn.calls.first { $0.name == "get_current_time" })
+            let output = try XCTUnwrap(exchange.outputs.first { $0.id == call.id })
+            let time = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(output.content.utf8)) as? [String: String])
+            let timestamp = try XCTUnwrap(time["currentTime"])
+            let date = try XCTUnwrap(ISO8601DateFormatter().date(from: timestamp))
+            XCTAssertGreaterThanOrEqual(date.timeIntervalSince(started), -1)
+            XCTAssertLessThanOrEqual(date.timeIntervalSinceNow, 1)
+            XCTAssertEqual(time["timeZone"], TimeZone.current.identifier)
+            XCTAssertEqual(session.document?.text, document)
+            let snapshot = try await state(bridge)
+            let answer = (snapshot["turns"] as? [[String: Any]])?.last?["text"] as? String ?? ""
+            XCTAssertFalse(answer.isEmpty)
+            let evidence = XCTAttachment(
+                string:
+                    "Model: \(live.model)\nProtocol: \(api.rawValue)\nTime: \(timestamp)\nTime zone: \(time["timeZone"] ?? "")\nElapsed: \(Date().timeIntervalSince(started)) seconds"
+            )
+            evidence.name = "Native current time with real provider"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
+    }
+
+    /// Secrets live outside the repository and are never attached to test reports.
     func testAtlasSearchAndWebPageReadingUseRealServicesAndContinueTheConversation() async throws {
         let (live, protocols) = try liveConfiguration()
         let serperKey = try XCTUnwrap(live.serperKey, "Real search verification requires serperKey")

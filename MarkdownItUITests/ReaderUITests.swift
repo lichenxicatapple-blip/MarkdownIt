@@ -2022,6 +2022,51 @@ final class ReaderUITests: XCTestCase {
         record("agent-reopened-history")
     }
 
+    func testClearConversationConfirmsAndPreservesDraft() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        if UIDevice.current.userInterfaceIdiom == .pad { rotate(to: .landscapeLeft, in: app) }
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        let input = app.textViews["QuestionInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 8))
+        let clear = app.webViews.buttons["清空历史"]
+        XCTAssertTrue(clear.exists)
+        XCTAssertFalse(clear.isEnabled)
+        input.tap()
+        input.typeText("Explain the document in Chinese.")
+        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
+        allowDataSharingIfRequested(app)
+        let reply = app.webViews.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "这份文档演示了"))
+            .firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 8))
+        record("conversation-clear-button")
+        input.tap()
+        input.typeText("Keep this draft.")
+        tapAfterTyping(clear, in: app)
+        let confirmation = app.alerts["清空历史？"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        record("conversation-clear-confirmation")
+        confirmation.buttons["CancelClearAgentHistory"].firstMatch.tap()
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(input.value as? String, "Keep this draft.")
+        XCTAssertTrue(app.webViews.staticTexts["Explain the document in Chinese."].exists)
+        clear.tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["ConfirmClearAgentHistory"].firstMatch.tap()
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.webViews.staticTexts["Explain the document in Chinese."].waitForNonExistence(timeout: 5))
+        XCTAssertEqual(input.value as? String, "Keep this draft.")
+        XCTAssertFalse(clear.isEnabled)
+        record("conversation-cleared-draft-retained")
+    }
+
     func testQuestionKeyboardSendButton() {
         let app = XCUIApplication()
         let input = openQuestionInput(app)

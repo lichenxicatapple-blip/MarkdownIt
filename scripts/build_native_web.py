@@ -60,6 +60,7 @@ def reader_design(spec):
         "chromeInset": "space.outlineInset",
         "homeMark": "size.homeMark",
         "homeSlogan": "size.homeSlogan",
+        "homeActionsWidth": "size.homeActionsWidth",
         "homeEntranceOffset": "space.homeEntranceOffset",
         "homeBrandGap": "space.homeBrandGap",
         "homeGroupGap": "space.homeGroupGap",

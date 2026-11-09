@@ -26,7 +26,7 @@ final class AgentWebSearch {
 
     let settings: WebSearchSettings
     private let client: WebSearchClient
-    private let authorize: @MainActor (WebSearchProvider, String) async -> Bool
+    private let authorize: @MainActor (WebSearchProvider) async -> Bool
     private let onResult: @MainActor (WebSearchResult) -> Void
     private let onPage: @MainActor (WebPageExcerpt) -> Void
     private var pages: [URL: WebPageContent] = [:]
@@ -37,7 +37,7 @@ final class AgentWebSearch {
         settings: WebSearchSettings, client: WebSearchClient,
         onResult: @escaping @MainActor (WebSearchResult) -> Void = { _ in },
         onPage: @escaping @MainActor (WebPageExcerpt) -> Void = { _ in },
-        authorize: @escaping @MainActor (WebSearchProvider, String) async -> Bool
+        authorize: @escaping @MainActor (WebSearchProvider) async -> Bool
     ) {
         self.settings = settings
         self.client = client
@@ -53,8 +53,7 @@ final class AgentWebSearch {
         do {
             let query = call.name == "web_search" ? try WebSearchQuery(arguments: call.arguments) : nil
             let page = call.name == "read_webpage" ? try WebPageRequest(arguments: call.arguments) : nil
-            guard let disclosure = query?.query ?? page?.url.absoluteString else { throw WebPageError.arguments }
-            if permission == nil { permission = await authorize(provider, disclosure) }
+            if permission == nil { permission = await authorize(provider) }
             try Task.checkCancellation()
             guard permission == true else { return WebSearchError.permission.execution }
             let encoder = JSONEncoder()

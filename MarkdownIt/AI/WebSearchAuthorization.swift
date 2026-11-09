@@ -6,7 +6,6 @@ final class WebSearchAuthorization: ObservableObject {
     struct Request: Identifiable {
         let id: UUID
         let provider: WebSearchProvider
-        let query: String
     }
 
     @Published private(set) var request: Request?
@@ -18,7 +17,7 @@ final class WebSearchAuthorization: ObservableObject {
     init(defaults: UserDefaults) { consent = WebSearchConsent(defaults: defaults) }
 
     func authorize(
-        provider: WebSearchProvider, query: String, isCurrent: @escaping @MainActor () -> Bool
+        provider: WebSearchProvider, isCurrent: @escaping @MainActor () -> Bool
     ) async -> Bool {
         guard !Task.isCancelled, isCurrent() else { return false }
         if consent.allows(provider) { return true }
@@ -32,7 +31,7 @@ final class WebSearchAuthorization: ObservableObject {
                 }
                 self.continuation = continuation
                 self.isCurrent = isCurrent
-                request = Request(id: id, provider: provider, query: query)
+                request = Request(id: id, provider: provider)
                 isPresented = true
             }
         } onCancel: {
@@ -77,11 +76,11 @@ struct WebSearchConsentPresenter: View {
                 if let request = authorization.request {
                     if request.provider.extractionEndpoint != nil {
                         Text(
-                            "Search terms and selected webpage URLs will be sent to \(request.provider.title). Search results and page content will be shared with your AI service.\n\n\(request.query)"
+                            "Search terms and selected webpage URLs will be sent to \(request.provider.title). Search results and page content will be shared with your AI service."
                         )
                     } else {
                         Text(
-                            "Search terms will be sent to \(request.provider.title), and the results will be shared with your AI service.\n\n\(request.query)"
+                            "Search terms will be sent to \(request.provider.title), and the results will be shared with your AI service."
                         )
                     }
                 }

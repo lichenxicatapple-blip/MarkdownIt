@@ -823,6 +823,11 @@
       agentInteraction() { notePanelInteraction('agent'); },
       updateAgentInput(payload) { nativeInputs.update(payload); },
       commitAgentInput(payload) { nativeInputs.commit(payload); },
+      clearAgentHistory(payload) {
+        if (payload.token !== nativeToken) return false;
+        agentExperience.clearHistory();
+        return true;
+      },
       agentEvent(event) {
         if (event.token !== nativeToken) return;
         const request = nativeRequests.get(event.id);
@@ -996,6 +1001,7 @@
     const agentExperience = window.MarkdownItAgent.create({
       ensureConfigured: ensureNativeAgentConfigured,
       onCheckpoint: scheduleRecovery,
+      onClearHistory() { postNative({ type: 'agentClearHistory', token: nativeToken }); },
       provider: createNativeAgentTransport(), nativeInputs,
       app, panel: agent, renderMarkdown: renderRichMarkdown, fragmentIdentifier,
       enhance: enhanceDocument, motion, reducedMotion,

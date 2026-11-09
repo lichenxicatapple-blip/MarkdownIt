@@ -1,7 +1,39 @@
+import Foundation
 import Network
 import XCTest
 
 @testable import MarkdownIt
+
+final class CurrentTimeToolTests: XCTestCase {
+    func testCurrentTimeUsesISO8601AndSystemTimeZoneIncludingDaylightSaving() throws {
+        let parser = ISO8601DateFormatter()
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Rome"))
+        for (input, expected) in [
+            ("2026-01-15T12:00:00Z", "2026-01-15T13:00:00+01:00"),
+            ("2026-06-15T12:00:00Z", "2026-06-15T14:00:00+02:00"),
+        ] {
+            let call = ModelToolCall(id: "time", name: AgentCurrentTime.definition.name, arguments: "{}")
+            let result = AgentCurrentTime.execute(call, now: try XCTUnwrap(parser.date(from: input)), timeZone: zone)
+            let output = try ModelWireFormat.object(Data(result.output.utf8))
+            XCTAssertEqual(output["currentTime"] as? String, expected)
+            XCTAssertEqual(output["timeZone"] as? String, "Europe/Rome")
+            XCTAssertNil(result.change)
+        }
+        XCTAssertFalse(AgentCurrentTime.definition.reusesResult, "Each invocation reads the current system clock")
+    }
+
+    func testCurrentTimeAcceptsOnlyTheDeclaredEmptyArguments() throws {
+        let schema = try ModelWireFormat.object(AgentCurrentTime.definition.parameters)
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+        XCTAssertTrue((schema["properties"] as? [String: Any])?.isEmpty == true)
+        for arguments in ["null", "[]", "broken", #"{"timeZone":"UTC"}"#, #"{"date":"tomorrow"}"#] {
+            let result = AgentCurrentTime.execute(
+                ModelToolCall(id: "time", name: AgentCurrentTime.definition.name, arguments: arguments))
+            let output = try ModelWireFormat.object(Data(result.output.utf8))
+            XCTAssertEqual(output["error"] as? String, "invalid_arguments")
+        }
+    }
+}
 
 private final class MockResponseState: @unchecked Sendable {
     private let lock = NSLock()

@@ -35,6 +35,7 @@
     const input = composer.querySelector('textarea');
     const reference = composer.querySelector('.mdv-composer-reference');
     const sendButton = composer.querySelector('.mdv-agent-send');
+    const clearHistoryButton = panel.querySelector('[data-agent-action="clear-history"]');
     const useDocument = button(t("Reference current document"), 'use-document', 'file-text');
     useDocument.append(createNode('span', '', t("Reference document")));
     useDocument.classList.add('mdv-use-document');
@@ -197,6 +198,7 @@
       refreshIcons();
     }
     function updateSendState() {
+      clearHistoryButton.disabled = messages.length === 0;
       const generating = !!activeStream;
       sendButton.disabled = !!pendingAuthorization || (!generating && !input.value.trim());
       sendButton.setAttribute('aria-label', generating ? t("Stop generating") : t("Send message"));
@@ -749,6 +751,7 @@
     input.addEventListener('input', checkpoint);
     scroll.addEventListener('scroll', checkpoint, { passive: true });
     panel.querySelector('[data-agent-action="collapse"]').addEventListener('click', () => onToggle(false));
+    clearHistoryButton.addEventListener('click', () => dependencies.onClearHistory?.());
     function toggleGlobal(authorized = false) {
       if (!isOpen && !authorized && ensureConfigured) { ensureConfigured(() => toggleGlobal(true)); return; }
       if (isOpen) { onToggle(false); return; }
@@ -836,8 +839,7 @@
     });
     updateSendState();
     viewportChanged();
-    function reset() {
-      resolveCloseWaiters(false);
+    function clearMessages() {
       cancelPendingFollow();
       ++conversationRevision;
       pendingAuthorization = null;
@@ -848,6 +850,11 @@
       messages.splice(0);
       documentChanges.clear();
       thread.replaceChildren();
+    }
+    function clearHistory() { clearMessages(); followLatest(); updateSendState(); checkpoint(); }
+    function reset() {
+      resolveCloseWaiters(false);
+      clearMessages();
       attachment = null;
       input.value = '';
       renderAttachment(null);
@@ -916,7 +923,7 @@
       if (followBottom) keepAtBottom();
       else updateScrollEdge();
     }
-    return { attach, present, send, toggleGlobal, reset, waitUntilClosed, capture, restore, finishRestore };
+    return { attach, present, send, toggleGlobal, clearHistory, reset, waitUntilClosed, capture, restore, finishRestore };
 
 
   }

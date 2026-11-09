@@ -94,6 +94,7 @@
 		E744493F86BF409D9120B96D /* WebSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B964FFB463406DBA53454B /* WebSearchClient.swift */; };
 		EC64F2185C434E4ABE05AAA1 /* WebSearchSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F604CFDE6D2456D8F378644 /* WebSearchSettings.swift */; };
 		F5770605EF0B46F195F5A95D /* AgentWebSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7843626A3C4055ADB2A2FF /* AgentWebSearch.swift */; };
+		A90000000000000000000002 /* AgentCurrentTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90000000000000000000001 /* AgentCurrentTime.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -212,6 +213,7 @@
 		CACA11000000000000000003 /* vendor/model-capabilities.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "vendor/model-capabilities.json"; sourceTree = SOURCE_ROOT; };
 		CACA11000000000000000005 /* vendor/models.dev.LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = vendor/models.dev.LICENSE; sourceTree = SOURCE_ROOT; };
 		D5A92EDCB4484F6A812C3090 /* NewDocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewDocumentPicker.swift; sourceTree = "<group>"; };
+		A90000000000000000000001 /* AgentCurrentTime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCurrentTime.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -304,6 +306,7 @@
 		4A6EDE7BBE25F25BF3568C5F /* AI */ = {
 			isa = PBXGroup;
 			children = (
+				A90000000000000000000001 /* AgentCurrentTime.swift */,
 				28230E06A7041C46A98EC0F2 /* AgentContextBuilder.swift */,
 				9565B3CCADBF0EA01ADC5923 /* AgentDocumentTools.swift */,
 				54E723182B2E41ACAB9300E1 /* AgentImages.swift */,
@@ -648,6 +651,7 @@
 				FA11AA220000000000000005 /* ResourceFolderPicker.swift in Sources */,
 				D5A92EDCB4484F6A812C3091 /* NewDocumentPicker.swift in Sources */,
 				131442CC3FD54F0C9EDCE7AD /* RecentDocuments.swift in Sources */,
+				A90000000000000000000002 /* AgentCurrentTime.swift in Sources */,
 				7B76B0B30BC38DE3D4CD1FB2 /* AgentContextBuilder.swift in Sources */,
 				A431016B01381088DA1A7D79 /* AgentDocumentTools.swift in Sources */,
 				A8D4D8970784DE13DBBB3726 /* AgentModelTransport.swift in Sources */,

@@ -22,6 +22,7 @@
   --mdv-settings-width: 480px;
   --mdv-home-mark: 120px;
   --mdv-home-slogan-size: 22px;
+  --mdv-home-actions-width: 440px;
   --mdv-recents-width: 360px;
   --mdv-recents-max-height: 540px;
   --mdv-home-brand-gap: 20px;
@@ -403,8 +404,10 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr) var(--mdv-agent-reserved-width); }
 #mdv-reading-concept .mdv-agent-open .mdv-article { padding-top: calc(var(--mdv-hit-target) + 32px); }
 #mdv-reading-concept .mdv-agent-grabber { display: none; }
-#mdv-reading-concept .mdv-app .mdv-agent-collapse { position: absolute; z-index: 3; top: var(--mdv-agent-control-inset); right: var(--mdv-agent-control-inset); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 0; border-radius: 50%; color: var(--mdv-muted); background: color-mix(in srgb, var(--mdv-paper) 85%, transparent); }
-#mdv-reading-concept .mdv-app .mdv-agent-collapse svg { width: var(--mdv-reader-chrome-canvas); height: var(--mdv-reader-chrome-canvas); }
+#mdv-reading-concept .mdv-agent-controls { position: absolute; z-index: 3; inset: 0 0 auto; display: flex; justify-content: space-between; align-items: center; padding: var(--mdv-agent-control-inset); pointer-events: none; }
+#mdv-reading-concept .mdv-app .mdv-agent-control { position: relative; width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 0; border-radius: 50%; color: var(--mdv-muted); background: color-mix(in srgb, var(--mdv-paper) 85%, transparent); pointer-events: auto; }
+#mdv-reading-concept .mdv-app .mdv-agent-control svg { width: var(--mdv-reader-chrome-canvas); height: var(--mdv-reader-chrome-canvas); }
+#mdv-reading-concept .mdv-app .mdv-agent-clear:disabled { opacity: .35; }
 #mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; padding: 0 var(--mdv-agent-content-inset); scrollbar-width: thin; }
 #mdv-reading-concept .mdv-agent-scroll { --mdv-scroll-top-alpha: #000; --mdv-scroll-bottom-alpha: #000; mask-image: linear-gradient(to bottom, var(--mdv-scroll-top-alpha), #000 var(--mdv-agent-scroll-edge), #000 calc(100% - var(--mdv-agent-scroll-edge)), var(--mdv-scroll-bottom-alpha)); }
 #mdv-reading-concept .mdv-agent-scroll[data-scrolled] { --mdv-scroll-top-alpha: transparent; }
@@ -412,7 +415,7 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-conversation { display: flex; flex-direction: column; gap: 28px; min-width: 0; padding: var(--mdv-agent-content-inset) 0; }
 #mdv-reading-concept .mdv-turn { min-width: 0; }
 #mdv-reading-concept .mdv-user-turn { margin-left: 24px; background: var(--mdv-chrome); border-radius: 18px 18px 5px 18px; padding: 12px 14px; }
-#mdv-reading-concept .mdv-user-turn:first-child { margin-right: 40px; }
+#mdv-reading-concept .mdv-user-turn:first-child { margin-inline: var(--mdv-hit-target); }
 #mdv-reading-concept .mdv-assistant-turn { position: relative; padding: 0; }
 #mdv-reading-concept .mdv-rich-text { min-width: 0; font-size: var(--mdv-agent-text-size); line-height: var(--mdv-agent-leading); overflow-wrap: anywhere; }
 #mdv-reading-concept .mdv-rich-text > :first-child { margin-top: 0; }
@@ -516,9 +519,8 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] { --mdv-agent-content-inset: 20px; }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr); }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent { --mdv-agent-safe-bottom: 0px; inset: auto 0 var(--mdv-agent-bottom-inset); width: 100%; height: var(--mdv-agent-sheet-height); max-height: min(calc(100dvh - 24px - var(--mdv-agent-bottom-inset)), var(--mdv-agent-viewport-height, 100dvh)); border: 0; border-top: 1px solid var(--mdv-line); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 40px var(--mdv-shadow); }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-grabber { display: grid; place-items: center; flex: 0 0 auto; height: 18px; touch-action: none; }
+#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-grabber { position: absolute; inset: 0 0 auto; display: grid; place-items: center; height: 18px; touch-action: none; pointer-events: auto; }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-grabber span { width: 32px; height: 4px; background: var(--mdv-line); border-radius: 3px; }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-collapse { top: 12px; }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-composer { margin-bottom: max(var(--mdv-composer-margin), calc(env(safe-area-inset-bottom, 0px) - var(--mdv-agent-bottom-inset))); }
 #mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-user-turn { margin-left: 16px; }
 
@@ -545,8 +547,11 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
       <div class="mdv-source-panel" aria-hidden="true" hidden></div>
     </main>
 <aside class="mdv-agent" data-component="QuestionPanel" aria-label="AI conversation" data-l10n-aria-label="AI conversation" hidden>
-  <div class="mdv-agent-grabber" aria-hidden="true"><span></span></div>
-  <button type="button" data-agent-action="collapse" data-reader-chrome class="mdv-agent-collapse cursor-interaction" aria-label="Collapse conversation" data-l10n-aria-label="Collapse conversation"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+  <div class="mdv-agent-controls">
+    <div class="mdv-agent-grabber" aria-hidden="true"><span></span></div>
+    <button type="button" data-agent-action="clear-history" data-reader-chrome class="mdv-agent-control mdv-agent-clear cursor-interaction" aria-label="Clear History" data-l10n-aria-label="Clear History" disabled><i data-lucide="trash-2" aria-hidden="true"></i></button>
+    <button type="button" data-agent-action="collapse" data-reader-chrome class="mdv-agent-control mdv-agent-collapse cursor-interaction" aria-label="Collapse conversation" data-l10n-aria-label="Collapse conversation"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+  </div>
   <div class="mdv-agent-scroll" role="region" aria-label="Conversation" data-l10n-aria-label="Conversation">
     <div class="mdv-conversation" data-component="ConversationThread" aria-label="Conversation thread" data-l10n-aria-label="Conversation thread"></div>
   </div>

@@ -36,7 +36,8 @@
         "PrivacyPolicy"
       ],
       "invariants": [
-        "One ordered collection determines the central homepage layout and entrance sequence; the policy entry occupies its own footer."
+        "One ordered collection determines the central homepage layout and entrance sequence; the policy entry occupies its own footer.",
+        "Open Document and New Document share one equal-width, equal-height native button row; Recent Documents remains a secondary text action below."
       ],
       "specification": "design/README.md#首页与最近文档"
     },

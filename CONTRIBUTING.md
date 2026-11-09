@@ -65,7 +65,7 @@ xcodebuild -project MarkdownIt.xcodeproj -scheme MarkdownIt \
 | 单元测试 | `MarkdownItTests` | 文档、权限、上下文、协议解析、输入处理与撤销栈 | 在 iPhone、iPad 模拟器上运行 |
 | WebKit 集成测试 | 同一目标中的 `WebReaderTests`、`AgentFlowTests` | 原生与 Web 同步、渲染、目录、编辑工具及模拟网络交互 | 在两端模拟器上运行 |
 | UI 测试 | `MarkdownItUITests` | 实际控件操作、软键盘、旋转、前后台切换及面板开合 | 在两端模拟器上完整运行 |
-| 真实服务测试 | `MarkdownItLiveTests` | 模型容量、上下文整理、两种协议、多轮对话、编辑、识图，以及联网搜索与网页正文读取 | 只编译，不发送请求 |
+| 真实服务测试 | `MarkdownItLiveTests` | 模型容量、上下文整理、两种协议、多轮对话、编辑、识图、系统时间，以及联网搜索与网页正文读取 | 只编译，不发送请求 |
 | 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、Pencil 划线及随手写、系统合成与设备恢复 | 人工执行，不进入自动化 CI |
 
 ### 离线自动化测试

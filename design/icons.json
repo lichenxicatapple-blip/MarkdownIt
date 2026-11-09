@@ -140,6 +140,12 @@
     {
       "action": "delete-annotation",
       "native": "trash"
+    },
+    {
+      "action": "clear-conversation",
+      "native": "trash",
+      "size": 18,
+      "web": "trash-2"
     }
   ],
   "status": "Native SF Symbol mapping and web icon identifiers.",

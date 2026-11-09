@@ -39,6 +39,8 @@ final class ReaderSession: ObservableObject {
     @Published var documentLeading: CGFloat = 0
     @Published var needsModelConfiguration = false
     @Published var needsDataSharingConsent = false
+    @Published var needsAgentHistoryClear = false
+    private var agentHistoryClearToken: String?
     @Published var modelSettingsRequested = false
     @Published private(set) var isClosingDocument = false
     @Published var closeSaveFailed = false
@@ -295,6 +297,7 @@ final class ReaderSession: ObservableObject {
         failedCloseToken = nil
         closeSaveFailed = false
         pendingAgentEntry = nil
+        finishAgentHistoryClear(confirmed: false)
         needsModelConfiguration = false
         agentOpen = false
         agentVisible = false
@@ -516,6 +519,7 @@ final class ReaderSession: ObservableObject {
         searchAuthorization.finish(allowed: false)
         agentDocuments.reset()
         pendingAgentEntry = nil
+        finishAgentHistoryClear(confirmed: false)
         failedCloseToken = nil
         needsModelConfiguration = false
         needsResourcePermission = false
@@ -581,6 +585,28 @@ final class ReaderSession: ObservableObject {
 
     func toggleAgent() {
         Task { _ = try? await bridge?.call("toggleAgent") }
+    }
+
+    func requestAgentHistoryClear(token: String) {
+        guard token == documentToken, document != nil, !isClosingDocument else { return }
+        agentHistoryClearToken = token
+        needsAgentHistoryClear = true
+    }
+
+    func finishAgentHistoryClear(confirmed: Bool) {
+        let token = agentHistoryClearToken
+        agentHistoryClearToken = nil
+        if needsAgentHistoryClear { needsAgentHistoryClear = false }
+        guard confirmed, let token, token == documentToken, document != nil, !isClosingDocument, let bridge else {
+            return
+        }
+        agentTransport.reset()
+        Task { [weak self, weak bridge] in
+            guard let self, let bridge, token == self.documentToken else { return }
+            _ = try? await bridge.call("clearAgentHistory", arguments: ["payload": ["token": token]])
+            guard token == self.documentToken else { return }
+            await self.checkpointRecovery()
+        }
     }
 
     var isModelConfigured: Bool {
@@ -681,11 +707,17 @@ final class ReaderSession: ObservableObject {
             searchConfiguration.isConfigured
             ? AgentWebSearch(
                 settings: searchConfiguration, client: webSearchClient,
-                onResult: { [weak self] result in self?.agentTransport.recordSearch(result, snapshot: snapshot) },
-                onPage: { [weak self] page in self?.agentTransport.recordWebPage(page, snapshot: snapshot) },
-                authorize: { [weak self] provider, query in
+                onResult: { [weak self] result in
+                    guard let self, self.agentTransport.activeID == id else { return }
+                    self.agentTransport.recordSearch(result, snapshot: snapshot)
+                },
+                onPage: { [weak self] page in
+                    guard let self, self.agentTransport.activeID == id else { return }
+                    self.agentTransport.recordWebPage(page, snapshot: snapshot)
+                },
+                authorize: { [weak self] provider in
                     guard let self else { return false }
-                    return await self.searchAuthorization.authorize(provider: provider, query: query) { [weak self] in
+                    return await self.searchAuthorization.authorize(provider: provider) { [weak self] in
                         guard let self else { return false }
                         return self.documentToken == token && !self.isClosingDocument
                             && self.agentTransport.activeID == id
@@ -717,7 +749,8 @@ final class ReaderSession: ObservableObject {
                 guard let self, self.documentToken == token, self.document != nil, !self.isClosingDocument else {
                     return []
                 }
-                var tools = self.agentImages.hasImages(in: snapshot) ? [AgentImages.definition] : []
+                var tools = [AgentCurrentTime.definition]
+                if self.agentImages.hasImages(in: snapshot) { tools.append(AgentImages.definition) }
                 if search?.isAvailable == true && self.searchSettings.identity == searchConfiguration.identity {
                     tools += search?.definitions ?? []
                 }
@@ -731,6 +764,7 @@ final class ReaderSession: ObservableObject {
                 guard let self, self.documentToken == token, self.document != nil, !self.isClosingDocument else {
                     return AgentToolExecution(output: #"{"error":"document_closed"}"#)
                 }
+                if call.name == AgentCurrentTime.definition.name { return AgentCurrentTime.execute(call) }
                 if ["web_search", "read_webpage"].contains(call.name), let search {
                     guard self.searchSettings.identity == searchConfiguration.identity else {
                         return AgentToolExecution(output: #"{"error":"tool_unavailable"}"#)

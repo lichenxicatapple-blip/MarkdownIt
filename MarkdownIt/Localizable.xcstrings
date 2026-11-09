@@ -43,6 +43,23 @@
         }
       }
     },
+    "AI conversation history for this document will be deleted." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI conversation history for this document will be deleted."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将清空当前文档的 AI 对话记录。"
+          }
+        }
+      }
+    },
     "AI message" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -385,6 +402,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择文件夹"
+          }
+        }
+      }
+    },
+    "Clear" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清空"
+          }
+        }
+      }
+    },
+    "Clear History" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear History"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清空历史"
+          }
+        }
+      }
+    },
+    "Clear History?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear History?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清空历史？"
           }
         }
       }
@@ -1253,19 +1321,19 @@
         }
       }
     },
-    "New Document..." : {
+    "New Document" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "New Document..."
+            "value" : "New Document"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新建文档..."
+            "value" : "新建文档"
           }
         }
       }
@@ -1979,35 +2047,36 @@
         }
       }
     },
-    "Search terms and selected webpage URLs will be sent to %@. Search results and page content will be shared with your AI service.\n\n%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Search terms and selected webpage URLs will be sent to %@. Search results and page content will be shared with your AI service.\n\n%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "搜索词和选定的网页地址将发送至 %@，搜索结果及网页正文将提供给你的 AI 服务。\n\n%@"
-          }
-        }
-      }
-    },
-    "Search terms will be sent to %@, and the results will be shared with your AI service.\n\n%@" : {
+    "Search terms and selected webpage URLs will be sent to %@. Search results and page content will be shared with your AI service." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Search terms will be sent to %@, and the results will be shared with your AI service.\n\n%@"
+            "value" : "Search terms and selected webpage URLs will be sent to %@. Search results and page content will be shared with your AI service."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索词将发送至 %@，搜索结果会提供给你配置的 AI 服务。\n\n%@"
+            "value" : "搜索词及所选网页地址将发送给 %@。搜索结果与网页正文会提供给你的 AI 服务。"
+          }
+        }
+      }
+    },
+    "Search terms will be sent to %@, and the results will be shared with your AI service." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search terms will be sent to %@, and the results will be shared with your AI service."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索词将发送给 %@，搜索结果会提供给你的 AI 服务。"
           }
         }
       }

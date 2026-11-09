@@ -3,14 +3,14 @@ import UniformTypeIdentifiers
 
 private enum ReaderAccessibilityAction { case tools, ai, more, open, create, recents }
 private enum HomeItem: CaseIterable, Hashable {
-    case mark, slogan, openDocument, newDocument, recentDocuments
+    case mark, slogan, documentActions, recentDocuments
 
     var spacingBefore: CGFloat {
         switch self {
         case .mark: 0
         case .slogan: ReaderDesign.homeBrandGap
-        case .openDocument: ReaderDesign.homeGroupGap
-        case .newDocument, .recentDocuments: ReaderDesign.homeActionGap
+        case .documentActions: ReaderDesign.homeGroupGap
+        case .recentDocuments: ReaderDesign.homeActionGap
         }
     }
 }
@@ -208,6 +208,14 @@ struct ReaderScreen: View {
             Text("This file was changed outside the app. Choose which version to keep.")
         }
         .background { WebSearchConsentPresenter(authorization: session.searchAuthorization) }
+        .alert("Clear History?", isPresented: alertPresentation(\.needsAgentHistoryClear)) {
+            Button("Cancel", role: .cancel) { session.finishAgentHistoryClear(confirmed: false) }
+                .accessibilityIdentifier("CancelClearAgentHistory")
+            Button("Clear", role: .destructive) { session.finishAgentHistoryClear(confirmed: true) }
+                .accessibilityIdentifier("ConfirmClearAgentHistory")
+        } message: {
+            Text("AI conversation history for this document will be deleted.")
+        }
         .alert(
             "Allow Sending to This AI Service?",
             isPresented: alertPresentation(\.needsDataSharingConsent)
@@ -320,22 +328,24 @@ struct ReaderScreen: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(homeSlogan.joined(separator: " "))
             .accessibilityIdentifier("HomeSlogan")
-        case .openDocument:
-            Button("Open Document", systemImage: "doc", action: openDocument)
-                .buttonStyle(.glassProminent).controlSize(.large)
-                .accessibilityIdentifier("OpenDocument")
-                .accessibilityFocused($focusedAction, equals: .open)
-        case .newDocument:
-            homeTextButton("New Document...") {
-                do {
-                    newDocumentExport = try NewDocumentExport(filename: String(localized: "Untitled"))
-                } catch {
-                    session.errorMessage = error.localizedDescription
+        case .documentActions:
+            HStack(spacing: ReaderDesign.homeActionGap) {
+                homeDocumentButton("Open Document", systemImage: "doc", action: openDocument)
+                    .accessibilityIdentifier("OpenDocument")
+                    .accessibilityFocused($focusedAction, equals: .open)
+                homeDocumentButton("New Document", systemImage: "doc.badge.plus") {
+                    do {
+                        newDocumentExport = try NewDocumentExport(filename: String(localized: "Untitled"))
+                    } catch {
+                        session.errorMessage = error.localizedDescription
+                    }
                 }
+                .accessibilityIdentifier("NewDocument")
+                .accessibilityFocused($focusedAction, equals: .create)
+                .disabled(newDocumentExport != nil)
             }
-            .accessibilityIdentifier("NewDocument")
-            .accessibilityFocused($focusedAction, equals: .create)
-            .disabled(newDocumentExport != nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: ReaderDesign.homeActionsWidth)
         case .recentDocuments:
             homeTextButton("Recent Documents...") { recentsPresented = true }
                 .accessibilityIdentifier("RecentDocuments")
@@ -353,6 +363,18 @@ struct ReaderScreen: View {
                     if !presented && session.document == nil { focusedAction = .recents }
                 }
         }
+    }
+
+    private func homeDocumentButton(
+        _ title: LocalizedStringKey, systemImage: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.glassProminent).controlSize(.large)
     }
 
     private func homeTextButton(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {

@@ -31,6 +31,8 @@ MarkdownIt! 是本地 Markdown 阅读与编辑工具，不要求注册账号，�
 
 成功关闭或切换文档会清除对应会话的恢复数据；收起 AI 面板或切到后台不会清除。未完成的回答保留已接收内容，等待你决定是否重试。无法重新访问原文件时，恢复数据保留在设备上，不覆盖其他文件。
 
+清空 AI 历史会删除当前文档的对话记录与模型上下文，保留未发送草稿、当前引用和文档的撤销／重做历史。
+
 ### 3. 可选 AI、联网搜索及模型列表查询
 
 AI 服务由你通过服务地址、模型和 API Key 自行配置。请求直接发送至你配置的服务，
@@ -44,6 +46,7 @@ AI 服务由你通过服务地址、模型和 API Key 自行配置。请求直�
 - 发送 AI 消息会将当前文档全文、所选片段、你的问题和本次会话历史发送至所配服务。
   请求还可能包含文档文件名、内容版本及当前可用能力。仅选中一段文字不代表只发送该片段。
 - 长对话可能由同一服务整理为摘要，较长文档和引用可能分次按需发送；整理过程也会向该服务发送相关会话内容。
+- 根据任务，模型可以读取当前系统时间和时区；工具结果会提供给所配模型服务。
 - 源码编辑任务可能包含后续模型请求，以及当前文档编辑工具的参数、结果和修改内容。
 - 选中的图片随问题发送实际画面。全局 AI 先发送文档中的图片引用清单，模型可按需读取并接收相关图片；
   不会每轮主动发送全部图片。本地图片受已有文件授权限制，网络图片由应用按其引用地址下载。
@@ -51,7 +54,7 @@ AI 服务由你通过服务地址、模型和 API Key 自行配置。请求直�
 - 应用不额外加入文件的系统绝对路径；文档正文原有的路径、链接和其他信息仍会作为正文的一部分发送。
 - 阅读划线与批注不会自动加入 AI 请求。你主动复制到问题中的批注文字按该次问题处理。
 
-联网搜索由你选择服务并配置自己的 API Key，默认关闭。启用后，AI 可根据任务调用所选服务。首次请求会展示实际搜索词或网页地址，并说明搜索结果及提取正文的发送范围，征求许可；取消不发送搜索请求，仍可根据已有资料回答。允许后记住该服务及发送范围的许可。
+联网搜索由你选择服务并配置自己的 API Key，默认关闭。启用后，AI 可根据任务调用所选服务。首次请求会说明服务名称、将发送的数据种类，以及搜索结果及提取正文的发送范围，征求许可；取消不发送搜索请求，仍可根据已有资料回答。允许后记住该服务及发送范围的许可。
 
 搜索请求直接发送至所选搜索服务，包含查询词、语言等搜索参数，以及用于认证的对应密钥。查询词可能由你的提问或文档内容生成。按需读取网页时，网页地址直接发送给支持正文提取的所选服务，由其访问目标页面。搜索结果及实际读取的正文片段会提供给已获准的模型服务，并与对话一起保存在本机，用于追问、恢复与重试。搜索提供者可能处理查询、认证信息、IP 地址与请求日志，其处理规则适用该服务的政策。
 
@@ -169,7 +172,9 @@ ask again for that service. A different service address requires new permission.
   information already present in the document remain part of the transmitted text.
 - Reading underlines and annotations are not automatically added to AI requests. Annotation text you choose to copy into a question is handled as part of that question.
 
-Web search is off by default. You choose a search provider and supply your own API key. Once enabled, AI may use it as needed. Before the first request to a search service, the app displays the actual query or webpage URL and asks for permission to share search results and extracted page content. Canceling sends no search request and allows the answer to continue using existing information. Permission is remembered for that service and sending scope.
+When requested, the model can obtain the current system time and time zone through a local read-only tool. The result is shared with your configured AI service. Clearing AI history removes the current document’s conversation and model context while preserving the unsent draft, current reference, and document undo/redo history.
+
+Web search is off by default. You choose a search provider and supply your own API key. Once enabled, AI may use it as needed. Before the first request to a search service, the app identifies the provider and the types of data to be sent, and asks for permission to share search results and extracted page content. Canceling sends no search request and allows the answer to continue using existing information. Permission is remembered for that service and sending scope.
 
 Search requests go directly to the chosen provider and include search terms, search parameters such as language, and its authentication key. Queries may be derived from your question or document. When reading a webpage, its URL is sent directly to your selected service that supports extraction, which retrieves the target page. Search results and retrieved excerpts are supplied to your approved model service and retained locally with the conversation for follow-up questions, recovery and retries. The search provider may process queries, authentication information, IP addresses and request logs under its own policies.
 

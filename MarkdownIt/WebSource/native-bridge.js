@@ -248,6 +248,11 @@
       agentInteraction() { notePanelInteraction('agent'); },
       updateAgentInput(payload) { nativeInputs.update(payload); },
       commitAgentInput(payload) { nativeInputs.commit(payload); },
+      clearAgentHistory(payload) {
+        if (payload.token !== nativeToken) return false;
+        agentExperience.clearHistory();
+        return true;
+      },
       agentEvent(event) {
         if (event.token !== nativeToken) return;
         const request = nativeRequests.get(event.id);
