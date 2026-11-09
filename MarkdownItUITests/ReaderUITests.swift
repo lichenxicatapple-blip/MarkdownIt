@@ -28,19 +28,21 @@ final class ReaderUITests: XCTestCase {
 
     private func rotate(
         to orientation: UIDeviceOrientation, in app: XCUIApplication,
+        viewport: XCUIElement? = nil,
         file: StaticString = #filePath, line: UInt = #line
     ) {
         SimulatorOrientation.set(orientation, file: file, line: line)
         let expected = SimulatorOrientation.interfaceOrientation(for: orientation)
+        let viewport = viewport ?? app.webViews.firstMatch
         // A square window or a 180-degree turn can retain its dimensions. Verify
         // the target application's interface instead of the driver's device value.
         let layout = NSPredicate { _, _ in
             (try? SimulatorOrientation.interfaceOrientation(of: app)) == expected
-                && !app.webViews.firstMatch.frame.isEmpty
+                && viewport.exists && !viewport.frame.isEmpty
         }
         XCTAssertEqual(
             XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: layout, object: nil)], timeout: 8), .completed,
-            "The app must reach interface orientation \(expected.rawValue); reading viewport \(app.webViews.firstMatch.frame)",
+            "The app must reach interface orientation \(expected.rawValue); viewport \(viewport.frame)",
             file: file, line: line)
     }
 
@@ -1122,16 +1124,24 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(recent.waitForExistence(timeout: 8))
         let open = app.buttons["OpenDocument"]
         let create = app.buttons["NewDocument"]
-        XCTAssertEqual(recent.label, "最近打开...")
-        XCTAssertGreaterThanOrEqual(recent.frame.height, 44)
-        XCTAssertTrue(create.exists)
-        XCTAssertEqual(open.frame.midY, create.frame.midY, accuracy: 1)
-        XCTAssertEqual(open.frame.width, create.frame.width, accuracy: 1)
-        XCTAssertEqual(open.frame.height, create.frame.height, accuracy: 1)
-        let actions = open.frame.union(create.frame)
-        XCTAssertGreaterThan(recent.frame.minY, actions.maxY)
-        XCTAssertEqual(recent.frame.midX, actions.midX, accuracy: 1)
+        func assertActionPlacement() {
+            XCTAssertEqual(recent.label, "最近打开...")
+            XCTAssertGreaterThanOrEqual(recent.frame.height, 44)
+            XCTAssertTrue(create.exists)
+            XCTAssertEqual(open.frame.midY, create.frame.midY, accuracy: 1)
+            XCTAssertEqual(open.frame.width, create.frame.width, accuracy: 1)
+            XCTAssertEqual(open.frame.height, create.frame.height, accuracy: 1)
+            let actions = open.frame.union(create.frame)
+            XCTAssertGreaterThan(recent.frame.minY, actions.maxY)
+            XCTAssertEqual(recent.frame.midX, actions.midX, accuracy: 1)
+        }
+        assertActionPlacement()
         record("home-recent-secondary-action")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            rotate(to: .landscapeLeft, in: app, viewport: open)
+            assertActionPlacement()
+            record("home-document-actions-landscape")
+        }
         recent.tap()
         let empty = app.staticTexts["RecentDocumentsEmpty"]
         XCTAssertTrue(empty.waitForExistence(timeout: 5))

@@ -340,6 +340,7 @@ struct ReaderScreen: View {
                         session.errorMessage = error.localizedDescription
                     }
                 }
+                .tint(Color(uiColor: .darkGray))
                 .accessibilityIdentifier("NewDocument")
                 .accessibilityFocused($focusedAction, equals: .create)
                 .disabled(newDocumentExport != nil)
