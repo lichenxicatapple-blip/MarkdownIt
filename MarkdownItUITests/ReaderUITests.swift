@@ -814,7 +814,8 @@ final class ReaderUITests: XCTestCase {
         record("model-settings-reset-persists-after-relaunch")
     }
 
-    func testModelSettingsShowsFieldSpecificAlertsAndPreservesTheDraft() {
+    func testModelSettingsShowsFieldSpecificAlertsAndPreservesTheDraft() throws {
+        try useComponentSynchronization()
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
