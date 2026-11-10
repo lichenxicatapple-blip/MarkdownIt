@@ -104,6 +104,13 @@ private actor AnswerCollector {
     func append(_ value: String) { text += value }
 }
 
+private final class DiagnosticRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [ModelDiagnostics.Event] = []
+    func append(_ event: ModelDiagnostics.Event) { lock.withLock { stored.append(event) } }
+    func events() -> [ModelDiagnostics.Event] { lock.withLock { stored } }
+}
+
 /// A real loopback endpoint exercises URLSession's redirect delegate, including streamed POST bodies.
 private final class RedirectFixtureServer: @unchecked Sendable {
     private let listener: NWListener
@@ -358,10 +365,77 @@ final class ModelClientTests: XCTestCase {
         cache.cancel()
     }
 
-    private func client() -> ModelClient {
+    private func client(diagnostics: ModelDiagnostics = ModelDiagnostics()) -> ModelClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ModelURLProtocol.self]
-        return ModelClient(session: URLSession(configuration: configuration))
+        return ModelClient(session: URLSession(configuration: configuration), diagnostics: diagnostics)
+    }
+
+    func testRequestDiagnosticsCorrelatesRateLimitWithoutRecordingCredentialsOrContent() async throws {
+        let recorder = DiagnosticRecorder()
+        let key = "private-key-for-diagnostics"
+        ModelURLProtocol.fixture.configure(
+            status: 429, mime: "application/json", headers: ["Retry-After": "12", "x-request-id": "req-429"],
+            body:
+                #"{"error":{"code":"insufficient_quota","type":"rate_limit_error","message":"private-key-for-diagnostics PRIVATE_QUESTION PRIVATE_DOCUMENT"}}"#
+        )
+        let connection = ModelConfiguration(
+            baseURL: "https://example.test/private-key-for-diagnostics/v1", model: "fixture-model")
+        do {
+            _ = try await client(diagnostics: ModelDiagnostics(record: recorder.append)).stream(
+                configuration: connection, key: key,
+                messages: [ChatMessage(role: "user", content: "PRIVATE_QUESTION PRIVATE_DOCUMENT")],
+                maxOutputTokens: 2048, context: .init(runID: "run-429"), onText: { _ in })
+            XCTFail("The original rate limit must still be reported")
+        } catch ModelError.rateLimited(let delay) { XCTAssertEqual(delay, 12) }
+        let events = recorder.events()
+        XCTAssertEqual(
+            events.map(\.name), ["request.start", "request.response", "request.remote_error", "request.end"])
+        XCTAssertEqual(Set(events.compactMap(\.requestID)).count, 1)
+        XCTAssertTrue(events.allSatisfy { $0.runID == "run-429" && $0.purpose == .answer })
+        XCTAssertEqual(events[0].maxOutputTokens, 2048)
+        XCTAssertEqual(events[0].model, "fixture-model")
+        XCTAssertEqual(events[0].service, "example.test")
+        XCTAssertEqual(events[1].httpStatus, 429)
+        XCTAssertEqual(events[1].providerRequestID, "req-429")
+        XCTAssertEqual(events[1].retryAfterSeconds, 12)
+        XCTAssertEqual(events[2].providerCode, "insufficient_quota")
+        XCTAssertEqual(events[2].providerType, "rate_limit_error")
+        XCTAssertEqual(events[3].outcome, "rateLimit")
+        let encoded = String(decoding: try JSONEncoder().encode(events), as: UTF8.self)
+        for secret in [key, "PRIVATE_QUESTION", "PRIVATE_DOCUMENT", "message\""] {
+            XCTAssertFalse(encoded.contains(secret))
+        }
+        XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 1)
+    }
+
+    func testRequestDiagnosticsDistinguishesSummaryAndRecordsFirstTextAndUsage() async throws {
+        let recorder = DiagnosticRecorder()
+        ModelURLProtocol.fixture.configure(
+            mime: "application/json",
+            body:
+                #"{"choices":[{"message":{"content":"PRIVATE_ANSWER"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#
+        )
+        let model = client(diagnostics: ModelDiagnostics(record: recorder.append))
+        for purpose in [ModelDiagnostics.Purpose.answer, .summary] {
+            _ = try await model.stream(
+                configuration: ModelConfiguration(
+                    baseURL: "https://example.test/v1", model: "fixture-model", apiProtocol: .chatCompletions),
+                key: "private-diagnostic-key", messages: [ChatMessage(role: "user", content: "PRIVATE_QUESTION")],
+                context: .init(runID: "one-run", purpose: purpose), onText: { _ in })
+        }
+        let events = recorder.events()
+        XCTAssertEqual(Set(events.compactMap(\.requestID)).count, 2)
+        XCTAssertEqual(events.filter { $0.name == "request.first_text" }.count, 2)
+        for purpose in [ModelDiagnostics.Purpose.answer, .summary] {
+            let result = events.filter { $0.purpose == purpose }
+            XCTAssertEqual(
+                result.map(\.name), ["request.start", "request.response", "request.first_text", "request.end"])
+            XCTAssertEqual(result.last?.outcome, "completed")
+            XCTAssertEqual(result.last?.inputTokens, 12)
+            XCTAssertEqual(result.last?.outputTokens, 3)
+        }
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(events), as: UTF8.self).contains("PRIVATE_ANSWER"))
     }
 
     private func catalog() -> ModelCatalog {

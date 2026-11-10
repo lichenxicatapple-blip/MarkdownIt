@@ -24,11 +24,17 @@ final class AgentImages: NSObject, WKURLSchemeHandler {
 
     func checkpoint() -> Recovery { Recovery(references: references, pixels: pixels, token: token) }
 
-    func restore(_ value: Recovery) {
+    func restore(_ value: Recovery, token currentToken: String? = nil) {
         reset()
         references = value.references
         pixels = value.pixels
-        token = value.token
+        token = currentToken ?? value.token
+    }
+
+    func retain(_ ids: Set<String>) {
+        generation = UUID()
+        references = references.filter { ids.contains($0.key) }
+        pixels = pixels.filter { ids.contains($0.key) }
     }
 
     private var references: [String: AgentImageReference] = [:]

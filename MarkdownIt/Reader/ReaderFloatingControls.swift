@@ -1,26 +1,12 @@
 import SwiftUI
 import UIKit
 
-/// Native and Web chrome share the same SF artwork without scaling glyphs to fill their bounds.
+/// Reader controls preserve each SF Symbol's natural optical metrics.
 @MainActor
 enum ReaderChromeSymbols {
-    private static var images: [String: UIImage] = [:]
-
-    static func image(_ name: String) -> UIImage? {
-        if let image = images[name] { return image }
-        guard
-            let symbol = UIImage(
-                systemName: name,
-                withConfiguration: UIImage.SymbolConfiguration(
-                    pointSize: ReaderDesign.readerChromeIcon, weight: .regular))?
-                .withTintColor(.white, renderingMode: .alwaysOriginal)
-        else { return nil }
-        let side = ReaderDesign.readerChromeCanvas
-        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
-            symbol.draw(at: CGPoint(x: (side - symbol.size.width) / 2, y: (side - symbol.size.height) / 2))
-        }
-        images[name] = image
-        return image
+    static func symbol(_ name: String, pointSize: CGFloat = ReaderDesign.readerChromeIcon) -> UIImage? {
+        UIImage(
+            systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular))
     }
 }
 
@@ -193,8 +179,7 @@ struct ReaderFloatingControls<Content: View>: UIViewControllerRepresentable {
             keyboard.setConstraints(
                 [
                     host.view.bottomAnchor.constraint(
-                        lessThanOrEqualTo: keyboard.topAnchor,
-                        constant: -ReaderDesign.floatingGap)
+                        lessThanOrEqualTo: keyboard.topAnchor, constant: -ReaderDesign.floatingGap)
                 ],
                 activeWhenAwayFrom: .top)
         }
@@ -206,6 +191,15 @@ struct ReaderFloatingControls<Content: View>: UIViewControllerRepresentable {
 final class ReaderControlsSurface: UIView {
     var expanded = false
     var reduceMotion = false
+
+    func restoreInputTracking() {
+        // The menu changes the window's options without updating this guide's
+        // copy. Toggle the local option so UIKit propagates it again.
+        keyboardLayoutGuide.followsUndockedKeyboard = false
+        keyboardLayoutGuide.followsUndockedKeyboard = true
+        window?.setNeedsLayout()
+        window?.layoutIfNeeded()
+    }
 
     override func layoutSubviews() {
         // Floating hardware-keyboard controls can update their guide in separate,
@@ -261,7 +255,7 @@ private struct ReaderMoreMenuButton: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(openModelSettings: openModelSettings) }
 
     func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .system)
+        let button = ReaderMenuButton(type: .system)
         button.accessibilityLabel = String(localized: "More")
         button.accessibilityIdentifier = "More"
         button.showsMenuAsPrimaryAction = true
@@ -284,5 +278,23 @@ private struct ReaderMoreMenuButton: UIViewRepresentable {
         var openModelSettings: () -> Void
 
         init(openModelSettings: @escaping () -> Void) { self.openModelSettings = openModelSettings }
+    }
+}
+
+/// UIKit's menu layout can overwrite the window's shared keyboard tracking options.
+private final class ReaderMenuButton: UIButton {
+    override func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        var ancestor = superview
+        while let view = ancestor {
+            if let surface = view as? ReaderControlsSurface {
+                surface.restoreInputTracking()
+                break
+            }
+            ancestor = view.superview
+        }
+        super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
     }
 }

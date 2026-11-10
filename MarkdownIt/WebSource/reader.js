@@ -578,7 +578,7 @@
     const agentExperience = window.MarkdownItAgent.create({
       ensureConfigured: ensureNativeAgentConfigured,
       onCheckpoint: scheduleRecovery,
-      onClearHistory() { postNative({ type: 'agentClearHistory', token: nativeToken }); },
+      onLifecycle(event, count) { postNative({ type: 'agentLifecycle', token: nativeToken, event, count }); },
       provider: createNativeAgentTransport(), nativeInputs,
       app, panel: agent, renderMarkdown: renderRichMarkdown, fragmentIdentifier,
       enhance: enhanceDocument, motion, reducedMotion,

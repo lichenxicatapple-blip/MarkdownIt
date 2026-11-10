@@ -66,6 +66,8 @@ def reader_design(spec):
         "homeGroupGap": "space.homeGroupGap",
         "homeActionGap": "space.homeActionGap",
         "homeDocumentGap": "space.homeDocumentGap",
+        "agentControlIcon": "size.agentControlIcon",
+        "agentControlSurface": "size.agentControlSurface",
         "recentsWidth": "size.recentsWidth",
         "recentsMaxHeight": "size.recentsMaxHeight",
     }
@@ -105,6 +107,7 @@ def reader_design(spec):
             ("documentClose", "documentClose"),
             ("inputAvoidance", "inputAvoidance"),
             ("content", "content"),
+            ("material", "material"),
             ("home", "homeEntrance"),
         ]
     ]

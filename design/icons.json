@@ -13,7 +13,7 @@
     "join": "round",
     "color": "currentColor",
     "minimumHitTarget": 44,
-    "readerChrome": "Outline, document close and conversation collapse share natural SF Symbols metrics at size.readerChromeIcon within size.readerChromeCanvas; artwork is not scaled to fill the canvas."
+    "readerChrome": "Outline and document close use size.readerChromeIcon within size.readerChromeCanvas; the compact conversation header uses size.agentControlIcon. All retain natural SF Symbols metrics and 44pt hit targets."
   },
   "icons": [
     {
@@ -32,14 +32,12 @@
     {
       "action": "collapse-conversation-regular",
       "native": "chevron.right",
-      "size": 18,
-      "web": "chevron-right"
+      "sizeToken": "size.agentControlIcon"
     },
     {
       "action": "collapse-conversation-compact",
       "native": "chevron.down",
-      "size": 18,
-      "web": "chevron-down"
+      "sizeToken": "size.agentControlIcon"
     },
     {
       "action": "source",
@@ -144,8 +142,7 @@
     {
       "action": "clear-conversation",
       "native": "trash",
-      "size": 18,
-      "web": "trash-2"
+      "sizeToken": "size.agentControlIcon"
     }
   ],
   "status": "Native SF Symbol mapping and web icon identifiers.",

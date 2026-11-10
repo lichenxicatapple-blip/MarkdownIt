@@ -35,12 +35,6 @@
     const input = composer.querySelector('textarea');
     const reference = composer.querySelector('.mdv-composer-reference');
     const sendButton = composer.querySelector('.mdv-agent-send');
-    const clearHistoryButton = panel.querySelector('[data-agent-action="clear-history"]');
-    const useDocument = button(t("Reference current document"), 'use-document', 'file-text');
-    useDocument.append(createNode('span', '', t("Reference document")));
-    useDocument.classList.add('mdv-use-document');
-    useDocument.hidden = true;
-    composer.querySelector('.mdv-composer-input-row').before(useDocument);
     const announcement = panel.querySelector('[role="status"]');
     const scrim = createNode('div', 'mdv-agent-scrim');
     scrim.hidden = true;
@@ -140,7 +134,6 @@
       clearTimeout(referenceScrollTimer);
       reference.replaceChildren();
       reference.hidden = !value;
-      useDocument.hidden = !!value;
       if (!value) return;
       const row = createNode('div', 'mdv-reference-row');
       const isDocument = value.scope === 'document';
@@ -198,7 +191,7 @@
       refreshIcons();
     }
     function updateSendState() {
-      clearHistoryButton.disabled = messages.length === 0;
+      panel.toggleAttribute('data-agent-has-history', messages.length > 0);
       const generating = !!activeStream;
       sendButton.disabled = !!pendingAuthorization || (!generating && !input.value.trim());
       sendButton.setAttribute('aria-label', generating ? t("Stop generating") : t("Send message"));
@@ -209,9 +202,6 @@
         sendButton.dataset.icon = desired;
         refreshIcons();
       }
-      input.style.height = 'auto';
-      const style = getComputedStyle(input);
-      input.style.height = Math.max(parseFloat(style.minHeight), input.scrollHeight) + 'px';
     }
     function updateScrollEdge() {
       const overflow = scroll.scrollHeight - scroll.clientHeight;
@@ -294,17 +284,13 @@
       onPresentationChange?.({ open: isOpen, visible: !panel.hidden,
         modal: panel.hasAttribute('data-modal-active'), documentLeading });
     }
-    function updateModality(shown, focus = false) {
+    function updateModality(shown) {
       const modal = shown && sheet;
       panel.toggleAttribute('data-modal-active', modal);
       notifyPresentation();
       panel.setAttribute('role', modal ? 'dialog' : 'complementary');
       if (modal) panel.setAttribute('aria-modal', 'true');
       else panel.removeAttribute('aria-modal');
-      const collapse = panel.querySelector('[data-agent-action="collapse"]');
-      collapse.replaceChildren(icon(sheet ? 'chevron-down' : 'chevron-right'));
-      refreshIcons();
-      if (modal && focus && !panel.contains(document.activeElement)) collapse.focus({ preventScroll: true });
       [app.querySelector('.mdv-reader'), app.querySelector('.mdv-outline')].filter(Boolean).forEach(node => { node.inert = modal; });
     }
     function resolveCloseWaiters(closed) {
@@ -354,7 +340,7 @@
       panel.inert = !shown;
       nativeInputs?.trackLayout();
       app.classList.toggle('mdv-agent-open', shown);
-      if (shown) updateModality(true, true);
+      if (shown) updateModality(true);
       else { nativeInputs?.blur(); notifyPresentation(); }
       const useScrim = sheet && (shown || !scrim.hidden);
       if (useScrim) scrim.hidden = false;
@@ -750,8 +736,6 @@
     input.addEventListener('input', updateSendState);
     input.addEventListener('input', checkpoint);
     scroll.addEventListener('scroll', checkpoint, { passive: true });
-    panel.querySelector('[data-agent-action="collapse"]').addEventListener('click', () => onToggle(false));
-    clearHistoryButton.addEventListener('click', () => dependencies.onClearHistory?.());
     function toggleGlobal(authorized = false) {
       if (!isOpen && !authorized && ensureConfigured) { ensureConfigured(() => toggleGlobal(true)); return; }
       if (isOpen) { onToggle(false); return; }
@@ -762,11 +746,6 @@
       renderAttachment(attachment);
       input.focus({ preventScroll: true });
     }
-    useDocument.addEventListener('click', () => {
-      attachment = documentAttachment();
-      renderAttachment(attachment);
-      input.focus({ preventScroll: true });
-    });
     scrim.addEventListener('click', () => onToggle(false));
     app.addEventListener('click', event => {
       const link = event.target.closest('.mdv-rich-text a[href^="#"]');
@@ -839,7 +818,8 @@
     });
     updateSendState();
     viewportChanged();
-    function clearMessages() {
+    function clearMessages(reason) {
+      dependencies.onLifecycle?.(reason, messages.length);
       cancelPendingFollow();
       ++conversationRevision;
       pendingAuthorization = null;
@@ -851,10 +831,13 @@
       documentChanges.clear();
       thread.replaceChildren();
     }
-    function clearHistory() { clearMessages(); followLatest(); updateSendState(); checkpoint(); }
-    function reset() {
+    function clearHistory() {
+      clearMessages('user_clear'); followLatest(); updateSendState(); checkpoint();
+      return (attachment?.images || []).map(image => image.id);
+    }
+    function reset(reason = 'document_reset') {
       resolveCloseWaiters(false);
-      clearMessages();
+      clearMessages(reason);
       attachment = null;
       input.value = '';
       renderAttachment(null);
@@ -876,7 +859,7 @@
     }
     function restore(value) {
       restoring = true;
-      reset();
+      reset('restore_reset');
       for (const saved of value.messages || []) {
         messageSequence = saved.id - 1;
         const message = addMessage(saved.role, saved.markdown, saved.attachment);

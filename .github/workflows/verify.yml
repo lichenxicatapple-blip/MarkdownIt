@@ -85,7 +85,7 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath "$RUNNER_TEMP/LiveTestBuild" CODE_SIGNING_ALLOWED=NO build-for-testing
       - name: Run all offline tests on iPhone and iPad
-        timeout-minutes: 35
+        timeout-minutes: 40
         run: >-
           caffeinate -i python3 scripts/verify_ios.py
           --simulator-prefix 'MarkdownIt CI'

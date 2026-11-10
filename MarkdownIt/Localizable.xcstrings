@@ -1610,40 +1610,6 @@
         }
       }
     },
-    "Reference current document" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reference current document"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "引用当前文档"
-          }
-        }
-      }
-    },
-    "Reference document" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reference document"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "引用文档"
-          }
-        }
-      }
-    },
     "Reference in AI Chat…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2876,6 +2842,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法整理对话，请重试。"
+          }
+        }
+      }
+    },
+    "Unable to preserve the AI conversation: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to preserve the AI conversation: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存 AI 会话：%@"
           }
         }
       }

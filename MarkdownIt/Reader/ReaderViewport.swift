@@ -2,8 +2,8 @@ import UIKit
 import WebKit
 
 extension WKWebView {
-    /// Native responders must stay outside WebKit's keyboard/responder hierarchy.
-    func hostNativeInput(_ input: UIView, aboveWebContent: Bool) -> UIView? {
+    /// Native inputs and controls stay outside WebKit's keyboard/responder hierarchy.
+    func hostNativeView(_ input: UIView, aboveWebContent: Bool) -> UIView? {
         guard let host = superview else { return nil }
         if input.superview !== host {
             if aboveWebContent {
@@ -90,10 +90,9 @@ final class ReaderContainer: UIView {
         viewport = ReaderViewport(webView: webView)
         super.init(frame: .zero)
         backgroundColor = .systemBackground
-        // Even with undocked tracking disabled, UIKit can report a narrow
-        // hardware-keyboard toolbar. Only full bottom-edge coverage reduces
-        // the document; the AI panel follows local input in ReaderViewport.
-        keyboardLayoutGuide.followsUndockedKeyboard = false
+        // UIKit shares undocked tracking within a window. All reader guides
+        // must follow it; actual coverage decides whether to resize the document.
+        keyboardLayoutGuide.followsUndockedKeyboard = true
         keyboardLayoutGuide.usesBottomSafeArea = false
         keyboardRegion.isUserInteractionEnabled = false
         keyboardRegion.translatesAutoresizingMaskIntoConstraints = false

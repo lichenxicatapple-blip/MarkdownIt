@@ -32,6 +32,9 @@
 		54E723182B2E41ACAB9300E2 /* AgentImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E723182B2E41ACAB9300E1 /* AgentImages.swift */; };
 		5739DA3F9E8F45C35088A644 /* MarkdownIt/InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 91E4F62115E9BFE9C5BCCBF8 /* MarkdownIt/InfoPlist.xcstrings */; };
 		586D29A3AEC84159017E0FBA /* NativeComposerHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47640BD493BB7D4616EE00FA /* NativeComposerHost.swift */; };
+		D19C3026F6834D76AC081203 /* AgentConversationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19C3026F6834D76AC081204 /* AgentConversationStore.swift */; };
+		D19C3026F6834D76AC081201 /* ModelDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19C3026F6834D76AC081202 /* ModelDiagnostics.swift */; };
+		3167FB30C5DE432881F51797 /* ConversationControlsHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78510654FB046CAAA861AE4 /* ConversationControlsHost.swift */; };
 		5C6EA45C49D310B2115D70F1 /* LocalResources.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BEBD418B69151CBB0001E8 /* LocalResources.swift */; };
 		6576A37D958ABF84871D89CF /* AgentPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A840D9E3ECA797CF4C533D7 /* AgentPrompt.swift */; };
 		7448F3A19A7271538D572AE5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC5F13BD83ADEDB81E93D094 /* MarkdownDocument.swift */; };
@@ -133,6 +136,9 @@
 		303CDBD47CF745448FA15B92 /* RecentDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDocuments.swift; sourceTree = "<group>"; };
 		472BF6B49F7B0F901B305AF1 /* MarkdownItTests/AgentFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownItTests/AgentFlowTests.swift; sourceTree = "<group>"; };
 		47640BD493BB7D4616EE00FA /* NativeComposerHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeComposerHost.swift; sourceTree = "<group>"; };
+		D19C3026F6834D76AC081204 /* AgentConversationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationStore.swift; sourceTree = "<group>"; };
+		D19C3026F6834D76AC081202 /* ModelDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDiagnostics.swift; sourceTree = "<group>"; };
+		B78510654FB046CAAA861AE4 /* ConversationControlsHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationControlsHost.swift; sourceTree = "<group>"; };
 		49AB56E596C0477DBEFF87F2 /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		49C9185D88A70CD0DB01D41A /* MarkdownIt/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = MarkdownIt/Assets.xcassets; sourceTree = "<group>"; };
 		4D4310404624E719957C7B19 /* MarkdownIt/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = MarkdownIt/Info.plist; sourceTree = "<group>"; };
@@ -330,6 +336,9 @@
 				D9972678B557E39E2012BA9E /* ModelTools.swift */,
 				CE081A97C56B9CD8DD33698E /* ModelWireFormat.swift */,
 				47640BD493BB7D4616EE00FA /* NativeComposerHost.swift */,
+				B78510654FB046CAAA861AE4 /* ConversationControlsHost.swift */,
+				D19C3026F6834D76AC081202 /* ModelDiagnostics.swift */,
+				D19C3026F6834D76AC081204 /* AgentConversationStore.swift */,
 				A36B00000000000000000001 /* AgentContextSources.swift */,
 				A36B00000000000000000003 /* AgentContextMemory.swift */,
 				C07E57000000000000000001 /* AgentContextBudget.swift */,
@@ -669,6 +678,9 @@
 				50DE5D85065E8840A693CD94 /* ModelTools.swift in Sources */,
 				990F5D3790C4EA70856D63E7 /* ModelWireFormat.swift in Sources */,
 				586D29A3AEC84159017E0FBA /* NativeComposerHost.swift in Sources */,
+				3167FB30C5DE432881F51797 /* ConversationControlsHost.swift in Sources */,
+				D19C3026F6834D76AC081201 /* ModelDiagnostics.swift in Sources */,
+				D19C3026F6834D76AC081203 /* AgentConversationStore.swift in Sources */,
 				B6900FC331D6A603F7B9D71C /* ReaderDesign.swift in Sources */,
 				91DE587C5B78FDCAE4CD696E /* ReaderScreen.swift in Sources */,
 				76D01DB5A6882AF69F2EDA6E /* ReaderSession.swift in Sources */,

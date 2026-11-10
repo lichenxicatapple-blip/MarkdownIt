@@ -19,6 +19,18 @@ extension XCTestCase {
 /// A rendered document fixture with explicit transport and credential dependencies.
 @MainActor
 class AgentReaderTestCase: XCTestCase {
+    func recordWindow(_ name: String, window: UIWindow, rect: CGRect) {
+        let crop = rect.intersection(window.bounds)
+        let image = UIGraphicsImageRenderer(size: crop.size).image { context in
+            context.cgContext.translateBy(x: -crop.minX, y: -crop.minY)
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func wait(
         timeout: TimeInterval = 30, file: StaticString = #filePath, line: UInt = #line,
         _ condition: () async throws -> Bool
@@ -37,7 +49,8 @@ class AgentReaderTestCase: XCTestCase {
         baseURL: String, model: String,
         modelClient: ModelClient, modelKey: @escaping @MainActor () -> String,
         dataSharingAllowed: Bool = true, recoveryStore: ReaderRecoveryStore? = nil,
-        modelCatalog: ModelCatalog? = nil, webSearchClient: WebSearchClient? = nil
+        modelCatalog: ModelCatalog? = nil, webSearchClient: WebSearchClient? = nil,
+        conversationStore: AgentConversationStore? = nil
     ) async throws -> (
         ReaderSession, ReaderBridge, UIWindow, URL
     ) {
@@ -60,7 +73,7 @@ class AgentReaderTestCase: XCTestCase {
             modelKey: modelKey, modelSettings: isolatedModelSettings(), recoveryStore: recoveryStore,
             annotationStore: ReadingAnnotationStore(
                 directory: (recoveryStore?.directory.deletingLastPathComponent() ?? root).appendingPathComponent(
-                    "Annotations")))
+                    "Annotations")), conversationStore: conversationStore)
         addTeardownBlock { @MainActor in
             if let document = session.document, !document.documentState.contains(.closed) {
                 await session.closeDocument()

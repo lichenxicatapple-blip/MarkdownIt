@@ -73,6 +73,30 @@ final class SourceEditorTests: XCTestCase {
     }
 
     @MainActor
+    func testWholeDocumentEditWithUnchangedPrefixAndSuffixRestoresUndoRedo() throws {
+        let original = "# Original\n"
+        let edited = "# 已修改 👩🏽‍💻\n"
+        let editor = SourceEditor()
+        editor.load(original)
+        XCTAssertTrue(
+            editor.replace(
+                expected: original, with: edited, id: "whole-document",
+                changes: [.init(start: 0, removed: original.utf16.count, inserted: edited.utf16.count)]))
+        let saved = try JSONDecoder().decode(
+            SourceEditor.Recovery.self, from: JSONEncoder().encode(editor.checkpoint()))
+        let restored = SourceEditor()
+        try restored.restore(saved)
+        XCTAssertEqual(restored.history.text, edited)
+        XCTAssertTrue(restored.history.move(forward: false))
+        XCTAssertEqual(restored.history.text, original)
+        let undone = restored.checkpoint()
+        let reopened = SourceEditor()
+        try reopened.restore(undone)
+        XCTAssertTrue(reopened.history.move(forward: true))
+        XCTAssertEqual(reopened.history.text, edited)
+    }
+
+    @MainActor
     func testDetachingFocusedEditorDoesNotPublishDocumentChanges() throws {
         let (editor, window) = try editor("Unchanged document")
         defer { window.isHidden = true }
@@ -172,6 +196,99 @@ final class SourceEditorTests: XCTestCase {
         XCTAssertFalse(editor.history.canUndo)
         XCTAssertTrue(editor.history.move(forward: true))
         XCTAssertEqual(editor.textView.text, "👩🏽‍💻 中文")
+    }
+
+    @MainActor
+    func testAttributedMarkedTextCommitsAsOneRecoverableTransaction() throws {
+        let original = "👩🏽‍💻 "
+        let (editor, window) = try editor(original)
+        defer {
+            editor.detach()
+            window.isHidden = true
+        }
+        editor.textView.selectedRange = NSRange(location: original.utf16.count, length: 0)
+        let mark = try XCTUnwrap(editor.textView.setAttributedMarkedText)
+        mark(NSAttributedString(string: "zhong"), NSRange(location: 5, length: 0))
+        XCTAssertEqual(editor.history.text, original)
+        mark(NSAttributedString(string: "中文"), NSRange(location: 2, length: 0))
+        editor.textView.unmarkText()
+        XCTAssertEqual(editor.history.text, original + "中文")
+        let saved = try JSONDecoder().decode(
+            SourceEditor.Recovery.self, from: JSONEncoder().encode(editor.checkpoint()))
+        let restored = SourceEditor()
+        try restored.restore(saved)
+        XCTAssertEqual(restored.history.text, original + "中文")
+        XCTAssertEqual(restored.textView.selectedRange, NSRange(location: (original + "中文").utf16.count, length: 0))
+        XCTAssertTrue(restored.history.move(forward: false))
+        XCTAssertEqual(restored.textView.text, original)
+        XCTAssertFalse(restored.history.canUndo)
+        XCTAssertTrue(restored.history.move(forward: true))
+        XCTAssertEqual(restored.textView.text, original + "中文")
+    }
+
+    @MainActor
+    func testHardwareCompositionDelegatePathPreservesTheCommittedSelection() throws {
+        let (editor, window) = try editor("#")
+        defer {
+            editor.detach()
+            window.isHidden = true
+        }
+        let view = editor.textView
+        view.selectedRange = NSRange(location: 1, length: 0)
+        let selector = #selector(UITextInput.setMarkedText(_:selectedRange:))
+        let implementation = try XCTUnwrap(class_getMethodImplementation(UITextView.self, selector))
+        typealias Mark = @convention(c) (UITextView, Selector, NSString, NSRange) -> Void
+        let mark = unsafeBitCast(implementation, to: Mark.self)
+        // Physical IME input can update UIKit directly without entering our override.
+        XCTAssertTrue(
+            editor.textView(view, shouldChangeTextInRanges: [NSValue(range: view.selectedRange)], replacementText: "z"))
+        mark(view, selector, "zhongguo", NSRange(location: 8, length: 0))
+        XCTAssertNotNil(view.markedTextRange)
+        XCTAssertTrue(
+            editor.textView(view, shouldChangeTextInRanges: [NSValue(range: view.selectedRange)], replacementText: "中国")
+        )
+        mark(view, selector, "中国", NSRange(location: 2, length: 0))
+        view.unmarkText()
+        editor.textViewDidChange(view)
+        XCTAssertEqual(editor.history.text, "#中国")
+        let restored = SourceEditor()
+        try restored.restore(editor.checkpoint())
+        XCTAssertTrue(restored.history.move(forward: false))
+        XCTAssertEqual(restored.history.text, "#")
+        XCTAssertTrue(restored.history.move(forward: true))
+        XCTAssertEqual(restored.history.text, "#中国")
+    }
+
+    @MainActor
+    func testCheckpointPreservesUnconfirmedSourceCompositionWithoutEndingCandidates() throws {
+        let (editor, window) = try editor("# ")
+        defer {
+            editor.detach()
+            window.isHidden = true
+        }
+        let view = editor.textView
+        view.selectedRange = NSRange(location: 2, length: 0)
+        for text in ["zhongguo", "中国"] {
+            view.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+            let range = view.selectedRange
+            let saved = editor.checkpoint()
+            XCTAssertNotNil(view.markedTextRange)
+            XCTAssertEqual(view.selectedRange, range)
+            XCTAssertEqual(
+                editor.history.text, "# ", "Recovery must not commit intermediate IME text into the live history")
+            let restored = SourceEditor()
+            try restored.restore(saved)
+            XCTAssertEqual(restored.history.text, "# " + text)
+            XCTAssertEqual(restored.textView.selectedRange, range)
+            XCTAssertTrue(restored.history.move(forward: false))
+            XCTAssertEqual(restored.history.text, "# ")
+            XCTAssertFalse(restored.history.canUndo)
+        }
+        view.unmarkText()
+        XCTAssertEqual(editor.history.text, "# 中国")
+        XCTAssertTrue(editor.history.move(forward: false))
+        XCTAssertEqual(editor.history.text, "# ")
+        XCTAssertFalse(editor.history.canUndo)
     }
 
     @MainActor

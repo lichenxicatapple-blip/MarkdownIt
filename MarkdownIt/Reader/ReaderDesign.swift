@@ -37,6 +37,8 @@ enum ReaderDesign {
     static let homeGroupGap: CGFloat = 28
     static let homeActionGap: CGFloat = 8
     static let homeDocumentGap: CGFloat = 16
+    static let agentControlIcon: CGFloat = 16
+    static let agentControlSurface: CGFloat = 34
     static let recentsWidth: CGFloat = 360
     static let recentsMaxHeight: CGFloat = 540
     static var annotationPaper: UIColor { palette(light: 0xFFFD_F8FF, dark: 0x2829_23FF) }
@@ -59,6 +61,7 @@ enum ReaderDesign {
     static let documentCloseDuration: TimeInterval = 0.62
     static let inputAvoidanceDuration: TimeInterval = 0.22
     static let contentDuration: TimeInterval = 0.14
+    static let materialDuration: TimeInterval = 0.16
     static let homeDuration: TimeInterval = 0.56
     static let homeStagger: TimeInterval = 0.09
     static let documentCloseAnticipation: TimeInterval = 0.1

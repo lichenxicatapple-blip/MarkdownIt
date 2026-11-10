@@ -15,6 +15,7 @@ struct ReaderRecovery: Codable, Sendable {
     let transport: AgentModelTransport.Recovery?
     var annotations: ReadingAnnotations? = nil
     var annotationDraft: ReaderAnnotationHost.Recovery? = nil
+    var conversationID: String? = nil
 }
 
 /// Serial, atomic replacement keeps the previous checkpoint intact on write failure.

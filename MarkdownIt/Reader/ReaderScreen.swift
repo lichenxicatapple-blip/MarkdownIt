@@ -401,7 +401,7 @@ struct ReaderScreen: View {
 
     private func chromeIcon(_ name: String) -> some View {
         Group {
-            if let image = ReaderChromeSymbols.image(name) {
+            if let image = ReaderChromeSymbols.symbol(name) {
                 Image(uiImage: image).renderingMode(.template)
             }
         }

@@ -39,6 +39,9 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
         for id in inputs.keys {
             inputs[id]?.epoch = 0
             inputs[id]?.metrics = []
+            inputs[id]?.layoutWidth = 0
+            inputs[id]?.measurementKey = ""
+            inputs[id]?.measurement = nil
             inputs[id]?.view.text = ""
             inputs[id]?.view.isHidden = true
         }
@@ -47,6 +50,15 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
         let view: ConversationTextView
         var epoch = 0
         var metrics: [Double] = []
+        var layoutWidth: CGFloat = 0
+        var measurementKey = ""
+        var measurement: Measurement?
+    }
+    private struct Measurement: Equatable {
+        let text: String
+        let epoch: Int
+        let key: String
+        let height: CGFloat
     }
     private var inputs: [String: Input] = [:]
     private weak var webView: WKWebView?
@@ -64,6 +76,7 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
             view.textColor = .label
             view.tintColor = .tintColor
             view.returnKeyType = .default
+            view.contentInsetAdjustmentBehavior = .never
             view.textContainer.lineFragmentPadding = 0
             view.delegate = self
             view.accessibilityLabel = String(localized: "AI message")
@@ -79,7 +92,7 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
             guard let id = state["id"] as? String, var input = inputs[id] else { continue }
             let visible = state["visible"] as? Bool == true
             let view = input.view
-            guard let webView, let host = webView.hostNativeInput(view, aboveWebContent: true) else { continue }
+            guard let webView, let host = webView.hostNativeView(view, aboveWebContent: true) else { continue }
             if !visible && view.isFirstResponder { _ = view.resignFirstResponder() }
             view.isHidden = !visible
             view.alpha = state["opacity"] as? Double ?? 1
@@ -88,6 +101,8 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
                 width: state["width"] as? Double ?? 0, height: state["height"] as? Double ?? 0)
             view.frame = webView.convert(frame, to: host)
             let metrics = ["fontSize", "lineHeight", "top", "right", "bottom", "left"].map { state[$0] as? Double ?? 0 }
+            input.layoutWidth = state["layoutWidth"] as? Double ?? frame.width
+            input.measurementKey = state["measurementKey"] as? String ?? ""
             if input.metrics != metrics && view.markedTextRange == nil {
                 input.metrics = metrics
                 let font = UIFont.systemFont(ofSize: max(12, metrics[0]))
@@ -109,6 +124,7 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
                 }
             }
             inputs[id] = input
+            publish(id, includingText: false)
             if visible { host.bringSubviewToFront(view) }
         }
         resolvePendingFocus()
@@ -120,6 +136,7 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
         input.view.text = text
         input.view.selectedRange = NSRange(location: text.utf16.count, length: 0)
         inputs[id] = input
+        publish(id, includingText: false)
     }
 
     func focus(_ id: String) {
@@ -154,11 +171,30 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
     }
 
     func textViewDidChange(_ textView: UITextView) {
-        guard let (id, input) = inputs.first(where: { $0.value.view === textView }) else { return }
-        let payload: [String: Any] = ["id": id, "text": textView.text ?? "", "epoch": input.epoch]
+        guard let id = inputs.first(where: { $0.value.view === textView })?.key else { return }
+        publish(id, includingText: true)
+    }
+
+    /// TextKit measures the same text, font and wrapping that the user sees.
+    /// Web owns the capsule's min/max height and rejects obsolete measurements.
+    private func publish(_ id: String, includingText: Bool) {
+        guard var input = inputs[id], input.layoutWidth > 0 else { return }
+        let height = ceil(
+            input.view.sizeThatFits(
+                CGSize(width: input.layoutWidth, height: .greatestFiniteMagnitude)
+            ).height)
+        let measurement = Measurement(
+            text: input.view.text ?? "", epoch: input.epoch, key: input.measurementKey, height: height)
+        guard includingText || input.measurement != measurement else { return }
+        input.measurement = measurement
+        inputs[id] = input
+        let payload: [String: Any] = [
+            "id": id, "text": measurement.text, "epoch": measurement.epoch,
+            "measurementKey": measurement.key, "height": height,
+        ]
         Task {
-            await call?("updateAgentInput", payload)
-            onCheckpoint?()
+            await call?(includingText ? "updateAgentInput" : "resizeAgentInput", payload)
+            if includingText { onCheckpoint?() }
         }
     }
 

@@ -4,7 +4,7 @@
 
 ## 中文
 
-**更新日期：** 2026-11-09\
+**更新日期：** 2026-11-10\
 **发布者：** CHENXI LI（个人开发者）\
 **联系邮箱：** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -29,9 +29,11 @@ MarkdownIt! 是本地 Markdown 阅读与编辑工具，不要求注册账号，�
 
 为在系统终止应用后继续阅读，应用会在本机保存当前文档的恢复数据，包括工作文本、撤销／重做历史、阅读位置与选区、划线与批注编辑现场，以及 AI 对话、搜索词与结果、已读取的网页片段、引用图片快照和未发送草稿。恢复数据采用系统文件保护，不参与设备备份，不发送给开发者。模型连接信息仍仅保存在钥匙串，不写入恢复数据。
 
-成功关闭或切换文档会清除对应会话的恢复数据；收起 AI 面板或切到后台不会清除。未完成的回答保留已接收内容，等待你决定是否重试。无法重新访问原文件时，恢复数据保留在设备上，不覆盖其他文件。
+成功关闭或切换文档会清除对应阅读现场的恢复数据。AI 对话、引用、图片快照、模型上下文及未发送草稿按文档完整路径独立保存在本机，采用同样的文件保护并排除备份；切换模式、收起面板、切到后台及关闭后重开文档均保留。未完成的回答保留已接收内容，等待你决定是否重试。无法重新访问原文件时，恢复数据保留在设备上，不覆盖其他文件。
 
 清空 AI 历史会删除当前文档的对话记录与模型上下文，保留未发送草稿、当前引用和文档的撤销／重做历史。
+
+应用使用系统本地日志记录服务主机、模型、请求标识、耗时、状态码、错误代码及用量等技术信息，用于排查请求和会话恢复问题。日志不包含密钥、文档正文、提问或回答内容，由系统滚动管理，不发送给开发者。
 
 ### 3. 可选 AI、联网搜索及模型列表查询
 
@@ -50,7 +52,7 @@ AI 服务由你通过服务地址、模型和 API Key 自行配置。请求直�
 - 源码编辑任务可能包含后续模型请求，以及当前文档编辑工具的参数、结果和修改内容。
 - 选中的图片随问题发送实际画面。全局 AI 先发送文档中的图片引用清单，模型可按需读取并接收相关图片；
   不会每轮主动发送全部图片。本地图片受已有文件授权限制，网络图片由应用按其引用地址下载。
-  图片会移除原始 EXIF、GPS 等元数据；已发送的画面在本次文档会话中保留，以供追问和重试，关闭文档时清除。
+  图片会移除原始 EXIF、GPS 等元数据；已发送的画面随该文档的 AI 会话保留，以供追问和重试。
 - 应用不额外加入文件的系统绝对路径；文档正文原有的路径、链接和其他信息仍会作为正文的一部分发送。
 - 阅读划线与批注不会自动加入 AI 请求。你主动复制到问题中的批注文字按该次问题处理。
 
@@ -111,7 +113,7 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 
 ## English
 
-**Last updated:** 2026-11-09\
+**Last updated:** 2026-11-10\
 **Publisher:** CHENXI LI (individual developer)\
 **Contact:** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -138,7 +140,9 @@ document storage, synchronization or AI/search relay servers.
 
 To resume after the system terminates the app, the app saves recovery data for the current document on your device: working text, undo/redo history, reading position and selection, underlines and annotation drafts, AI conversations, search queries and results, retrieved webpage excerpts, referenced image snapshots and unsent drafts. Recovery data uses system file protection, is excluded from device backups and is not sent to the developer. Model connection information remains solely in the Keychain and is not included in recovery data.
 
-Successfully closing or switching documents clears the corresponding session’s recovery data. Collapsing the AI panel or moving to the background does not. An interrupted answer keeps the content already received and waits for you to choose whether to retry. If the original file cannot be accessed, recovery data remains on the device without overwriting other files.
+Successfully closing or switching documents clears the corresponding reading recovery data. AI conversations, references, image snapshots, model context and unsent drafts are saved separately on your device by the full document path, with the same file protection and backup exclusion. They remain when switching modes, collapsing the panel, moving to the background, and closing and reopening the document. An interrupted answer keeps the content already received and waits for you to choose whether to retry. If the original file cannot be accessed, recovery data remains on the device without overwriting other files.
+
+The app uses local system logs for technical information such as service hosts, models, request identifiers, timings, status and error codes, and usage, to diagnose requests and session restoration. Logs contain no API keys, document text, questions or answers. The system manages their retention; they are not sent to the developer.
 
 ### 3. Optional AI, web search and model-list requests
 
@@ -166,8 +170,8 @@ ask again for that service. A different service address requires new permission.
   receives an inventory of referenced images and may read relevant pictures on demand;
   the app does not proactively send every image each round. Local images remain subject
   to existing file permissions; remote images are downloaded from their referenced URLs.
-  Original EXIF and GPS metadata are removed. Sent image snapshots remain in the current
-  document session for follow-up questions and retries and are cleared when it closes.
+  Original EXIF and GPS metadata are removed. Sent image snapshots remain with that
+  document’s AI conversation for follow-up questions and retries.
 - The app does not separately add the file’s absolute system path. Paths, links and other
   information already present in the document remain part of the transmitted text.
 - Reading underlines and annotations are not automatically added to AI requests. Annotation text you choose to copy into a question is handled as part of that question.

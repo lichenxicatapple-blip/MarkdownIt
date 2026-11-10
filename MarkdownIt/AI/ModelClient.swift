@@ -3,13 +3,15 @@ import Foundation
 /// A single explicit protocol per request. No model probes, protocol fallback or automatic retries.
 struct ModelClient: Sendable {
     var session: URLSession
+    let diagnostics: ModelDiagnostics
 
-    init(session: URLSession? = nil) {
+    init(session: URLSession? = nil, diagnostics: ModelDiagnostics = ModelDiagnostics()) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 90
         self.session = session ?? URLSession(configuration: configuration)
+        self.diagnostics = diagnostics
     }
 
     @discardableResult
@@ -17,6 +19,7 @@ struct ModelClient: Sendable {
         configuration: ModelConfiguration, key: String, messages: [ChatMessage],
         tools: [ModelTool] = [], exchanges: [ModelToolExchange] = [],
         maxOutputTokens: Int? = nil,
+        context: ModelDiagnostics.Context? = nil,
         onText: @Sendable (String) async -> Void
     ) async throws -> ModelTurn {
         let endpoint = try configuration.endpoint()
@@ -34,19 +37,45 @@ struct ModelClient: Sendable {
             ? ModelToolWire.requestBody(
                 configuration, messages: messages, tools: tools, exchanges: exchanges, maxOutputTokens: maxOutputTokens)
             : ModelWireFormat.requestBody(configuration, messages: messages, maxOutputTokens: maxOutputTokens)
+        let trace = diagnostics.begin(
+            configuration: configuration, endpoint: endpoint, key: key, requestBytes: request.httpBody?.count ?? 0,
+            messages: messages.count, tools: tools.count, exchanges: exchanges.count,
+            maxOutputTokens: maxOutputTokens, context: context)
+        do {
+            let turn = try await receive(
+                request, configuration: configuration, key: key, allowsTools: allowsTools, trace: trace, onText: onText)
+            trace.emit("request.end") {
+                $0.outcome = "completed"
+                $0.inputTokens = turn.usage?.inputTokens
+                $0.outputTokens = turn.usage?.outputTokens
+                $0.toolCount = turn.calls.count
+            }
+            return turn
+        } catch {
+            trace.emit("request.end") { $0.outcome = ModelDiagnostics.outcome(error) }
+            throw error
+        }
+    }
+
+    private func receive(
+        _ request: URLRequest, configuration: ModelConfiguration, key: String, allowsTools: Bool,
+        trace: ModelDiagnostics.Request, onText: @Sendable (String) async -> Void
+    ) async throws -> ModelTurn {
         let (bytes, response) = try await session.bytes(for: request, delegate: ModelRequestPolicy.shared)
         guard let http = response as? HTTPURLResponse else { throw ModelError.invalidResponse }
+        trace.response(http, retryAfter: Self.retryDelay(http.value(forHTTPHeaderField: "Retry-After")), key: key)
         guard (200...299).contains(http.statusCode) else {
             var data = Data()
             for try await byte in bytes.prefix(8192) { data.append(byte) }
-            if http.statusCode == 429 {
-                throw ModelError.rateLimited(Self.retryDelay(http.value(forHTTPHeaderField: "Retry-After")))
-            }
             let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             // Atlas uses code/msg; OpenAI-compatible providers commonly use error.message.
             let error =
                 root?["error"] as? [String: Any]
                 ?? root.map { ["code": $0["code"] ?? "", "message": $0["msg"] ?? ""] }
+            trace.remoteError(error, key: key)
+            if http.statusCode == 429 {
+                throw ModelError.rateLimited(Self.retryDelay(http.value(forHTTPHeaderField: "Retry-After")))
+            }
             let message =
                 (error?["message"] as? String
                 ?? String(localized: "Check the service URL, credentials, API type, and model."))
@@ -63,12 +92,18 @@ struct ModelClient: Sendable {
             if allowsTools {
                 let turn = try ModelToolWire.complete(data, api: configuration.apiProtocol)
                 try Task.checkCancellation()
-                if !turn.text.isEmpty { await onText(turn.text) }
+                if !turn.text.isEmpty {
+                    trace.emit("request.first_text")
+                    await onText(turn.text)
+                }
                 return turn
             }
             let update = try ModelWireFormat.completeResponse(data, api: configuration.apiProtocol)
             try Task.checkCancellation()
-            if !update.text.isEmpty { await onText(update.text) }
+            if !update.text.isEmpty {
+                trace.emit("request.first_text")
+                await onText(update.text)
+            }
             if let failure = update.failure { throw failure }
             return ModelTurn(
                 text: update.text,
@@ -82,6 +117,7 @@ struct ModelClient: Sendable {
             guard let frame = try frames.append(byte) else { continue }
             let update = try decoder.consume(frame)
             if !update.text.isEmpty {
+                if text.isEmpty { trace.emit("request.first_text") }
                 text += update.text
                 await onText(update.text)
             }
@@ -95,6 +131,7 @@ struct ModelClient: Sendable {
         if let frame = try frames.finish() {
             let update = try decoder.consume(frame)
             if !update.text.isEmpty {
+                if text.isEmpty { trace.emit("request.first_text") }
                 text += update.text
                 await onText(update.text)
             }

@@ -243,7 +243,7 @@ final class WebReaderTests: XCTestCase {
             _ = input.resignFirstResponder()
             window.isHidden = true
         }
-        XCTAssertFalse(container.keyboardLayoutGuide.followsUndockedKeyboard)
+        XCTAssertTrue(container.keyboardLayoutGuide.followsUndockedKeyboard)
         XCTAssertFalse(container.keyboardLayoutGuide.usesBottomSafeArea)
         try await waitUntil { viewport.bounds.width > 0 && viewport.bounds.height > 0 }
         XCTAssertTrue(input.becomeFirstResponder())
@@ -408,7 +408,7 @@ final class WebReaderTests: XCTestCase {
         }
         try await waitUntil(timeout: 8) { layoutFits() && controlsFit() }
         XCTAssertTrue(controls.keyboardLayoutGuide.followsUndockedKeyboard)
-        XCTAssertFalse(container.keyboardLayoutGuide.followsUndockedKeyboard)
+        XCTAssertTrue(container.keyboardLayoutGuide.followsUndockedKeyboard)
         XCTAssertNil(controls.hitTest(CGPoint(x: controls.bounds.midX, y: 10), with: nil))
         XCTAssertNil(controls.hitTest(actions.center, with: nil), "Collapsed action slots must pass touches through")
         let disclosure = CGPoint(x: actions.frame.maxX - ReaderDesign.hitTarget / 2, y: actions.frame.midY)
@@ -1215,18 +1215,11 @@ final class WebReaderTests: XCTestCase {
         XCTAssertFalse((status["selectedText"] as? String ?? "").isEmpty)
         _ = try await bridge.call("askSelection")
         try await waitUntil { session.agentOpen }
-        let collapseIcon =
-            try await bridge.webView.evaluateJavaScript(
-                """
-                (() => {
-                  const svg = document.querySelector('.mdv-agent-collapse svg');
-                  const rect = svg.getBoundingClientRect();
-                  return {width:rect.width, height:rect.height, inset:Number(svg.querySelector('image').getAttribute('x'))};
-                })()
-                """) as? [String: Double]
-        XCTAssertEqual(collapseIcon?["width"], 24)
-        XCTAssertEqual(collapseIcon?["height"], 24)
-        XCTAssertEqual(collapseIcon?["inset"], 0, "Native symbols must fill the shared chrome icon canvas")
+        let collapse = bridge.conversationControls.collapseButton
+        try await waitUntil { !collapse.isHidden && collapse.bounds.width > 0 }
+        XCTAssertEqual(collapse.bounds.size, CGSize(width: 44, height: 44))
+        XCTAssertEqual(collapse.configuration?.image?.isSymbolImage, true)
+        XCTAssertEqual(ReaderDesign.agentControlIcon, 16)
         let agentResult = try await bridge.call("agentDiagnostics")
         var agent = try XCTUnwrap(agentResult as? [String: Any])
         XCTAssertTrue((agent["reference"] as? String ?? "").contains(status["selectedText"] as? String ?? ""))

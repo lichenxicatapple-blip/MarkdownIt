@@ -338,6 +338,215 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertEqual(restored.composer.checkpoint()?.text, "Follow-up draft")
     }
 
+    func testConversationSurvivesModesReaderCloseAndReopenUntilUserClearsIt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }
+        let conversations = AgentConversationStore(directory: directory.appendingPathComponent("Conversations"))
+        let recovery = ReaderRecoveryStore(directory: directory.appendingPathComponent("Recovery"))
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "A retained **answer**.")])
+        let (session, bridge, _, url) = try await reader(
+            "# A document\n\nA quoted passage.\n", recoveryStore: recovery, conversationStore: conversations)
+        _ = try await bridge.call("toggleAgent")
+        try await send("Explain this passage", bridge: bridge)
+        try await completed(bridge)
+        _ = try await bridge.call("askSelection", arguments: ["payload": "A quoted passage."])
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-composer textarea').value='An unsent follow-up';")
+        try await wait { bridge.composer.checkpoint()?.text == "An unsent follow-up" }
+        let contextID = session.conversationID
+        let token = session.documentToken
+        for expected in ["source", "preview", "source"] {
+            session.toggleMode()
+            try await wait {
+                let mode = (try await bridge.call("diagnostics") as? [String: Any])?["mode"] as? String
+                let transitioning =
+                    try await bridge.webView.evaluateJavaScript(
+                        "Boolean(document.querySelector('.mdv-app').dataset.modeTransition)") as? Bool
+                return mode == expected && transitioning == false
+            }
+            let modeState = try await state(bridge)
+            XCTAssertEqual((modeState["turns"] as? [[String: Any]])?.count, 2)
+            XCTAssertEqual(bridge.composer.checkpoint()?.text, "An unsent follow-up")
+        }
+        await session.checkpointRecovery()
+        bridge.webViewWebContentProcessDidTerminate(bridge.webView)
+        try await wait { session.rendererReady && bridge.composer.checkpoint()?.text == "An unsent follow-up" }
+        let reloaded = try await state(bridge)
+        XCTAssertEqual((reloaded["turns"] as? [[String: Any]])?.count, 2)
+        await session.closeDocument()
+        XCTAssertNil(session.document)
+        let closedRecovery = try await recovery.load()
+        XCTAssertNil(closedRecovery, "Closing must end launch auto-resume without deleting AI history")
+        bridge.detach()
+        await session.open(url)
+        let (reopened, _) = try await mountReader(session)
+        XCTAssertNotEqual(session.documentToken, token, "Reopening must reject callbacks from the previous reader")
+        XCTAssertEqual(session.conversationID, contextID)
+        let restoredValue = try await reopened.call("captureRecovery") as? [String: Any]
+        let restoredConversation = restoredValue?["conversation"] as? [String: Any]
+        XCTAssertEqual(
+            (restoredConversation?["attachment"] as? [String: Any])?["text"] as? String, "A quoted passage.")
+        _ = try await reopened.call("toggleAgent")
+        try await wait { reopened.composer.checkpoint()?.text == "An unsent follow-up" }
+        let value = try await state(reopened)
+        XCTAssertEqual((value["turns"] as? [[String: Any]])?.count, 2)
+        XCTAssertTrue((value["reference"] as? String)?.contains(url.lastPathComponent) == true)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1, "Reopening must not issue a model request")
+        session.requestAgentHistoryClear(token: session.documentToken)
+        session.finishAgentHistoryClear(confirmed: true)
+        try await wait { (try await self.state(reopened)["turns"] as? [[String: Any]])?.isEmpty == true }
+        await session.closeDocument()
+        reopened.detach()
+        await session.open(url)
+        let (cleared, _) = try await mountReader(session)
+        _ = try await cleared.call("toggleAgent")
+        try await wait { cleared.composer.checkpoint()?.text == "An unsent follow-up" }
+        let clearedState = try await state(cleared)
+        XCTAssertTrue((clearedState["turns"] as? [[String: Any]])?.isEmpty == true)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+    }
+
+    func testClosedConversationsStayIsolatedByPathAcrossNewSessions() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }
+        let conversations = directory.appendingPathComponent("Conversations")
+        let recovery = directory.appendingPathComponent("Recovery")
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "The first document's answer.")])
+        let (session, bridge, _, url) = try await reader(
+            "# First\n", recoveryStore: ReaderRecoveryStore(directory: recovery),
+            conversationStore: AgentConversationStore(directory: conversations))
+        _ = try await bridge.call("toggleAgent")
+        try await send("Keep this history", bridge: bridge)
+        try await completed(bridge)
+        await session.closeDocument()
+        bridge.detach()
+        let other = url.deletingLastPathComponent().appendingPathComponent("Other", isDirectory: true)
+            .appendingPathComponent(url.lastPathComponent)
+        try FileManager.default.createDirectory(
+            at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("# Same name, another document\n".utf8).write(to: other)
+        await session.open(other)
+        let (otherBridge, _) = try await mountReader(session)
+        let otherState = try await state(otherBridge)
+        XCTAssertTrue((otherState["turns"] as? [[String: Any]])?.isEmpty == true)
+        await session.closeDocument()
+        otherBridge.detach()
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        let next = ReaderSession(
+            defaults: defaults, modelSettings: isolatedModelSettings(),
+            recoveryStore: ReaderRecoveryStore(directory: recovery),
+            annotationStore: ReadingAnnotationStore(directory: directory.appendingPathComponent("Annotations")),
+            conversationStore: AgentConversationStore(directory: conversations))
+        addTeardownBlock { @MainActor in await next.closeDocument() }
+        await next.restoreLastSession()
+        XCTAssertNil(next.document, "An explicit close must continue to launch at home")
+        await next.open(url)
+        let (restored, _) = try await mountReader(next)
+        let value = try await state(restored)
+        let turns = try XCTUnwrap(value["turns"] as? [[String: Any]])
+        XCTAssertEqual(turns.count, 2)
+        XCTAssertTrue((turns.last?["text"] as? String)?.contains("The first document's answer.") == true)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+    }
+
+    func testClearHistoryCannotBeUndoneByAnOlderReaderCheckpoint() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }
+        let readerDirectory = directory.appendingPathComponent("Recovery")
+        let conversationDirectory = directory.appendingPathComponent("Conversations")
+        let store = ReaderRecoveryStore(directory: readerDirectory)
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "An answer the user will delete.")])
+        let (session, bridge, _, _) = try await reader(
+            "# Document\n", recoveryStore: store,
+            conversationStore: AgentConversationStore(directory: conversationDirectory))
+        _ = try await bridge.call("toggleAgent")
+        try await send("Explain", bridge: bridge)
+        try await completed(bridge)
+        await session.checkpointRecovery()
+        let loaded = try await store.load()
+        let old = try XCTUnwrap(loaded)
+        session.requestAgentHistoryClear(token: session.documentToken)
+        session.finishAgentHistoryClear(confirmed: true)
+        try await wait { (try await self.state(bridge)["turns"] as? [[String: Any]])?.isEmpty == true }
+        await session.checkpointRecovery()
+        bridge.detach()
+        _ = await session.document?.closeSavingChanges()
+        // Simulate a reading checkpoint that did not reach disk after the independent AI save.
+        try await ReaderRecoveryStore(directory: readerDirectory).save(old)
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        let next = ReaderSession(
+            defaults: defaults, modelSettings: isolatedModelSettings(),
+            recoveryStore: ReaderRecoveryStore(directory: readerDirectory),
+            annotationStore: ReadingAnnotationStore(directory: directory.appendingPathComponent("Annotations")),
+            conversationStore: AgentConversationStore(directory: conversationDirectory))
+        addTeardownBlock { @MainActor in await next.closeDocument() }
+        await next.restoreLastSession()
+        let (restored, _) = try await mountReader(next)
+        let value = try await state(restored)
+        XCTAssertTrue((value["turns"] as? [[String: Any]])?.isEmpty == true)
+        XCTAssertNil(next.agentTransport.recovery())
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+    }
+
+    func testCompletedEditIsNotReappliedAfterExplicitCloseAndRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }
+        let original = "# Original\n"
+        let arguments = try JSONSerialization.data(withJSONObject: [
+            "revision": AgentDocumentTools.revision(original),
+            "edits": [["before": "Original", "after": "Edited"]],
+        ])
+        let call = ModelToolCall(
+            id: "durable-tool", name: "edit_document", arguments: String(decoding: arguments, as: UTF8.self))
+        AgentFixtureProtocol.queue.reset([AgentFixture(calls: [call]), AgentFixture(status: 429)])
+        let (session, bridge, _, url) = try await reader(
+            original, recoveryStore: ReaderRecoveryStore(directory: directory.appendingPathComponent("Recovery")),
+            conversationStore: AgentConversationStore(directory: directory.appendingPathComponent("Conversations")))
+        try await sourceMode(bridge)
+        _ = try await bridge.call("toggleAgent")
+        try await send("Change the heading to Edited", bridge: bridge)
+        try await wait {
+            (try await self.state(bridge)["turns"] as? [[String: Any]])?.last?["state"] as? String == "failed"
+        }
+        XCTAssertEqual(session.document?.text, "# Edited\n")
+        await session.closeDocument()
+        bridge.detach()
+        await session.open(url)
+        let (restored, _) = try await mountReader(session)
+        _ = try await restored.call("toggleAgent")
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "The heading has been edited.")])
+        _ = try await restored.webView.evaluateJavaScript("document.querySelector('[data-agent-action=retry]').click()")
+        try await completed(restored)
+        XCTAssertEqual(session.document?.text, "# Edited\n")
+        XCTAssertFalse(restored.sourceEditor.history.canUndo, "Retry must not create another document edit")
+        let requests = AgentFixtureProtocol.queue.requests()
+        XCTAssertEqual(requests.count, 1)
+        let body = try XCTUnwrap(requests.first)
+        let object = try ModelWireFormat.object(body)
+        let messages = try XCTUnwrap(object["messages"] as? [[String: Any]])
+        XCTAssertTrue(messages.contains { $0["role"] as? String == "tool" && $0["tool_call_id"] as? String == call.id })
+    }
+
     func testClosingConversationWaitsForItsPresentationToFinish() async throws {
         let (session, bridge, _, _) = try await reader("# Document\n\nContent.\n")
         _ = try await bridge.call("toggleAgent")
@@ -695,16 +904,14 @@ final class AgentFlowTests: AgentReaderTestCase {
             _ = try await bridge.webView.evaluateJavaScript(
                 "const field=document.querySelector('.mdv-agent-input'); field.value='Unsent follow-up'; field.dispatchEvent(new Event('input',{bubbles:true}));"
             )
-            _ = try await bridge.webView.evaluateJavaScript(
-                "document.querySelector('[data-agent-action=clear-history]').click()")
+            bridge.conversationControls.clearButton.sendActions(for: .touchUpInside)
             try await wait { session.needsAgentHistoryClear }
             session.finishAgentHistoryClear(confirmed: false)
             XCTAssertNotNil(session.agentTransport.activeID)
             let retained = try await state(bridge)
             XCTAssertEqual((retained["turns"] as? [[String: Any]])?.count, 2)
 
-            _ = try await bridge.webView.evaluateJavaScript(
-                "document.querySelector('[data-agent-action=clear-history]').click()")
+            bridge.conversationControls.clearButton.sendActions(for: .touchUpInside)
             try await wait { session.needsAgentHistoryClear }
             session.finishAgentHistoryClear(confirmed: true)
             try await wait { (try await self.state(bridge)["turns"] as? [[String: Any]])?.isEmpty == true }
@@ -727,27 +934,81 @@ final class AgentFlowTests: AgentReaderTestCase {
     }
 
     func testConversationControlsKeepSystemSymbolsAcrossMessageUpdates() async throws {
-        AgentFixtureProtocol.queue.reset([AgentFixture(text: "First answer."), AgentFixture(text: "Second answer.")])
-        let (_, bridge, _, _) = try await reader("# Reading\n\nA passage to discuss.\n")
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(text: String(repeating: "First answer.\n\n", count: 64)), AgentFixture(text: "Second answer."),
+        ])
+        let (_, bridge, window, _) = try await reader("# Reading\n\nA passage to discuss.\n")
         _ = try await bridge.call("toggleAgent")
         for (index, question) in ["First question.", "Follow-up question."].enumerated() {
             try await send(question, bridge: bridge)
             try await completed(bridge, count: (index + 1) * 2)
-            let icons =
-                try await bridge.webView.evaluateJavaScript(
-                    """
-                    [...document.querySelectorAll('.mdv-agent-control svg')].map(svg=>({
-                      native:!!svg.dataset.nativeSymbol, mask:!!svg.querySelector('mask image'),
-                      paths:svg.querySelectorAll('path').length, stroke:getComputedStyle(svg).stroke
-                    }))
-                    """) as? [[String: Any]]
-            XCTAssertEqual(icons?.count, 2)
-            for icon in icons ?? [] {
-                XCTAssertEqual(icon["native"] as? Bool, true)
-                XCTAssertEqual(icon["mask"] as? Bool, true, "SF artwork must survive icon refresh: \(icon)")
-                XCTAssertEqual(icon["paths"] as? Int, 0, "Lucide must not replace an installed system symbol")
-                XCTAssertEqual(icon["stroke"] as? String, "none", "The native mask must receive only one color fill")
+            let controls = try XCTUnwrap(bridge.conversationControls)
+            let pixel = 1 / window.traitCollection.displayScale
+            func settledGeometry() async throws -> [String: Double] {
+                var result: [String: Double] = [:]
+                try await wait {
+                    let value = try await bridge.webView.evaluateJavaScript(
+                        """
+                        (() => {
+                          const p=document.querySelector('.mdv-agent');
+                          if(p.getAnimations().some(a=>a.playState!=='finished')) return null;
+                          const s=p.querySelector('.mdv-agent-scroll'), b=p.querySelector('[data-native-agent-control=collapse]');
+                          const r=p.getBoundingClientRect(), q=b.getBoundingClientRect();
+                          return {panelX:r.x,panelY:r.y,panelRight:r.right,top:s.getBoundingClientRect().top,
+                            x:q.x,y:q.y,width:q.width,height:q.height,overflow:s.scrollHeight-s.clientHeight};
+                        })()
+                        """)
+                    guard let values = value as? [String: Double] else { return false }
+                    let native = controls.collapseButton.convert(controls.collapseButton.bounds, to: bridge.webView)
+                    result = values
+                    return abs(native.minX - (values["x"] ?? .infinity)) <= pixel
+                        && abs(native.minY - (values["y"] ?? .infinity)) <= pixel
+                }
+                return result
             }
+            let before = try await settledGeometry()
+            for button in [controls.clearButton, controls.collapseButton] {
+                let image = try XCTUnwrap(button.configuration?.image)
+                XCTAssertTrue(
+                    image.isSymbolImage, "Conversation controls must keep native SF Symbols after message updates")
+                XCTAssertEqual(button.bounds.size, CGSize(width: 44, height: 44))
+                XCTAssertFalse(button.isDescendant(of: bridge.webView))
+                let material = try XCTUnwrap(button.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+                XCTAssertNil(material.effect, "Resting controls show only their symbols")
+                UIView.performWithoutAnimation { button.isHighlighted = true }
+                XCTAssertTrue(material.effect is UIGlassEffect)
+                if index == 0 && button === controls.clearButton {
+                    let row = CGRect(
+                        x: before["panelX"] ?? 0, y: before["panelY"] ?? 0,
+                        width: (before["panelRight"] ?? 0) - (before["panelX"] ?? 0),
+                        height: (before["top"] ?? 0) - (before["panelY"] ?? 0))
+                    recordWindow(
+                        "conversation-controls-pressed", window: window,
+                        rect: bridge.webView.convert(row, to: window))
+                }
+                UIView.performWithoutAnimation { button.isHighlighted = false }
+                XCTAssertNil(material.effect)
+            }
+            XCTAssertEqual(controls.clearButton.frame.midY, controls.collapseButton.frame.midY, accuracy: pixel)
+            XCTAssertLessThanOrEqual(
+                controls.collapseButton.convert(controls.collapseButton.bounds, to: bridge.webView).maxY,
+                try XCTUnwrap(before["top"]) + pixel, "Conversation content must begin below the controls")
+            XCTAssertGreaterThan(try XCTUnwrap(before["overflow"]), 0)
+            _ = try await bridge.webView.callAsyncJavaScript(
+                """
+                const s=document.querySelector('.mdv-agent-scroll');s.scrollTop=s.scrollHeight;
+                await new Promise(requestAnimationFrame);
+                """, arguments: [:], in: nil, contentWorld: .page)
+            let after = try await settledGeometry()
+            // Keyboard and panel transitions may move the whole panel. The
+            // controls stay anchored to its top/trailing edges while content scrolls.
+            XCTAssertEqual(
+                try XCTUnwrap(after["panelRight"]) - XCTUnwrap(after["x"]) - XCTUnwrap(after["width"]),
+                try XCTUnwrap(before["panelRight"]) - XCTUnwrap(before["x"]) - XCTUnwrap(before["width"]),
+                accuracy: pixel)
+            XCTAssertEqual(
+                try XCTUnwrap(after["y"]) - XCTUnwrap(after["panelY"]),
+                try XCTUnwrap(before["y"]) - XCTUnwrap(before["panelY"]), accuracy: pixel)
         }
     }
 
@@ -755,7 +1016,8 @@ final class AgentFlowTests: AgentReaderTestCase {
         _ text: String, api: ModelAPIProtocol = .chatCompletions,
         baseURL: String = "https://agent.example.test/v1", model: String = "fixture-model",
         modelKey: @escaping @MainActor () -> String = { "fixture-key" }, dataSharingAllowed: Bool = true,
-        recoveryStore: ReaderRecoveryStore? = nil, webSearchClient: WebSearchClient? = nil
+        recoveryStore: ReaderRecoveryStore? = nil, webSearchClient: WebSearchClient? = nil,
+        conversationStore: AgentConversationStore? = nil
     ) async throws -> (ReaderSession, ReaderBridge, UIWindow, URL) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AgentFixtureProtocol.self]
@@ -764,7 +1026,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             modelClient: ModelClient(session: URLSession(configuration: configuration)),
             modelKey: modelKey, dataSharingAllowed: dataSharingAllowed, recoveryStore: recoveryStore,
             modelCatalog: ModelCatalog(session: URLSession(configuration: configuration)),
-            webSearchClient: webSearchClient)
+            webSearchClient: webSearchClient, conversationStore: conversationStore)
     }
 
     private func completed(_ bridge: ReaderBridge, count: Int = 2, timeout: TimeInterval = 30) async throws {
@@ -1130,10 +1392,80 @@ final class AgentFlowTests: AgentReaderTestCase {
         XCTAssertEqual(remainingDots as? Int, 0)
     }
 
+    func testComposerGrowsAtTheFirstCharacterOfEachWrappedLine() async throws {
+        let (_, bridge, window, _) = try await reader("# Reading\n")
+        defer { window.endEditing(true) }
+        _ = try await bridge.call("toggleAgent")
+        try await wait {
+            bridge.webView.superview?.subviews.contains { $0 is ConversationTextView } == true
+        }
+        let input = try XCTUnwrap(
+            bridge.webView.superview?.subviews.compactMap { $0 as? ConversationTextView }.first)
+        try await wait { input.isFirstResponder && input.bounds.width > 0 }
+        let question = "帮我搜索相关资料，解释 kvcache的作用以及为什么它这么重要，多画一点图辅助我理解。"
+        var capturedFirstWrap = false
+        for width in [360, 362, 380, 400, 420] {
+            _ = try await bridge.webView.callAsyncJavaScript(
+                """
+                document.querySelector('.mdv-agent').style.width = width + 'px';
+                document.querySelector('.mdv-agent-input').value = '';
+                """, arguments: ["width": width], in: nil, contentWorld: .page)
+            try await wait { input.text.isEmpty }
+            for character in question {
+                input.insertText(String(character))
+                let text = input.text ?? ""
+                try await wait {
+                    try await bridge.webView.callAsyncJavaScript(
+                        "return document.querySelector('.mdv-agent-input').value === text;",
+                        arguments: ["text": text], in: nil, contentWorld: .page) as? Bool == true
+                }
+                let metrics =
+                    try await bridge.webView.callAsyncJavaScript(
+                        """
+                        await new Promise(requestAnimationFrame);
+                        const field = document.querySelector('.mdv-agent-input');
+                        const style = getComputedStyle(field);
+                        return {min:parseFloat(style.minHeight), max:parseFloat(style.maxHeight),
+                          height:field.getBoundingClientRect().height, scrollHeight:field.scrollHeight};
+                        """, arguments: [:], in: nil, contentWorld: .page) as? [String: Double]
+                let minimum = try XCTUnwrap(metrics?["min"])
+                let maximum = try XCTUnwrap(metrics?["max"])
+                let natural = input.sizeThatFits(
+                    CGSize(width: input.bounds.width, height: .greatestFiniteMagnitude)
+                ).height
+                let expected = min(maximum, max(minimum, ceil(natural)))
+                if !capturedFirstWrap && expected > minimum + (input.font?.lineHeight ?? 16) / 2 {
+                    capturedFirstWrap = true
+                    let rect =
+                        try await bridge.webView.evaluateJavaScript(
+                            "(() => {const r=document.querySelector('.mdv-composer').getBoundingClientRect();return [r.x,r.y,r.width,r.height];})()"
+                        ) as? [Double]
+                    let values = try XCTUnwrap(rect)
+                    let box = CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+                    recordWindow(
+                        "composer-first-wrapped-character", window: window,
+                        rect: bridge.webView.convert(box, to: window).insetBy(dx: -16, dy: -16))
+                }
+                XCTAssertGreaterThanOrEqual(
+                    input.bounds.height + 0.5, expected,
+                    "The first wrapped character must fit: text=\(text), native=\(input.bounds), natural=\(natural), web=\(String(describing: metrics))"
+                )
+            }
+            input.selectedRange = NSRange(location: 0, length: input.text.utf16.count)
+            input.deleteBackward()
+            try await wait { input.bounds.height <= 52.5 }
+            XCTAssertTrue(input.text.isEmpty)
+        }
+    }
+
     func testCapsuleKeepsNativeInputAndWebSendHitRegionsSeparate() async throws {
         AgentFixtureProtocol.queue.reset([])
         let (_, bridge, _, _) = try await reader("# Document\n")
         _ = try await bridge.call("toggleAgent")
+        // The Web layout message mounts the native input after opening the panel.
+        try await wait {
+            bridge.webView.superview?.subviews.contains(where: { $0 is ConversationTextView }) == true
+        }
         let input = try XCTUnwrap(
             bridge.webView.superview?.subviews.compactMap { $0 as? ConversationTextView }.first)
         XCTAssertFalse(input.isDescendant(of: bridge.webView))

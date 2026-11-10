@@ -76,8 +76,7 @@
     function updateSymbols() {
       if (!Object.keys(nativeSymbols).length) return;
       app.querySelectorAll('svg[data-lucide]:not([data-native-symbol])').forEach(svg => {
-        const chrome = !!svg.closest('[data-reader-chrome]');
-        const source = nativeSymbols[(chrome ? 'reader-' : '') + svg.dataset.lucide];
+        const source = nativeSymbols[svg.dataset.lucide];
         if (!source) return;
         svg.dataset.nativeSymbol = 'true';
         // Lucide refreshes all data-lucide nodes, including existing SVGs.
@@ -85,7 +84,7 @@
         svg.removeAttribute('data-lucide');
         svg.setAttribute('stroke', 'none');
         const mask = 'native-symbol-' + (++nativeSymbolSequence);
-        const inset = chrome ? 0 : 1;
+        const inset = 1;
         const size = 24 - inset * 2;
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.innerHTML = '<defs><mask id="' + mask + '"><image href="' + source + '" x="' + inset + '" y="' + inset + '" width="' + size + '" height="' + size + '" preserveAspectRatio="xMidYMid meet"/></mask></defs><rect width="24" height="24" fill="currentColor" mask="url(#' + mask + ')"/>';
@@ -141,11 +140,14 @@
         stopOutlineFollow(); outlineFollowPaused = false; outlineBody.scrollTop = 0;
         updateDocument();
         const saved = document.recovery;
+        const savedConversation = saved || document.conversation;
+        if (savedConversation) {
+          freezeImages(savedConversation.frozenImages || []);
+          agentExperience.restore(savedConversation.conversation || {});
+        }
         if (saved) {
           nativeRequestSequence = saved.nativeRequestSequence || 0;
           lastActivePanel = saved.lastActivePanel || 'outline';
-          freezeImages(saved.frozenImages || []);
-          agentExperience.restore(saved.conversation || {});
           state.mode = saved.mode === 'source' ? 'source' : 'preview';
           displayedMode = state.mode;
           state.outline = !!saved.outline;
@@ -168,8 +170,8 @@
           restoreReadingPosition(pinnedAnchor);
           outlineFollowPaused = !!saved.outlinePaused;
           if (outlineFollowPaused) { stopOutlineFollow(); outlineBody.scrollTop = saved.outlineScroll || 0; }
-          agentExperience.finishRestore(saved.conversation || {});
         } else window.scrollTo(0,0);
+        if (savedConversation) agentExperience.finishRestore(savedConversation.conversation || {});
         recovering = false;
         scheduleRecovery();
         window.lucide.createIcons(); updateSymbols();
@@ -251,11 +253,14 @@
       },
       agentInteraction() { notePanelInteraction('agent'); },
       updateAgentInput(payload) { nativeInputs.update(payload); },
+      resizeAgentInput(payload) { nativeInputs.resize(payload); },
       commitAgentInput(payload) { nativeInputs.commit(payload); },
       clearAgentHistory(payload) {
         if (payload.token !== nativeToken) return false;
-        agentExperience.clearHistory();
-        return true;
+        const retained = agentExperience.clearHistory();
+        const ids = new Set(retained);
+        for (const id of frozenImageIDs) if (!ids.has(id)) frozenImageIDs.delete(id);
+        return retained;
       },
       agentEvent(event) {
         if (event.token !== nativeToken) return;

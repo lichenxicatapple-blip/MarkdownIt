@@ -100,10 +100,7 @@ final class SourceEditor: NSObject, UITextViewDelegate {
         textView.accessibilityIdentifier = "SourceEditor"
         textView.isHidden = true
         textView.onCompositionBegin = { [weak self] in
-            guard let self, !self.composing else { return }
-            self.composing = true
-            self.history.breakGroup()
-            self.pendingSelection = self.selection
+            self?.beginComposition()
         }
         textView.onCompositionCommit = { [weak self] in
             guard let self, self.composing, self.textView.markedTextRange == nil else { return }
@@ -133,9 +130,22 @@ final class SourceEditor: NSObject, UITextViewDelegate {
         SourceSelection(range: textView.selectedRange, scrollY: textView.contentOffset.y)
     }
 
+    private var committedSelection: SourceSelection {
+        textView.text == history.text ? selection : previousSelection
+    }
+
+    private func beginComposition() {
+        guard !updating, !composing else { return }
+        composing = true
+        history.breakGroup()
+        if pendingSelection == nil { pendingSelection = committedSelection }
+    }
+
     func checkpoint() -> Recovery {
         Recovery(
-            history: history.snapshot(), selection: selection, position: capturePosition(),
+            history: history.snapshot(
+                including: textView.text, before: pendingSelection ?? committedSelection, after: selection),
+            selection: selection, position: capturePosition(),
             focused: textView.isFirstResponder || restoreFocus)
     }
 
@@ -197,19 +207,29 @@ final class SourceEditor: NSObject, UITextViewDelegate {
     func textView(
         _ textView: UITextView, shouldChangeTextInRanges ranges: [NSValue], replacementText text: String
     ) -> Bool {
-        if !composing { pendingSelection = selection }
+        if textView.markedTextRange != nil { beginComposition() }
+        if !composing { pendingSelection = committedSelection }
         return true
     }
 
     func textViewDidChange(_ textView: UITextView) {
-        guard !updating, textView.markedTextRange == nil else { return }
+        guard !updating else { return }
+        if textView.markedTextRange != nil {
+            beginComposition()
+            return
+        }
         let kind = composing ? .composition : pendingKind
         composing = false
         commit(kind: kind)
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
-        guard !updating, !composing, textView.markedTextRange == nil, textView.text == history.text else { return }
+        guard !updating else { return }
+        if textView.markedTextRange != nil {
+            beginComposition()
+            return
+        }
+        guard !composing, textView.text == history.text else { return }
         if pendingSelection == nil && selection.range != previousSelection.range { history.breakGroup() }
         previousSelection = selection
         onCheckpoint?()

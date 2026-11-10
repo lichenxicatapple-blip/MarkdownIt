@@ -17,7 +17,9 @@ final class RecoveryTests: AgentReaderTestCase {
         let (session, bridge, _, url) = try await makeReader(
             text, baseURL: "https://recovery.example.invalid/v1",
             model: "fixture", modelClient: ModelClient(), modelKey: { "isolated-recovery-test-key" },
-            recoveryStore: store)
+            recoveryStore: store,
+            conversationStore: AgentConversationStore(
+                directory: store.directory.deletingLastPathComponent().appendingPathComponent("Conversations")))
         return (session, bridge, url)
     }
 
@@ -28,7 +30,9 @@ final class RecoveryTests: AgentReaderTestCase {
         let session = ReaderSession(
             defaults: defaults, modelSettings: isolatedModelSettings(), recoveryStore: store,
             annotationStore: ReadingAnnotationStore(
-                directory: store.directory.deletingLastPathComponent().appendingPathComponent("Annotations")))
+                directory: store.directory.deletingLastPathComponent().appendingPathComponent("Annotations")),
+            conversationStore: AgentConversationStore(
+                directory: store.directory.deletingLastPathComponent().appendingPathComponent("Conversations")))
         addTeardownBlock { @MainActor in await session.closeDocument() }
         await session.restoreLastSession()
         return session
@@ -39,6 +43,9 @@ final class RecoveryTests: AgentReaderTestCase {
         let original = "# Reading\n\nA passage to discuss.\n"
         let (session, bridge, _) = try await reader(original, store: store)
         _ = try await bridge.call("toggleAgent")
+        try await wait {
+            bridge.webView.superview?.subviews.contains { $0 is ConversationTextView } == true
+        }
         let input = try XCTUnwrap(
             bridge.webView.superview?.subviews.compactMap { $0 as? ConversationTextView }.first)
         try await wait { input.isFirstResponder && !input.isHidden }
@@ -63,6 +70,31 @@ final class RecoveryTests: AgentReaderTestCase {
         XCTAssertNil(input.markedTextRange)
         let loaded = try await store.load()
         XCTAssertEqual(try XCTUnwrap(loaded).composer?.text, "你好")
+    }
+
+    func testSourceCompositionCheckpointPreservesTextAndAnnotationPositionsTogether() async throws {
+        let store = try store()
+        let (session, bridge, _) = try await reader("word", store: store)
+        let annotated = await session.setAnnotation(
+            ranges: [.init(start: 0, end: 4)], underlined: true,
+            token: session.documentToken, sourceRevision: bridge.sourceEditor.history.revision)
+        XCTAssertTrue(annotated)
+        try await sourceMode(bridge)
+        let input = bridge.sourceEditor.textView
+        input.selectedRange = NSRange(location: 0, length: 0)
+        input.setMarkedText("zhong", selectedRange: NSRange(location: 5, length: 0))
+        await session.checkpointRecovery()
+        XCTAssertNotNil(input.markedTextRange)
+        XCTAssertEqual(session.document?.text, "word")
+        let loaded = try await store.load()
+        let saved = try XCTUnwrap(loaded)
+        XCTAssertEqual(saved.editor.history.text, "zhongword")
+        XCTAssertEqual(saved.annotations?.visible.first?.ranges, [.init(start: 5, end: 9)])
+        let restored = SourceHistory()
+        try restored.restore(saved.editor.history)
+        XCTAssertTrue(restored.move(forward: false))
+        XCTAssertEqual(restored.text, "word")
+        XCTAssertEqual(session.annotations.visible.first?.ranges, [.init(start: 0, end: 4)])
     }
 
     func testSourceCheckpointRestoresTextSelectionPositionAndBothHistoryStacks() async throws {
@@ -219,6 +251,14 @@ final class RecoveryTests: AgentReaderTestCase {
             access: ResourceAccess(
                 documentURL: url, roots: [url.deletingLastPathComponent()], token: next.documentToken))
         XCTAssertEqual(recovered, first, "Sent image IDs must retain their original pixels across process death")
+        await next.closeDocument()
+        await next.open(url)
+        XCTAssertNotEqual(next.documentToken, session.documentToken)
+        let reopened = try await next.agentImages.prepare(
+            snapshot,
+            access: ResourceAccess(
+                documentURL: url, roots: [url.deletingLastPathComponent()], token: next.documentToken))
+        XCTAssertEqual(reopened, first, "Reopening a conversation must not reload changed image pixels")
     }
 
     func testInaccessibleDocumentDraftSurvivesOpeningAnotherFile() async throws {

@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import WebKit
 
@@ -50,12 +51,16 @@ final class ReaderWKWebView: WKWebView {
 
 @MainActor
 final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
+    private static let lifecycleLog = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "MarkdownIt", category: "Reader")
+    private let diagnosticID = UUID().uuidString.lowercased()
     let session: ReaderSession
     let webView: ReaderWKWebView
     private(set) var ready = false
     private var loadedToken = ""
     private var lastTheme = ""
     private(set) var composer: NativeComposerHost!
+    private(set) var conversationControls: ConversationControlsHost!
     private(set) var imageMenu: ReaderImageMenu!
     private var actionMenu: ReaderActionMenu!
     private var pencil: ReaderPencilInteraction!
@@ -66,6 +71,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     private var sourceEvents: [[String: String]] = []
     private var projectionTask: Task<Void, Error>?
     private var projectionGeneration = 0
+    private var detached = false
 
     init(session: ReaderSession) {
         self.session = session
@@ -82,6 +88,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = ReaderWKWebView(frame: .zero, configuration: configuration)
         super.init()
+        Self.lifecycleLog.notice("reader.created bridge=\(self.diagnosticID, privacy: .public)")
         if let document = session.document {
             sourceToken = session.documentToken
             sourceEditor.load(document.text)
@@ -137,6 +144,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             _ = try? await self?.call(method, arguments: ["payload": payload])
         }
         composer.onCheckpoint = { [weak session] in session?.requestCheckpoint() }
+        conversationControls = ConversationControlsHost(webView: webView)
+        conversationControls.onClear = { [weak session] token in session?.requestAgentHistoryClear(token: token) }
+        conversationControls.onCollapse = { [weak self] token in
+            guard let self, token == self.session.documentToken else { return }
+            Task { _ = try? await self.call("closeAgent") }
+        }
         configuration.userContentController.add(self, name: "reader")
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -183,6 +196,11 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 
     func call(_ method: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        if method == "toggleMode" {
+            Self.lifecycleLog.notice(
+                "reader.mode_switch bridge=\(self.diagnosticID, privacy: .public) document=\(self.session.documentToken, privacy: .public)"
+            )
+        }
         let payload = arguments["payload"]
         if ["toggleMode", "toggleAgent", "toggleOutline"].contains(method) {
             guard !annotationHost.hasUnsavedChanges else { return nil }
@@ -299,6 +317,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         imageMenu.dismiss()
         annotationHost.dismiss(force: true, animated: false)
         loadedToken = session.documentToken
+        Self.lifecycleLog.notice(
+            "reader.load bridge=\(self.diagnosticID, privacy: .public) document=\(self.loadedToken, privacy: .public)"
+        )
         let token = loadedToken
         if sourceToken != token {
             projectionGeneration += 1
@@ -326,6 +347,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                             "name": document.fileURL.lastPathComponent,
                             "mode": session.mode,
                             "recovery": session.webRecovery ?? NSNull() as Any,
+                            "conversation": session.retainedConversation ?? NSNull() as Any,
                             "sourcePosition": sourceEditor.capturePosition().payload,
                         ]
                     ])
@@ -365,18 +387,10 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 symbols[name] = "data:image/png;base64," + data.base64EncodedString()
             }
         }
-        for (name, symbol) in [
-            "reader-chevron-right": "chevron.right", "reader-chevron-down": "chevron.down", "reader-trash-2": "trash",
-        ] {
-            if let data = ReaderChromeSymbols.image(symbol)?.pngData() {
-                symbols[name] = "data:image/png;base64," + data.base64EncodedString()
-            }
-        }
         var palette: [String: String] = [:]
         for (name, color) in [
             "paper": UIColor.systemBackground, "chrome": .secondarySystemBackground, "ink": .label,
             "muted": .secondaryLabel, "line": .separator, "accent": webView.tintColor ?? .systemBlue,
-            "destructive": .systemRed,
         ] {
             var r: CGFloat = 0
             var g: CGFloat = 0
@@ -470,6 +484,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             else { return }
             annotationHost.updateAnchor(rect)
         case "ready":
+            conversationControls.hide()
             composer.beginPage()
             ready = true
             updateInputBottomInset()
@@ -510,7 +525,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             }
         case "sourceLayout":
             guard body["token"] as? String == sourceToken else { return }
-            guard let host = webView.hostNativeInput(sourceEditor.textView, aboveWebContent: false) else { return }
+            guard let host = webView.hostNativeView(sourceEditor.textView, aboveWebContent: false) else { return }
             let frame = CGRect(
                 x: body["x"] as? Double ?? 0, y: body["y"] as? Double ?? 0,
                 width: body["width"] as? Double ?? 0, height: body["height"] as? Double ?? 0)
@@ -550,10 +565,6 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             if body["token"] as? String == session.documentToken {
                 session.agentTransport.cancel(id: body["id"] as? String)
             }
-        case "agentClearHistory":
-            if let token = body["token"] as? String {
-                session.requestAgentHistoryClear(token: token)
-            }
         case "agentUndo":
             if let id = body["id"] as? String, let change = body["change"] as? String,
                 let token = body["token"] as? String, token == session.documentToken
@@ -561,7 +572,18 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 session.undoAgentChange(id: change, requestID: id, token: token)
             }
         case "inputLayout":
+            guard let token = body["token"] as? String, token == session.documentToken else { return }
             composer.updateLayout(body["inputs"] as? [[String: Any]] ?? [])
+            conversationControls.updateLayout(body["controls"] as? [[String: Any]] ?? [], token: token)
+        case "agentLifecycle":
+            guard body["token"] as? String == session.documentToken,
+                let event = body["event"] as? String,
+                ["user_clear", "document_reset", "restore_reset"].contains(event),
+                let count = body["count"] as? Int, count >= 0
+            else { return }
+            Self.lifecycleLog.notice(
+                "conversation.\(event, privacy: .public) bridge=\(self.diagnosticID, privacy: .public) turns=\(count, privacy: .public)"
+            )
         case "inputSetText":
             if let id = body["id"] as? String, let text = body["text"] as? String, let epoch = body["epoch"] as? Int {
                 composer.setText(id: id, text: text, epoch: epoch)
@@ -598,16 +620,22 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 
     func detach() {
-        session.finishDataSharingConsent(allowed: false)
-        session.searchAuthorization.finish(allowed: false)
-        session.agentTransport.reset()
-        session.agentImages.reset()
+        guard !detached else { return }
+        detached = true
+        Self.lifecycleLog.notice("reader.detached bridge=\(self.diagnosticID, privacy: .public)")
+        if session.bridge === self {
+            session.captureNativeRecovery()
+            session.finishDataSharingConsent(allowed: false)
+            session.searchAuthorization.finish(allowed: false)
+            session.agentTransport.cancel()
+        }
         pencil.detach()
         annotationHost.detach()
         imageMenu.detach()
         actionMenu.detach()
         sourceEditor.history.onEdit = nil
         composer.detach()
+        conversationControls.detach()
         webView.askSelectedText = nil
         webView.annotateSelectedText = nil
         webView.inputBottomInsetDidChange = nil
@@ -630,12 +658,16 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Self.lifecycleLog.error(
+            "reader.web_process_terminated bridge=\(self.diagnosticID, privacy: .public) document=\(self.session.documentToken, privacy: .public)"
+        )
         session.finishDataSharingConsent(allowed: false)
         session.searchAuthorization.finish(allowed: false)
         session.captureNativeRecovery()
         session.agentTransport.cancel()
         imageMenu.dismiss()
         composer.blur()
+        conversationControls.hide()
         sourceEditor.textView.resignFirstResponder()
         sourceEditor.textView.isHidden = true
         projectionGeneration += 1

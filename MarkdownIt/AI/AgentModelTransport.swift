@@ -186,6 +186,13 @@ final class AgentModelTransport {
         task = nil
     }
 
+    /// Finish any native tool journal before the document is handed off or closed.
+    func stop() async {
+        let pending = task
+        cancel()
+        await pending?.value
+    }
+
     func reset() {
         cancel()
         run = nil
@@ -205,7 +212,7 @@ final class AgentModelTransport {
     func start(
         id: String, token: String, snapshot: AgentSnapshot, intent: String,
         configuration: ModelConfiguration, key: String,
-        toolScope: String = "",
+        toolScope: String = "", conversationID: String? = nil,
         capabilities: @escaping @MainActor () async -> ModelCapabilities = { ModelCapabilities() },
         toolsAvailable: @escaping @MainActor () -> Bool = { false },
         prepareImages: @escaping @MainActor () async throws -> [ModelImage] = { [] },
@@ -227,7 +234,7 @@ final class AgentModelTransport {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let scope = AgentDocumentTools.revision(
-            token + ":" + configuration.baseURL + ":" + configuration.model + ":"
+            (conversationID ?? token) + ":" + configuration.baseURL + ":" + configuration.model + ":"
                 + configuration.apiProtocol.rawValue + ":" + AgentDocumentTools.revision(key)
                 + (toolScope.isEmpty ? "" : ":" + toolScope))
         let requestKey =
@@ -241,8 +248,12 @@ final class AgentModelTransport {
                 (($0.document?.images ?? []) + ($0.attachment?.images ?? [])).map(\.id)
             })
         let memory = contextMemory
+        let diagnosticContext = ModelDiagnostics.Context(runID: UUID().uuidString.lowercased())
         task = Task { [weak self, client, memory] in
             guard !Task.isCancelled else { return }
+            client.diagnostics.run("run.start", context: diagnosticContext)
+            var outcome = "completed"
+            defer { client.diagnostics.run("run.end", context: diagnosticContext, outcome: outcome) }
             await memory.configure(scope: scope, restoring: self?.contextCheckpoint)
             do {
                 let limits = await capabilities()
@@ -256,6 +267,15 @@ final class AgentModelTransport {
                         while pending.outputs.count < pending.turn.calls.count {
                             try Task.checkCancellation()
                             let call = pending.turn.calls[pending.outputs.count]
+                            let toolStarted = ContinuousClock.now
+                            var toolOutcome = "interrupted"
+                            client.diagnostics.tool(
+                                "tool.start", context: diagnosticContext, call: call, started: toolStarted, key: key)
+                            defer {
+                                client.diagnostics.tool(
+                                    "tool.end", context: diagnosticContext, call: call, started: toolStarted,
+                                    key: key, outcome: toolOutcome)
+                            }
                             let execution: AgentToolExecution
                             if currentRun.toolsPaused {
                                 execution = AgentToolExecution(output: Self.pausedToolOutput)
@@ -295,6 +315,8 @@ final class AgentModelTransport {
                                 call.name + String(decoding: arguments, as: UTF8.self) + execution.output
                                     + (execution.revision ?? ""))
                             let repeated = !currentRun.seenToolResults.insert(signature).inserted
+                            toolOutcome =
+                                repeated ? "repeated_without_progress" : ModelDiagnostics.toolOutcome(execution)
                             if ["read_document", "read_image"].contains(call.name) {
                                 currentRun.readSignatures[call.id] = signature
                             }
@@ -317,7 +339,8 @@ final class AgentModelTransport {
                     let summarize: AgentContextMemory.Summarize = { messages in
                         let turn = try await Self.request(
                             client, configuration: configuration, key: key, messages: messages,
-                            budget: budget, memory: memory
+                            budget: budget, memory: memory,
+                            context: ModelDiagnostics.Context(runID: diagnosticContext.runID, purpose: .summary)
                         ) { _ in }
                         guard turn.calls.isEmpty else { throw ModelError.contextPreparation }
                         return turn.text
@@ -352,7 +375,8 @@ final class AgentModelTransport {
                     }
                     let turn = try await Self.request(
                         client, configuration: configuration, key: key, messages: prepared.messages,
-                        tools: tools, exchanges: prepared.exchanges, budget: budget, memory: memory
+                        tools: tools, exchanges: prepared.exchanges, budget: budget, memory: memory,
+                        context: diagnosticContext
                     ) { [weak self] chunk in
                         guard await self?.activeID == id else { return }
                         await emit(AgentModelEvent(id: id, token: token, type: "text", text: chunk))
@@ -368,13 +392,17 @@ final class AgentModelTransport {
                     await self?.checkpoint?()
                 }
             } catch {
+                outcome = ModelDiagnostics.outcome(error)
                 if self?.activeID == id && !Task.isCancelled {
                     self?.contextCheckpoint = await memory.checkpoint()
                     await self?.checkpoint?()
                     await emit(AgentModelEvent(id: id, token: token, type: "failure", failure: AgentFailure(error)))
                 }
             }
-            if Task.isCancelled { await emit(AgentModelEvent(id: id, token: token, type: "cancelled")) }
+            if Task.isCancelled {
+                outcome = "cancelled"
+                await emit(AgentModelEvent(id: id, token: token, type: "cancelled"))
+            }
             guard let self, self.activeID == id else { return }
             self.activeID = nil
             self.task = nil
@@ -385,11 +413,13 @@ final class AgentModelTransport {
         _ client: ModelClient, configuration: ModelConfiguration, key: String, messages: [ChatMessage],
         tools: [ModelTool] = [], exchanges: [ModelToolExchange] = [],
         budget: AgentContextBudget, memory: AgentContextMemory,
+        context: ModelDiagnostics.Context,
         onText: @escaping @Sendable (String) async -> Void
     ) async throws -> ModelTurn {
         let turn = try await client.stream(
             configuration: configuration, key: key, messages: messages, tools: tools, exchanges: exchanges,
             maxOutputTokens: budget.outputLimit(inputCost: budget.cost(messages, exchanges: exchanges, tools: tools)),
+            context: context,
             onText: onText)
         await memory.observe(
             inputTokens: turn.usage?.inputTokens,

@@ -1,8 +1,8 @@
 <aside class="mdv-agent" data-component="QuestionPanel" aria-label="AI conversation" data-l10n-aria-label="AI conversation" hidden>
-  <div class="mdv-agent-grabber" aria-hidden="true"><span></span></div>
-  <div class="mdv-agent-controls">
-    <button type="button" data-agent-action="clear-history" data-reader-chrome class="mdv-agent-control mdv-agent-clear cursor-interaction" aria-label="Clear History" data-l10n-aria-label="Clear History" disabled><i data-lucide="trash-2" aria-hidden="true"></i></button>
-    <button type="button" data-agent-action="collapse" data-reader-chrome class="mdv-agent-control mdv-agent-collapse cursor-interaction" aria-label="Collapse conversation" data-l10n-aria-label="Collapse conversation"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+  <div class="mdv-agent-controls" aria-hidden="true">
+    <span data-native-agent-control="clear" class="mdv-agent-control"></span>
+    <div class="mdv-agent-grabber"><span></span></div>
+    <span data-native-agent-control="collapse" class="mdv-agent-control"></span>
   </div>
   <div class="mdv-agent-scroll" role="region" aria-label="Conversation" data-l10n-aria-label="Conversation">
     <div class="mdv-conversation" data-component="ConversationThread" aria-label="Conversation thread" data-l10n-aria-label="Conversation thread"></div>

@@ -71,7 +71,9 @@ final class AgentDocumentTools {
         _ call: ModelToolCall, token: String, requestID: String? = nil, maxReadBytes: Int = 8192,
         onChange: @MainActor (AgentDocumentChange) async -> Void = { _ in }
     ) async -> AgentToolExecution {
-        let receiptID = requestID.map { Self.revision(token + $0 + call.id + call.name + call.arguments) }
+        let receiptID = requestID.map {
+            Self.revision((session?.conversationID ?? token) + $0 + call.id + call.name + call.arguments)
+        }
         if let receiptID, let receipt = receipts[receiptID] { return receipt }
         guard !executing else { return result(["error": "document_busy"]) }
         executing = true

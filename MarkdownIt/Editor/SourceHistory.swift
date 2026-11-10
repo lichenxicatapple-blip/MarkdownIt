@@ -69,6 +69,8 @@ final class SourceHistory {
         func edits(forward: Bool) -> [Edit] {
             (forward ? redo : undo).reversed().map { $0.edit(forward: forward) }
         }
+
+        var latestEdit: Edit? { undo.last?.edit(forward: true) }
     }
 
     fileprivate struct Transaction: Codable, Equatable, Sendable {
@@ -178,6 +180,17 @@ final class SourceHistory {
         Snapshot(text: text, revision: revision, undo: undo.map(\.snapshot), redo: redo.map(\.snapshot))
     }
 
+    /// Preserve unconfirmed native input as a value without ending the live IME session.
+    func snapshot(including value: String, before: SourceSelection, after: SourceSelection) -> Snapshot {
+        let committed = snapshot()
+        guard value != text else { return committed }
+        let patch = Self.difference(text, value, maximumPrefix: min(before.range.location, after.range.location))
+        let pending = Transaction(
+            id: UUID().uuidString.lowercased(), start: patch.start, before: patch.before, after: patch.after,
+            kind: .composition, beforeSelection: before, afterSelection: after, changes: nil)
+        return Snapshot(text: value, revision: revision + 1, undo: committed.undo + [pending], redo: [])
+    }
+
     func restore(_ snapshot: Snapshot) throws {
         guard snapshot.revision >= 0 else { throw CocoaError(.fileReadCorruptFile) }
         func validate(_ transactions: [Transaction], forward: Bool) throws {
@@ -201,7 +214,9 @@ final class SourceHistory {
                     var previousStart = beforeLength
                     guard !changes.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
                     for change in changes {
-                        guard change.start >= transaction.start, change.removed >= 0, change.inserted >= 0,
+                        // Tool deltas describe the requested ranges in the whole
+                        // buffer; the stored text patch trims unchanged edges.
+                        guard change.start >= 0, change.removed >= 0, change.inserted >= 0,
                             change.start <= previousStart, change.removed <= previousStart - change.start,
                             change.start <= length, change.removed <= length - change.start,
                             change.inserted <= Int.max - (length - change.removed)

@@ -13,6 +13,13 @@ final class ReaderSession: ObservableObject {
     private let recoveryStore: ReaderRecoveryStore?
     private var recoverySequence: UInt64 = 0
     private var recoveryWeb: Data?
+    private let conversationStore: AgentConversationStore?
+    private var conversationWeb: Data?
+    private var conversationOwner = UUID()
+    private var conversationPath: String?
+    private var conversationSequence: UInt64 = 0
+    private var conversationRevision: UInt64 = 0
+    private(set) var conversationID = UUID().uuidString.lowercased()
     private(set) var restoredAnnotation: ReaderAnnotationHost.Recovery?
     private(set) var restoredComposer: NativeComposerHost.Recovery?
     private(set) var restoredEditor: SourceEditor.Recovery?
@@ -88,11 +95,13 @@ final class ReaderSession: ObservableObject {
         modelKey: (@MainActor () -> String)? = nil,
         modelSettings: ModelSettingsStore = ModelSettingsStore(),
         recoveryStore: ReaderRecoveryStore? = nil,
-        annotationStore: ReadingAnnotationStore = ReadingAnnotationStore()
+        annotationStore: ReadingAnnotationStore = ReadingAnnotationStore(),
+        conversationStore: AgentConversationStore? = nil
     ) {
         self.defaults = defaults
         self.annotationStore = annotationStore
         self.recoveryStore = recoveryStore
+        self.conversationStore = conversationStore
         restoringSession = recoveryStore != nil
         dataConsent = ModelDataConsent(defaults: defaults)
         searchAuthorization = WebSearchAuthorization(defaults: defaults)
@@ -269,6 +278,10 @@ final class ReaderSession: ObservableObject {
         guard await flushChanges() else { return false }
         let nextAnnotationPath = ReadingAnnotationStore.path(for: url)
         let nextAnnotationOwner = UUID()
+        let nextConversationPath = AgentConversationStore.path(for: url)
+        let nextConversationOwner = UUID()
+        let nextConversation = try await conversationStore?.load(
+            path: nextConversationPath, owner: nextConversationOwner)
         var nextAnnotations = try await annotationStore.load(path: nextAnnotationPath, owner: nextAnnotationOwner)
         let rawAnnotations = nextAnnotations
         nextAnnotations.retireHistory()
@@ -277,6 +290,13 @@ final class ReaderSession: ObservableObject {
         let access = ResourceAccess(documentURL: url, roots: grantedRoots, token: documentToken)
         let roots = await Task.detached(priority: .userInitiated) { access.rootsRequired(for: []) }.value
         let recent = await RecentDocumentsStore.prepare(url, folders: roots + restoredFolders, replacing: recentID)
+        finishDataSharingConsent(allowed: false)
+        searchAuthorization.finish(allowed: false)
+        await agentTransport.stop()
+        guard await preserveConversation() else {
+            _ = await next.closeSavingChanges()
+            return false
+        }
         if let document, !(await document.closeSavingChanges()) {
             _ = await next.closeSavingChanges()
             errorMessage = String(localized: "The document could not be saved. Your changes have been kept.")
@@ -285,6 +305,11 @@ final class ReaderSession: ObservableObject {
         let previousToken = documentToken
         if document != nil { await endRecovery(token: previousToken) }
         recoveryWeb = nil
+        conversationWeb = nil
+        conversationRevision += 1
+        conversationSequence = 0
+        conversationOwner = nextConversationOwner
+        conversationPath = nextConversationPath
         restoredEditor = nil
         restoredComposer = nil
         restoredAnnotation = nil
@@ -304,6 +329,17 @@ final class ReaderSession: ObservableObject {
         agentModalActive = false
         documentLeading = 0
         documentToken = UUID().uuidString.lowercased()
+        conversationID = nextConversation?.contextID ?? documentToken
+        if let nextConversation {
+            try agentTransport.restore(nextConversation.transport)
+            agentDocuments.restore(nextConversation.tools)
+            agentImages.restore(nextConversation.images, token: documentToken)
+            conversationWeb = nextConversation.web
+            if let composer = nextConversation.composer {
+                restoredComposer = NativeComposerHost.Recovery(
+                    text: composer.text, selection: composer.selection, focused: false, epoch: composer.epoch)
+            }
+        }
         localResourcePaths = nil
         deniedResourcePath = nil
         resourcePermissionDirectory = nil
@@ -497,6 +533,10 @@ final class ReaderSession: ObservableObject {
         if !discardChanges { synchronizeSource() }
         autosaveTask?.cancel()
         guard await saveAnnotations() else { return }
+        finishDataSharingConsent(allowed: false)
+        searchAuthorization.finish(allowed: false)
+        await agentTransport.stop()
+        guard await preserveConversation() else { return }
         let hadChanges = document.hasUnsavedChanges
         // UIDocument.close normally saves. Only an explicit discard choice
         // clears its dirty state so closing cannot retry the failed write.
@@ -509,6 +549,9 @@ final class ReaderSession: ObservableObject {
         }
         await endRecovery(token: documentToken)
         recoveryWeb = nil
+        conversationWeb = nil
+        conversationPath = nil
+        conversationRevision += 1
         restoredEditor = nil
         restoredComposer = nil
         restoredAnnotation = nil
@@ -600,11 +643,15 @@ final class ReaderSession: ObservableObject {
         guard confirmed, let token, token == documentToken, document != nil, !isClosingDocument, let bridge else {
             return
         }
-        agentTransport.reset()
+        conversationRevision += 1
         Task { [weak self, weak bridge] in
             guard let self, let bridge, token == self.documentToken else { return }
-            _ = try? await bridge.call("clearAgentHistory", arguments: ["payload": ["token": token]])
+            await self.agentTransport.stop()
+            self.agentTransport.reset()
+            let retained = try? await bridge.call("clearAgentHistory", arguments: ["payload": ["token": token]])
             guard token == self.documentToken else { return }
+            self.agentDocuments.reset()
+            if let retained = retained as? [String] { self.agentImages.retain(Set(retained)) }
             await self.checkpointRecovery()
         }
     }
@@ -726,7 +773,7 @@ final class ReaderSession: ObservableObject {
                 }) : nil
         agentTransport.start(
             id: id, token: token, snapshot: snapshot, intent: intent, configuration: configuration, key: key,
-            toolScope: searchConfiguration.identity,
+            toolScope: searchConfiguration.identity, conversationID: conversationID,
             capabilities: { [weak self] in
                 guard let self else { return ModelCapabilities() }
                 return await self.modelCatalog.capabilities(configuration: configuration, key: key)
@@ -841,6 +888,8 @@ final class ReaderSession: ObservableObject {
     }
 
     #if DEBUG
+        func resetTestConversations() async throws { try await conversationStore?.reset() }
+
         func openSampleFixture(reset: Bool = false) async {
             guard let source = Bundle.main.resourceURL?.appendingPathComponent("Sample"),
                 let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -936,15 +985,35 @@ extension ReaderSession {
             annotationRevision += 1
         }
         loadedAnnotations = nil
-        try agentTransport.restore(record.transport)
-        agentDocuments.restore(record.tools)
-        agentImages.restore(record.images)
+        // The per-document conversation is authoritative, including a newer user clear.
+        // Older open-reader checkpoints remain a migration source when it is absent.
+        if conversationWeb == nil {
+            try agentTransport.restore(record.transport)
+            agentDocuments.restore(record.tools)
+            agentImages.restore(record.images)
+            restoredComposer = record.composer
+            conversationID = record.conversationID ?? record.token
+        } else {
+            agentImages.restore(agentImages.checkpoint(), token: record.token)
+            if let composer = restoredComposer {
+                restoredComposer = NativeComposerHost.Recovery(
+                    text: composer.text, selection: composer.selection,
+                    focused: record.composer?.focused == true, epoch: composer.epoch)
+            }
+        }
         recoverySequence = record.sequence
         documentToken = record.token
         restoredEditor = record.editor
-        restoredComposer = record.composer
         restoredAnnotation = record.annotationDraft
         recoveryWeb = record.web
+        if let conversationWeb,
+            let retained = try JSONSerialization.jsonObject(with: conversationWeb) as? [String: Any]
+        {
+            var web: [String: Any] = [:]
+            if let data = record.web { web = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:] }
+            web.merge(retained) { _, retained in retained }
+            recoveryWeb = try JSONSerialization.data(withJSONObject: web)
+        }
         if document.text != record.editor.history.text {
             document.text = record.editor.history.text
             document.updateChangeCount(.done)
@@ -989,8 +1058,15 @@ extension ReaderSession {
         return web
     }
 
+    var retainedConversation: [String: Any]? {
+        guard recoveryWeb == nil, let conversationWeb else { return nil }
+        return try? JSONSerialization.jsonObject(with: conversationWeb) as? [String: Any]
+    }
+
     func requestCheckpoint() {
-        guard recoveryStore != nil, !restoringSession, pendingRecovery == nil, !isClosingDocument else { return }
+        guard recoveryStore != nil || conversationStore != nil,
+            !restoringSession, pendingRecovery == nil, !isClosingDocument
+        else { return }
         checkpointRequested = true
         guard checkpointTask == nil else { return }
         checkpointTask = Task { [weak self] in
@@ -1008,20 +1084,14 @@ extension ReaderSession {
     }
 
     func checkpointRecovery(includeWeb: Bool = true) async {
-        guard let recoveryStore, let document, !document.documentState.contains(.closed),
+        guard let document, !document.documentState.contains(.closed),
             let location = recoveryLocation,
             !restoringSession, !isClosingDocument, pendingRecovery == nil
         else { return }
         let token = documentToken
-        if includeWeb, let bridge, bridge.ready {
-            await bridge.composer.synchronize()
-            if let value = try? await bridge.call("captureRecovery"), token == documentToken,
-                let data = try? JSONSerialization.data(withJSONObject: value)
-            {
-                recoveryWeb = data
-            }
-        }
+        guard await preserveConversation(includeWeb: includeWeb) else { return }
         guard token == documentToken, !isClosingDocument, pendingRecovery == nil else { return }
+        guard let recoveryStore else { return }
         let editor: SourceEditor.Recovery
         if let bridge, bridge.sourceEditor.history.text == document.text {
             editor = bridge.sourceEditor.checkpoint()
@@ -1039,6 +1109,11 @@ extension ReaderSession {
         restoredComposer = composer
         let annotationDraft = rendererReady ? bridge?.annotationHost.checkpoint() : restoredAnnotation
         restoredAnnotation = annotationDraft
+        var annotationSnapshot = annotations
+        if editor.history.text != document.text, let edit = editor.history.latestEdit {
+            annotationSnapshot.apply(edit)
+            annotationSnapshot.sourceRevision = DocumentRevision.text(editor.history.text)
+        }
         recoverySequence += 1
         let record = ReaderRecovery(
             token: token, sequence: recoverySequence,
@@ -1046,12 +1121,63 @@ extension ReaderSession {
             savedRevision: document.persistedRevision, editor: editor,
             composer: composer, web: recoveryWeb,
             images: agentImages.checkpoint(), tools: agentDocuments.recovery(), transport: agentTransport.recovery(),
-            annotations: annotations, annotationDraft: annotationDraft)
+            annotations: annotationSnapshot, annotationDraft: annotationDraft, conversationID: conversationID)
         do { try await recoveryStore.save(record) } catch {
             if token == documentToken {
                 errorMessage = String(
                     localized: "Unable to preserve the reading session: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Closing the reader ends auto-resume, but never deletes its conversation.
+    @discardableResult
+    private func preserveConversation(includeWeb: Bool = true) async -> Bool {
+        guard document != nil else { return true }
+        let token = documentToken
+        let revision = conversationRevision
+        do {
+            if includeWeb, rendererReady, let bridge, bridge.ready {
+                await bridge.composer.synchronize()
+                let value = try await bridge.call("captureRecovery")
+                guard token == documentToken, revision == conversationRevision else { return false }
+                guard let value, JSONSerialization.isValidJSONObject(value) else {
+                    throw CocoaError(.coderInvalidValue)
+                }
+                recoveryWeb = try JSONSerialization.data(withJSONObject: value)
+            }
+            guard token == documentToken, revision == conversationRevision else { return false }
+            guard let conversationStore, let conversationPath,
+                let data = recoveryWeb ?? conversationWeb,
+                let web = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let conversation = web["conversation"]
+            else { return true }
+            // Reading layout and auto-resume belong exclusively to ReaderRecovery.
+            let composer = rendererReady ? bridge?.composer.checkpoint() : restoredComposer
+            var retainedConversation = conversation
+            if let composer, web["composerEpoch"] as? Int == composer.epoch,
+                var value = conversation as? [String: Any]
+            {
+                value["draft"] = composer.text
+                retainedConversation = value
+            }
+            let retained = try JSONSerialization.data(withJSONObject: [
+                "conversation": retainedConversation, "frozenImages": web["frozenImages"] ?? [],
+                "composerEpoch": web["composerEpoch"] ?? 0,
+            ])
+            conversationSequence += 1
+            try await conversationStore.save(
+                AgentConversation(
+                    contextID: conversationID, web: retained, images: agentImages.checkpoint(),
+                    tools: agentDocuments.recovery(), transport: agentTransport.recovery(), composer: composer),
+                path: conversationPath, owner: conversationOwner, sequence: conversationSequence)
+            return true
+        } catch {
+            if token == documentToken {
+                errorMessage = String(
+                    localized: "Unable to preserve the AI conversation: \(error.localizedDescription)")
+            }
+            return false
         }
     }
 

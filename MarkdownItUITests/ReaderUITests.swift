@@ -436,7 +436,8 @@ final class ReaderUITests: XCTestCase {
         }
     }
 
-    func testSendingConsentCancelAllowAndPersistence() {
+    func testSendingConsentCancelAllowAndPersistence() throws {
+        try useComponentSynchronization()
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         for (language, locale, title, send, allow, cancel) in [
@@ -456,7 +457,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertFalse(app.alerts[title].exists, "Opening AI must not ask for sending permission")
             input.tap()
             input.typeText("Explain Markdown.")
-            tapAfterTyping(app.webViews.buttons[send], in: app)
+            tapAfterTyping(app.webViews.buttons[send], in: app, beside: input)
             let alert = app.alerts[title]
             XCTAssertTrue(alert.waitForExistence(timeout: 6))
             XCTAssertEqual(alert.buttons["AllowModelDataSharing"].firstMatch.label, allow)
@@ -467,7 +468,9 @@ final class ReaderUITests: XCTestCase {
                 ).firstMatch.exists)
             record("ai-sending-consent-\(language)")
             alert.buttons["CancelModelDataSharing"].firstMatch.tap()
+            XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
             XCTAssertEqual(input.value as? String, "Explain Markdown.")
+            waitForEnabled(app.webViews.buttons[send])
             app.webViews.buttons[send].tap()
             XCTAssertTrue(alert.waitForExistence(timeout: 6), "Cancel must not store permission")
             alert.buttons["AllowModelDataSharing"].firstMatch.tap()
@@ -482,14 +485,14 @@ final class ReaderUITests: XCTestCase {
             XCTAssertEqual(input.value as? String, "")
             let replies = app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "通过目录导航"))
             XCTAssertEqual(replies.count, 1, "The existing conversation must survive relaunch")
-            app.webViews.buttons[language == "zh-Hans" ? "收起对话" : "Collapse conversation"].tap()
+            app.buttons["CollapseAgent"].tap()
             XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
             showTools(app)
             app.buttons["GlobalAI"].tap()
             XCTAssertTrue(input.waitForExistence(timeout: 8))
             input.tap()
             input.typeText("Explain Markdown again.")
-            tapAfterTyping(app.webViews.buttons[send], in: app)
+            tapAfterTyping(app.webViews.buttons[send], in: app, beside: input)
             XCTAssertEqual(
                 XCTWaiter.wait(
                     for: [
@@ -565,7 +568,7 @@ final class ReaderUITests: XCTestCase {
         let input = app.textViews["QuestionInput"]
         XCTAssertTrue(input.waitForExistence(timeout: 8))
         XCTAssertEqual(input.label, "AI message")
-        XCTAssertTrue(app.webViews.buttons["Collapse conversation"].exists)
+        XCTAssertTrue(app.buttons["CollapseAgent"].exists)
         XCTAssertTrue(app.webViews.buttons["Remove reference"].exists)
         XCTAssertTrue(app.webViews.buttons["Send message"].exists)
         XCTAssertTrue(app.webViews.buttons["Expand reference"].exists)
@@ -573,7 +576,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertFalse(app.buttons[id].exists, "AI hides the complete bottom group on every layout")
         }
         record("english-agent")
-        app.webViews.buttons["Collapse conversation"].tap()
+        app.buttons["CollapseAgent"].tap()
         XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["More"].exists, "The restored group starts collapsed")
     }
@@ -605,6 +608,18 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
         editor.tap()
         typeSource("menu check", into: editor)
+        for marker in ["settings return one", "settings return two"] {
+            showTools(app)
+            app.buttons["More"].tap()
+            app.buttons["模型设置"].tap()
+            let baseURL = app.textFields["ModelBaseURL"]
+            XCTAssertTrue(baseURL.waitForExistence(timeout: 5))
+            baseURL.tap()
+            app.buttons["取消"].tap()
+            editor.tap()
+            typeSource("\n" + marker, into: editor)
+            XCTAssertTrue((editor.value as? String)?.contains(marker) == true)
+        }
         showTools(app)
         mode.tap()
 
@@ -757,7 +772,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["GlobalAI"].tap()
         XCTAssertTrue(app.textViews["QuestionInput"].waitForExistence(timeout: 6))
         XCTAssertFalse(app.alerts["尚未配置 AI 模型"].exists)
-        app.webViews.buttons["收起对话"].tap()
+        app.buttons["CollapseAgent"].tap()
         openSettings()
         let base = app.textFields["ModelBaseURL"]
         let key = app.secureTextFields["ModelAPIKey"]
@@ -1448,7 +1463,7 @@ final class ReaderUITests: XCTestCase {
         allowDataSharingIfRequested(app)
         XCTAssertTrue(app.webViews.staticTexts["请切换到源码模式后再修改。"].waitForExistence(timeout: 12))
         record("ai-preview-read-only")
-        app.webViews.buttons["收起对话"].tap()
+        app.buttons["CollapseAgent"].tap()
         showTools(app)
         app.buttons["ModeToggle"].tap()
         XCTAssertTrue(app.textViews["SourceEditor"].waitForExistence(timeout: 8))
@@ -1498,7 +1513,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.webViews.staticTexts["已修改这句话，其余内容保持原样。"].waitForExistence(timeout: 12))
         XCTAssertTrue(app.webViews.buttons["撤销这次修改"].exists)
         record("ai-source-edit-applied")
-        app.webViews.buttons["收起对话"].tap()
+        app.buttons["CollapseAgent"].tap()
         showTools(app)
         app.buttons["SourceUndo"].tap()
         XCTAssertTrue(app.buttons["SourceRedo"].isEnabled)
@@ -1545,7 +1560,7 @@ final class ReaderUITests: XCTestCase {
                 }
                 XCTAssertEqual(close.frame.midY, outline.frame.midY, accuracy: 0.5, file: file, line: line)
                 XCTAssertEqual(
-                    close.frame.midY, app.webViews.buttons["Collapse conversation"].frame.midY,
+                    close.frame.midY, app.buttons["CollapseAgent"].frame.midY,
                     accuracy: 1, file: file, line: line)
                 XCTAssertEqual(close.frame.size, trailingClose.size, file: file, line: line)
             }
@@ -1605,7 +1620,7 @@ final class ReaderUITests: XCTestCase {
                 "Hiding the keyboard must restore the full-height conversation: \(input.frame), app \(app.windows.firstMatch.frame)"
             )
             record("adaptive-conversation-keyboard-dismissed")
-            app.webViews.buttons["Collapse conversation"].tap()
+            app.buttons["CollapseAgent"].tap()
             XCTAssertTrue(input.waitForNonExistence(timeout: 5))
             XCTAssertEqual(close.frame.minX, trailingClose.minX, accuracy: 1)
             showTools(app)
@@ -1613,7 +1628,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(input.waitForExistence(timeout: 5))
             assertCloseAtLeading()
             XCTAssertFalse(app.buttons["ToolsToggle"].exists)
-            app.webViews.buttons["Collapse conversation"].tap()
+            app.buttons["CollapseAgent"].tap()
             showTools(app)
             app.buttons["ModeToggle"].tap()
             XCTAssertTrue(app.textViews["SourceEditor"].waitForExistence(timeout: 8))
@@ -1707,7 +1722,10 @@ final class ReaderUITests: XCTestCase {
                     for: [
                         XCTNSPredicateExpectation(
                             predicate: NSPredicate { _, _ in
-                                abs(firstQuestion.frame.minY - conversation.frame.minY - initialOffset)
+                                // WebKit rebuilds its accessibility subtree during rotation.
+                                // Avoid implicit frame-resolution retries while it is absent.
+                                guard firstQuestion.exists && conversation.exists && input.exists else { return false }
+                                return abs(firstQuestion.frame.minY - conversation.frame.minY - initialOffset)
                                     < min(initialLineHeight, firstQuestion.frame.height)
                                     && input.value as? String == "draft\nsecond line"
                             }, object: nil)
@@ -1764,7 +1782,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["QuestionInput"].waitForExistence(timeout: 6))
         XCTAssertTrue(app.webViews.buttons["发送问题"].exists)
         record("selection-question")
-        app.webViews.buttons["收起对话"].tap()
+        app.buttons["CollapseAgent"].tap()
     }
 
     private func openImageReader(_ app: XCUIApplication, language: String, locale: String) -> XCUIElement {
@@ -1883,9 +1901,15 @@ final class ReaderUITests: XCTestCase {
 
     private func pressSoftwareReturnAtEnd(of input: XCUIElement, app: XCUIApplication) {
         // Appending deliberately positions the caret after the visible draft.
-        // Request touch input, then verify the actual software key is available.
-        input.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.95)).tap()
+        // Synthetic typing hides the keyboard temporarily; do not choose the
+        // caret's touch coordinate from that intermediate input layout.
         let keyboard = waitForVisibleSoftwareKeyboard(in: app)
+        let inputReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                input.isHittable && !input.frame.isEmpty && input.frame.maxY <= keyboard.frame.minY
+            }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [inputReady], timeout: 5), .completed)
+        input.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.95)).tap()
         let returnKey = keyboard.descendants(matching: .any)
             .matching(NSPredicate(format: "label IN %@", ["return", "Return", "换行"]))
             .firstMatch
@@ -2030,7 +2054,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(app.buttons["OutlineToggle"].isHittable)
         }
         record("agent-failure-retry-draft")
-        app.webViews.buttons["收起对话"].tap()
+        app.buttons["CollapseAgent"].tap()
         showTools(app)
         app.buttons["GlobalAI"].tap()
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
@@ -2052,7 +2076,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["GlobalAI"].tap()
         let input = app.textViews["QuestionInput"]
         XCTAssertTrue(input.waitForExistence(timeout: 8))
-        let clear = app.webViews.buttons["清空历史"]
+        let clear = app.buttons["ClearAgentHistory"]
         XCTAssertTrue(clear.exists)
         XCTAssertFalse(clear.isEnabled)
         input.tap()

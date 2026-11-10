@@ -13,6 +13,9 @@ struct MarkdownItApp: App {
         var webSearchClient = WebSearchClient()
         let modelSettings = ModelSettingsStore()
         var annotationStore = ReadingAnnotationStore()
+        let conversationStore = AgentConversationStore(
+            directory: AgentConversationStore.applicationDirectory(
+                testing: ProcessInfo.processInfo.arguments.contains("--ui-testing")))
         #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                 let annotationDirectory = ReadingAnnotationStore.applicationDirectory(testing: true)
@@ -60,7 +63,7 @@ struct MarkdownItApp: App {
                 recoveryStore: ReaderRecoveryStore(
                     directory: ReaderRecoveryStore.applicationDirectory(
                         testing: ProcessInfo.processInfo.arguments.contains("--ui-testing"))),
-                annotationStore: annotationStore))
+                annotationStore: annotationStore, conversationStore: conversationStore))
     }
 
     var body: some Scene {
@@ -70,6 +73,12 @@ struct MarkdownItApp: App {
                 .task {
                     let arguments = ProcessInfo.processInfo.arguments
                     #if DEBUG
+                        if arguments.contains("--ui-testing") && !arguments.contains("--ui-test-keep-state") {
+                            // The test App uses a separate conversation directory.
+                            do { try await session.resetTestConversations() } catch {
+                                fatalError("Unable to reset isolated conversation test data: \(error)")
+                            }
+                        }
                         await session.restoreLastSession(
                             reset: arguments.contains("--ui-testing") && !arguments.contains("--ui-test-keep-state"))
                     #else
