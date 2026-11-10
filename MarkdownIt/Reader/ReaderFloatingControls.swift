@@ -192,15 +192,6 @@ final class ReaderControlsSurface: UIView {
     var expanded = false
     var reduceMotion = false
 
-    func restoreInputTracking() {
-        // The menu changes the window's options without updating this guide's
-        // copy. Toggle the local option so UIKit propagates it again.
-        keyboardLayoutGuide.followsUndockedKeyboard = false
-        keyboardLayoutGuide.followsUndockedKeyboard = true
-        window?.setNeedsLayout()
-        window?.layoutIfNeeded()
-    }
-
     override func layoutSubviews() {
         // Floating hardware-keyboard controls can update their guide in separate,
         // unanimated passes. Preserve system transitions; animate only those gaps.
@@ -255,7 +246,7 @@ private struct ReaderMoreMenuButton: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(openModelSettings: openModelSettings) }
 
     func makeUIView(context: Context) -> UIButton {
-        let button = ReaderMenuButton(type: .system)
+        let button = UIButton(type: .system)
         button.accessibilityLabel = String(localized: "More")
         button.accessibilityIdentifier = "More"
         button.showsMenuAsPrimaryAction = true
@@ -278,23 +269,5 @@ private struct ReaderMoreMenuButton: UIViewRepresentable {
         var openModelSettings: () -> Void
 
         init(openModelSettings: @escaping () -> Void) { self.openModelSettings = openModelSettings }
-    }
-}
-
-/// UIKit's menu layout can overwrite the window's shared keyboard tracking options.
-private final class ReaderMenuButton: UIButton {
-    override func contextMenuInteraction(
-        _ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
-        animator: (any UIContextMenuInteractionAnimating)?
-    ) {
-        var ancestor = superview
-        while let view = ancestor {
-            if let surface = view as? ReaderControlsSurface {
-                surface.restoreInputTracking()
-                break
-            }
-            ancestor = view.superview
-        }
-        super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
     }
 }

@@ -53,6 +53,10 @@ final class ReaderViewport: UIView {
         inputBoundary.didLayout = { [weak self] in self?.updateInputBottomInset() }
         NotificationCenter.default.addObserver(
             self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
+        for name in [UIResponder.keyboardWillChangeFrameNotification, UITextView.textDidBeginEditingNotification] {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(inputWillChange(_:)), name: name, object: nil)
+        }
     }
 
     @available(*, unavailable)
@@ -74,8 +78,43 @@ final class ReaderViewport: UIView {
         webView.inputBottomInset = max(0, bounds.maxY - inputBoundary.frame.minY)
     }
 
+    @objc private func inputWillChange(_ notification: Notification) {
+        guard currentInput != nil else { return }
+        restoreInputTracking()
+    }
+
+    private var currentInput: UITextView? {
+        guard let window, window.isKeyWindow, window.windowScene?.activationState != .background else { return nil }
+        return focusedInput(in: self)
+    }
+
+    private func restoreInputTracking() {
+        // System menus can overwrite the window's shared options while each
+        // reader guide still reports true. Reassert the policy when reader
+        // input starts or the system transitions its input interface, rather
+        // than depending on the dismissal callback of an individual menu.
+        keyboardLayoutGuide.followsUndockedKeyboard = false
+        keyboardLayoutGuide.followsUndockedKeyboard = true
+        window?.setNeedsLayout()
+    }
+
+    private func focusedInput(in view: UIView) -> UITextView? {
+        if let input = view as? UITextView, input.isFirstResponder { return input }
+        for child in view.subviews {
+            if let input = focusedInput(in: child) { return input }
+        }
+        return nil
+    }
+
     @objc private func sceneDidActivate(_ notification: Notification) {
         guard let scene = notification.object as? UIWindowScene, scene === window?.windowScene else { return }
+        if let input = currentInput {
+            restoreInputTracking()
+            // A minimized hardware-keyboard toolbar can reappear with an empty
+            // system layout guide after backgrounding. Refresh the current input
+            // interface without resigning focus or replacing the text view.
+            input.reloadInputViews()
+        }
         setNeedsLayout()
         layoutIfNeeded()
     }

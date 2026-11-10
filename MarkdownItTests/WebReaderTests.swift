@@ -219,6 +219,71 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testReaderReclaimsKeyboardTrackingForFocusedInputAfterForeignMenus() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let webView = ReaderWKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let container = ReaderContainer(webView: webView)
+        container.frame = controller.view.bounds
+        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(container)
+        let viewport = try XCTUnwrap(webView.superview as? ReaderViewport)
+        let inputs: [UITextView] = [SourceTextView(), ConversationTextView()]
+        for (index, input) in inputs.enumerated() {
+            input.frame = CGRect(x: 16, y: 16 + index * 110, width: 240, height: 100)
+            viewport.addSubview(input)
+        }
+        let settingsInput = UITextField(frame: CGRect(x: 16, y: 250, width: 240, height: 44))
+        controller.view.addSubview(settingsInput)
+        let foreignMenu = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        controller.view.addSubview(foreignMenu)
+        window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true)
+            window.isHidden = true
+            if previousKeyWindow?.isHidden == false { previousKeyWindow?.makeKey() }
+        }
+        try await waitUntil { viewport.bounds.height > 0 }
+        // UIKit copies a newly registered guide's options into the window's
+        // existing shared guide. Native menus use a non-following guide.
+        let foreignGuide = foreignMenu.keyboardLayoutGuide
+        let sharedGuide = try XCTUnwrap(window.layoutGuides.compactMap { $0 as? UIKeyboardLayoutGuide }.first)
+        func disableSharedTracking() {
+            foreignGuide.followsUndockedKeyboard = true
+            foreignGuide.followsUndockedKeyboard = false
+            XCTAssertFalse(sharedGuide.followsUndockedKeyboard)
+            XCTAssertTrue(viewport.keyboardLayoutGuide.followsUndockedKeyboard)
+        }
+        for input in inputs {
+            disableSharedTracking()
+            XCTAssertTrue(input.becomeFirstResponder())
+            XCTAssertTrue(sharedGuide.followsUndockedKeyboard, "Starting reader input must reclaim tracking")
+            disableSharedTracking()
+            NotificationCenter.default.post(name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+            XCTAssertTrue(sharedGuide.followsUndockedKeyboard, "System input transitions must also reclaim tracking")
+            XCTAssertTrue(input.isFirstResponder)
+            input.setMarkedText("zhongwen", selectedRange: NSRange(location: 5, length: 0))
+            let selection = input.selectedRange
+            XCTAssertNotNil(input.markedTextRange)
+            disableSharedTracking()
+            NotificationCenter.default.post(name: UIScene.didActivateNotification, object: scene)
+            XCTAssertTrue(sharedGuide.followsUndockedKeyboard, "Scene restoration must reclaim tracking")
+            XCTAssertTrue(input.isFirstResponder, "Restoring the input interface must preserve focus")
+            XCTAssertEqual(input.text, "zhongwen", "Restoring input must not discard unconfirmed text")
+            XCTAssertEqual(input.selectedRange, selection, "Restoring input must not move the caret")
+            XCTAssertNotNil(input.markedTextRange, "Restoring input must not confirm an IME candidate")
+            input.unmarkText()
+            XCTAssertTrue(settingsInput.becomeFirstResponder())
+            disableSharedTracking()
+            NotificationCenter.default.post(name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+            XCTAssertFalse(sharedGuide.followsUndockedKeyboard, "Reader policy must not take over settings input")
+        }
+    }
+
+    @MainActor
     func testReaderViewportTracksDockedKeyboardAcrossAvailableSizeChanges() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
