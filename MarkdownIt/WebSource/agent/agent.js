@@ -92,10 +92,10 @@
         finish();
       };
     }
-    function rich(markdown, prefix) {
+    function rich(markdown, prefix, images = []) {
       const surface = createNode('div', 'mdv-rich-text');
       surface.dataset.component = 'RichText';
-      surface.append(renderMarkdown(markdown, prefix));
+      surface.append(renderMarkdown(markdown, prefix, images));
       return surface;
     }
     function referenceLabel(value) {
@@ -108,12 +108,17 @@
       const summary = createNode('summary', 'cursor-interaction');
       summary.setAttribute('aria-label', t("Expand reference"));
       summary.setAttribute('aria-expanded', 'false');
-      summary.append(icon('chevron-right'), createNode('span', '', referenceLabel(value)));
-      const body = createNode('div', 'mdv-rich-text');
       const prefix = 'reference-' + (++messageSequence);
+      const preview = value.scope === 'document'
+        ? createNode('span', '', referenceLabel(value))
+        : rich(value.markdown, prefix + '-preview', value.images);
+      preview.classList.add('mdv-reference-preview');
+      summary.append(icon('chevron-right'), preview);
+      const body = createNode('div', 'mdv-rich-text');
       body.hidden = true;
       details.append(summary, body);
       parent.append(details);
+      enhance(preview);
       summary.addEventListener('click', event => {
         event.preventDefault();
         pauseFollowing();
@@ -136,8 +141,7 @@
       reference.hidden = !value;
       if (!value) return;
       const row = createNode('div', 'mdv-reference-row');
-      const isDocument = value.scope === 'document';
-      row.dataset.scope = isDocument ? 'document' : 'selection';
+      row.dataset.scope = 'selection';
       const remove = button(t("Remove reference"), 'remove-reference', 'x');
       remove.classList.add('mdv-reference-remove');
       const body = createNode('div', 'mdv-reference-body');
@@ -146,42 +150,19 @@
         clearTimeout(referenceScrollTimer);
         referenceScrollTimer = setTimeout(() => { delete body.dataset.scrolling; }, 800);
       }, { passive: true });
-      body.hidden = isDocument;
-      const content = createNode('div', 'mdv-rich-text');
-      content.dataset.component = 'RichText';
       const prefix = 'composer-reference-' + (++messageSequence);
+      const content = rich(value.markdown, prefix, value.images);
       body.append(content);
-      if (isDocument) {
-        const toggle = button(t("Expand reference"), 'toggle-reference', 'file-text');
-        toggle.classList.add('mdv-reference-toggle');
-        toggle.setAttribute('aria-expanded', 'false');
-        toggle.append(createNode('span', 'mdv-reference-label', referenceLabel(value)), icon('chevron-down'));
-        row.append(toggle, remove);
-        reference.append(row, body);
-        toggle.addEventListener('click', event => {
-          event.stopPropagation();
-          const shown = toggle.getAttribute('aria-expanded') !== 'true';
-          toggle.setAttribute('aria-expanded', String(shown));
-          toggle.setAttribute('aria-label', shown ? t("Collapse reference") : t("Expand reference"));
-          if (shown) {
-            if (!content.childNodes.length) content.append(renderMarkdown(value.markdown, prefix, value.images));
-            enhance(content);
-          }
-          disclosure(body, shown);
-        });
-      } else {
-        body.setAttribute('role', 'region');
-        body.setAttribute('aria-label', t("Referenced content"));
-        body.tabIndex = 0;
-        content.append(renderMarkdown(value.markdown, prefix, value.images));
-        const marker = createNode('span', 'mdv-reference-icon');
-        marker.setAttribute('aria-hidden', 'true');
-        marker.append(icon(value.mode === 'source' ? 'code' : 'quote'));
-        content.prepend(marker);
-        row.append(body, remove);
-        reference.append(row);
-        enhance(content);
-      }
+      body.setAttribute('role', 'region');
+      body.setAttribute('aria-label', t("Referenced content"));
+      body.tabIndex = 0;
+      const marker = createNode('span', 'mdv-reference-icon');
+      marker.setAttribute('aria-hidden', 'true');
+      marker.append(icon(value.mode === 'source' ? 'code' : 'quote'));
+      content.prepend(marker);
+      row.append(body, remove);
+      reference.append(row);
+      enhance(content);
       remove.addEventListener('click', event => { event.stopPropagation(); attachment = null; renderAttachment(null); });
       if (origin && !reducedMotion.matches) {
         const destination = reference.getBoundingClientRect();
@@ -210,7 +191,10 @@
       scroll.toggleAttribute('data-more-below', overflow - scroll.scrollTop > 1);
     }
     function keepAtBottom() {
-      if (followBottom && isOpen) scroll.scrollTop = scroll.scrollHeight;
+      const bottom = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+      // Elastic overscroll belongs to WebKit. Writing the offset while it is
+      // rebounding repeatedly cancels the system motion and causes jitter.
+      if (followBottom && isOpen && scroll.scrollTop < bottom - 1) scroll.scrollTop = bottom;
       updateScrollEdge();
     }
     function cancelPendingFollow() {
@@ -741,7 +725,7 @@
       if (isOpen) { onToggle(false); return; }
       // Entry intent determines the next request's context. Reopening globally
       // must never resurrect an abandoned selection; sent turns keep theirs.
-      attachment = documentAttachment();
+      attachment = null;
       onToggle(true);
       renderAttachment(attachment);
       input.focus({ preventScroll: true });
@@ -851,7 +835,7 @@
           attachment: message.attachment, document: message.document, intent: message.intent,
           state: message.element.dataset.state || null, referenceExpanded: message.reference?.querySelector('summary').getAttribute('aria-expanded') === 'true',
           changes: message.changes?.map(({ id, edits, saved, status }) => ({ id, edits, saved, status })) || [] })),
-        attachment, draft: input.value, referenceExpanded: reference.querySelector('[data-agent-action=toggle-reference]')?.getAttribute('aria-expanded') === 'true', referenceScroll: reference.querySelector('.mdv-reference-body')?.scrollTop || 0, scroll: scroll.scrollTop, followBottom,
+        attachment, draft: input.value, referenceScroll: reference.querySelector('.mdv-reference-body')?.scrollTop || 0, scroll: scroll.scrollTop, followBottom,
         request: latestRequest ? { snapshot: latestRequest.snapshot, intent: latestRequest.intent,
           markdown: latestRequest.markdown, attempt: latestRequest.attempt, messageID: latestRequest.message?.id,
           failure: latestRequest.failure, retryAt: latestRequest.retryAt, interrupted: !!activeStream } : null
@@ -875,10 +859,9 @@
         }
         if (saved.state === 'stopped') message.element.append(createNode('p', 'mdv-turn-status', t("Generation stopped")));
       }
-      attachment = value.attachment || null;
+      attachment = value.attachment?.scope === 'document' ? null : value.attachment || null;
       input.value = value.draft || '';
       renderAttachment(attachment);
-      if (value.referenceExpanded) reference.querySelector('[data-agent-action=toggle-reference]')?.click();
       const referenceBody = reference.querySelector('.mdv-reference-body');
       if (referenceBody) referenceBody.scrollTop = value.referenceScroll || 0;
       if (value.request) {

@@ -569,9 +569,9 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 8))
         XCTAssertEqual(input.label, "AI message")
         XCTAssertTrue(app.buttons["CollapseAgent"].exists)
-        XCTAssertTrue(app.webViews.buttons["Remove reference"].exists)
+        XCTAssertFalse(app.webViews.buttons["Remove reference"].exists)
         XCTAssertTrue(app.webViews.buttons["Send message"].exists)
-        XCTAssertTrue(app.webViews.buttons["Expand reference"].exists)
+        XCTAssertFalse(app.webViews.buttons["Expand reference"].exists)
         for id in ["ToolsToggle", "GlobalAI", "ModeToggle", "More"] {
             XCTAssertFalse(app.buttons[id].exists, "AI hides the complete bottom group on every layout")
         }

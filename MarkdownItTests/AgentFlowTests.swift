@@ -394,7 +394,7 @@ final class AgentFlowTests: AgentReaderTestCase {
         try await wait { reopened.composer.checkpoint()?.text == "An unsent follow-up" }
         let value = try await state(reopened)
         XCTAssertEqual((value["turns"] as? [[String: Any]])?.count, 2)
-        XCTAssertTrue((value["reference"] as? String)?.contains(url.lastPathComponent) == true)
+        XCTAssertEqual(value["reference"] as? String, "")
         XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1, "Reopening must not issue a model request")
         session.requestAgentHistoryClear(token: session.documentToken)
         session.finishAgentHistoryClear(confirmed: true)
@@ -1214,8 +1214,10 @@ final class AgentFlowTests: AgentReaderTestCase {
         let background = try XCTUnwrap(latestContext["background"] as? [String: Any])
         let versions = try XCTUnwrap(background["documents"] as? [[String: String]])
         XCTAssertEqual(versions.count, 2)
-        let firstID = (firstContext["reference"] as? [String: String])?["documentID"]
-        let latestID = (latestContext["reference"] as? [String: String])?["documentID"]
+        let firstID = firstContext["documentID"] as? String
+        let latestID = latestContext["documentID"] as? String
+        XCTAssertNil(firstContext["reference"])
+        XCTAssertNil(latestContext["reference"])
         XCTAssertEqual(versions.first { $0["id"] == firstID }?["content"], original)
         XCTAssertEqual(versions.first { $0["id"] == latestID }?["content"], updated)
         XCTAssertNil(firstContext["background"])
@@ -1272,7 +1274,7 @@ final class AgentFlowTests: AgentReaderTestCase {
         let body = try ModelWireFormat.object(XCTUnwrap(bodies.first))
         let messages = try XCTUnwrap(body["input"] as? [[String: String]])
         let context = try ModelWireFormat.object(Data(try XCTUnwrap(messages.last?["content"]).utf8))
-        XCTAssertEqual((context["reference"] as? [String: String])?["scope"], "document")
+        XCTAssertNil(context["reference"])
         let background = try XCTUnwrap(context["background"] as? [String: Any])
         let versions = try XCTUnwrap(background["documents"] as? [[String: String]])
         XCTAssertEqual(versions.count, 1)
@@ -1887,6 +1889,212 @@ final class AgentFlowTests: AgentReaderTestCase {
             ) as? Bool == true
         }
         return bridge
+    }
+
+    func testPreviewSelectionsKeepSemanticsBeforeAfterSendingAndRestoring() async throws {
+        let markdown = #"""
+            # Selected heading
+
+            Plain **bold words** and *italic words*, ``inline `code` ``, [linked words](https://example.com).
+
+            Super <sup>super words</sup> and sub <sub>sub words</sub>.
+
+            | Name | Value |
+            | --- | --- |
+            | **table bold** | unselected cell |
+
+            > Quoted words.
+
+            3. Ordered words.
+            """#
+        let cases = [
+            ("strong", "strong", "bold words"), ("em", "em", "italic words"),
+            ("p code", "code", "inline `code`"), ("p a", "a", "linked words"),
+            ("sup", "sup", "super words"), ("sub", "sub", "sub words"),
+            ("td strong", "strong", "table bold"), ("blockquote p", "blockquote", "Quoted words."),
+            ("h1", "h1", "Selected heading"), ("li", "ol[start='3']", "Ordered words."),
+        ]
+        AgentFixtureProtocol.queue.reset(cases.map { _ in AgentFixture(text: "A response.") })
+        let (session, bridge, _, _) = try await reader(markdown)
+        func assertSemantic(_ surface: String, tag: String, text: String) async throws {
+            let value =
+                try await bridge.webView.callAsyncJavaScript(
+                    """
+                    const surface=document.querySelector(selector);
+                    return {text:surface?.textContent.trim(),semantic:surface?.querySelector(tag)?.textContent.trim(),
+                      href:surface?.querySelector('a')?.getAttribute('href')};
+                    """, arguments: ["selector": surface, "tag": tag], in: nil, contentWorld: .page)
+                as? [String: String]
+            XCTAssertEqual(value?["text"], text, surface)
+            XCTAssertEqual(value?["semantic"], text, "\(surface) must retain \(tag)")
+            if tag == "a" { XCTAssertEqual(value?["href"], "https://example.com") }
+        }
+        for (index, item) in cases.enumerated() {
+            await session.closeAgent()
+            _ = try await bridge.webView.callAsyncJavaScript(
+                """
+                const range=document.createRange();range.selectNodeContents(document.querySelector('.mdv-article '+selector));
+                getSelection().removeAllRanges();getSelection().addRange(range);
+                """, arguments: ["selector": item.0], in: nil, contentWorld: .page)
+            _ = try await bridge.call("askSelection")
+            try await wait { session.agentOpen }
+            try await assertSemantic(".mdv-composer-reference .mdv-rich-text", tag: item.1, text: item.2)
+            if item.0 == "td strong" {
+                let tables =
+                    try await bridge.webView.evaluateJavaScript(
+                        "document.querySelectorAll('.mdv-composer-reference table').length") as? Int
+                XCTAssertEqual(
+                    tables, 0, "A selection confined to one cell retains inline content without inventing a grid")
+            }
+            try await send("Explain selection \(index)", bridge: bridge)
+            try await completed(bridge, count: (index + 1) * 2)
+            let reference = ".mdv-user-turn:nth-of-type(\(index * 2 + 1)) .mdv-message-reference"
+            try await assertSemantic(reference + " summary .mdv-rich-text", tag: item.1, text: item.2)
+            _ = try await bridge.webView.callAsyncJavaScript(
+                "document.querySelector(selector+' summary').click()", arguments: ["selector": reference],
+                in: nil, contentWorld: .page)
+            try await assertSemantic(reference + " > .mdv-rich-text", tag: item.1, text: item.2)
+        }
+        let captured = try await bridge.call("captureRecovery")
+        let saved = try XCTUnwrap(captured as? [String: Any])
+        _ = try await bridge.call(
+            "openDocument",
+            arguments: [
+                "payload": [
+                    "token": session.documentToken, "name": "selections.md", "text": markdown, "recovery": saved,
+                ]
+            ])
+        for (index, item) in cases.enumerated() {
+            let reference = ".mdv-user-turn:nth-of-type(\(index * 2 + 1)) .mdv-message-reference"
+            try await assertSemantic(reference + " summary .mdv-rich-text", tag: item.1, text: item.2)
+            try await assertSemantic(reference + " > .mdv-rich-text", tag: item.1, text: item.2)
+        }
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
+    func testGeneratedContentReferencesUseSourcesAcrossTheEntireLifecycle() async throws {
+        let formula = #"\operatorname{Attention}(Q,K,V)=\operatorname{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V"#
+        let markdown = """
+            # Semantic units
+
+            $$
+            \(formula)
+            $$
+
+            Inline $x^2$.
+
+            | Formula | Value |
+            | --- | --- |
+            | $y_1$ | other |
+
+            ```mermaid
+            flowchart LR
+              Alpha --> Beta
+            ```
+            """
+        let cases = [
+            (".mdv-math[data-math-display=true] .katex-html", ".katex", formula),
+            ("p .mdv-math .katex-html", ".katex", "x^2"),
+            ("table", ".katex", "y_1"),
+            (".mdv-mermaid svg", ".mdv-mermaid svg", "Alpha --> Beta"),
+        ]
+        AgentFixtureProtocol.queue.reset(cases.map { _ in AgentFixture(text: "A response.") })
+        let (session, bridge, _, _) = try await reader(markdown)
+        try await wait {
+            try await bridge.webView.evaluateJavaScript("!!document.querySelector('.mdv-article .mdv-mermaid svg')")
+                as? Bool == true
+        }
+        for (index, item) in cases.enumerated() {
+            await session.closeAgent()
+            _ = try await bridge.webView.callAsyncJavaScript(
+                """
+                const range=document.createRange();range.selectNodeContents(document.querySelector('.mdv-article '+selector));
+                getSelection().removeAllRanges();getSelection().addRange(range);
+                """, arguments: ["selector": item.0], in: nil, contentWorld: .page)
+            _ = try await bridge.call("askSelection")
+            try await wait { session.agentOpen }
+            let capturedValue = try await bridge.call("captureRecovery")
+            let captured = try XCTUnwrap(capturedValue as? [String: Any])
+            let conversation = try XCTUnwrap(captured["conversation"] as? [String: Any])
+            let attachment = try XCTUnwrap(conversation["attachment"] as? [String: Any])
+            let quote = try XCTUnwrap(attachment["markdown"] as? String)
+            XCTAssertTrue(quote.contains(item.2), quote)
+            XCTAssertFalse(quote.contains("katex-html"))
+            XCTAssertFalse(quote.contains("<svg"))
+            func expectRendered(_ selector: String) async throws {
+                try await wait {
+                    try await bridge.webView.callAsyncJavaScript(
+                        "return !!document.querySelector(selector)?.querySelector(content)",
+                        arguments: ["selector": selector, "content": item.1], in: nil, contentWorld: .page) as? Bool
+                        == true
+                }
+            }
+            try await expectRendered(".mdv-composer-reference")
+            if index == 0 {
+                let image = try await bridge.webView.takeSnapshot(configuration: nil)
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "formula-reference-before-sending"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            try await send("Explain unit \(index)", bridge: bridge)
+            try await completed(bridge, count: (index + 1) * 2)
+            let reference = ".mdv-user-turn:nth-of-type(\(index * 2 + 1)) .mdv-message-reference"
+            try await expectRendered(reference + " summary")
+            if index == 0 {
+                let image = try await bridge.webView.takeSnapshot(configuration: nil)
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "formula-reference-after-sending"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            _ = try await bridge.webView.callAsyncJavaScript(
+                "document.querySelector(selector+' summary').click()", arguments: ["selector": reference],
+                in: nil, contentWorld: .page)
+            try await expectRendered(reference + " > .mdv-rich-text")
+        }
+        let savedValue = try await bridge.call("captureRecovery")
+        let saved = try XCTUnwrap(savedValue as? [String: Any])
+        _ = try await bridge.call(
+            "openDocument",
+            arguments: [
+                "payload": [
+                    "token": session.documentToken, "name": "units.md", "text": markdown, "recovery": saved,
+                ]
+            ])
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelectorAll('.mdv-message-reference summary .katex').length===3 && document.querySelectorAll('.mdv-message-reference summary .mdv-mermaid svg').length===1"
+            ) as? Bool == true
+        }
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
+    func testFollowingDoesNotOverwriteElasticOverscrollForTouchOrWheel() async throws {
+        let bridge = try await scrollingConversation()
+        let result =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const s=document.querySelector('.mdv-agent-scroll'), frame=()=>new Promise(requestAnimationFrame);
+                s.style.maxHeight='140px';await frame();await frame();
+                const property=Object.getOwnPropertyDescriptor(Element.prototype,'scrollTop');
+                const bottom=s.scrollHeight-s.clientHeight;
+                let writes=0;
+                Object.defineProperty(s,'scrollTop',{configurable:true,
+                  get(){return bottom+32},set(value){writes++;property.set.call(this,value)}});
+                try {
+                  s.dispatchEvent(new WheelEvent('wheel',{deltaY:100}));
+                  s.dispatchEvent(new Event('scroll'));
+                  const touch=(type,y)=>{const event=new Event(type);
+                    Object.defineProperty(event,'touches',{value:y===null?[]:[{clientY:y}]});s.dispatchEvent(event)};
+                  touch('touchstart',200);touch('touchmove',100);touch('touchend',null);
+                  s.dispatchEvent(new Event('scroll'));await frame();await frame();
+                  return {writes,overscroll:s.scrollTop-bottom};
+                } finally {delete s.scrollTop;}
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Double]
+        XCTAssertEqual(result?["writes"], 0, "Following must leave system boundary rebound uninterrupted")
+        XCTAssertEqual(result?["overscroll"], 32)
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
     }
 
     func testConversationFadesOnlyTheEdgesWithOffscreenContent() async throws {

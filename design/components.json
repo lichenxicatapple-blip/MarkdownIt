@@ -196,6 +196,7 @@
         "Sent turns and their reference snapshots remain immutable.",
         "The scroll viewport keeps a small top gutter and fades its top edge only when earlier content remains above; the collapse control stays unmasked and interactive.",
         "Following observes both content and viewport size; only navigation intent changes it, preserving manual browsing across layout changes.",
+        "Following only advances an offset behind the content end; WebKit retains control of elastic boundary rebound.",
         "Top and bottom fades share one edge size and appear only where conversation content remains offscreen; content and viewport resizing update both edges."
       ],
       "specification": "design/README.md#ai-对话"
@@ -234,9 +235,10 @@
         "RichText"
       ],
       "invariants": [
-        "Selection references preserve the complete selected content and its original structural relationships.",
+        "Selection references preserve the complete selected content and its enclosing semantic structure; generated math and diagrams quote their original source as semantic units.",
+        "Global AI supplies document background independently, without creating a visible document attachment.",
         "Selection content keeps one trailing boundary outside the separate 44pt removal target; scrolling the quote does not move the removal control.",
-        "Document reference disclosures follow the filename with a fixed gap; long names truncate before the disclosure, and the removal target stays independent at the trailing edge."
+        "Draft references show actual selections; previously sent references remain immutable."
       ],
       "specification": "design/README.md#引用与输入"
     },
@@ -255,7 +257,8 @@
         "RichText"
       ],
       "invariants": [
-        "Each turn owns its rendered content, references, anchors and request status."
+        "Each turn owns its rendered content, references, anchors and request status.",
+        "Collapsed, expanded and restored selection references share rich rendering; collapse limits visibility without flattening semantics."
       ],
       "specification": "design/README.md#ai-对话"
     },

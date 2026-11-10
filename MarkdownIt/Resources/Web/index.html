@@ -432,11 +432,12 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-message-reference { margin: 0 0 12px; border-left: 2px solid var(--mdv-line); padding-left: 10px; }
 #mdv-reading-concept .mdv-message-reference > summary { list-style: none; display: flex; align-items: flex-start; gap: 6px; color: var(--mdv-muted); font-size: 12px; line-height: var(--mdv-reference-leading); min-height: 28px; }
 #mdv-reading-concept .mdv-message-reference > summary::-webkit-details-marker { display: none; }
-#mdv-reading-concept .mdv-message-reference > summary svg { --icon-size: 13px; width: 13px; height: 13px; translate: 0 calc((var(--mdv-reference-leading) - 13px) / 2); flex: 0 0 auto; stroke-width: 1.75; }
-#mdv-reading-concept .mdv-message-reference > summary span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; min-width: 0; }
+#mdv-reading-concept .mdv-message-reference > summary > svg { --icon-size: 13px; width: 13px; height: 13px; translate: 0 calc((var(--mdv-reference-leading) - 13px) / 2); flex: 0 0 auto; stroke-width: 1.75; }
+#mdv-reading-concept .mdv-message-reference > summary > .mdv-reference-preview { min-width: 0; max-height: calc(3 * var(--mdv-reference-leading)); overflow: hidden; font-size: inherit; line-height: inherit; }
+#mdv-reading-concept .mdv-message-reference > summary > .mdv-reference-preview > :first-child { margin-top: 0; }
 #mdv-reading-concept .mdv-message-reference > .mdv-rich-text { padding-top: 10px; font-size: 13px; }
-#mdv-reading-concept .mdv-message-reference[open] > summary svg { transform: rotate(90deg); }
-#mdv-reading-concept .mdv-message-reference > summary svg { transition: transform var(--mdv-duration-reference) var(--mdv-ease-reference); }
+#mdv-reading-concept .mdv-message-reference[open] > summary > svg { transform: rotate(90deg); }
+#mdv-reading-concept .mdv-message-reference > summary > svg { transition: transform var(--mdv-duration-reference) var(--mdv-ease-reference); }
 #mdv-reading-concept .mdv-composer { position: relative; display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; margin: 0 var(--mdv-composer-margin) var(--mdv-composer-margin); }
 #mdv-reading-concept .mdv-composer-input-row { display: flex; flex: 0 0 auto; align-items: flex-end; min-width: 0; border: 1px solid var(--mdv-line); border-radius: 27px; background: var(--mdv-agent-composer); box-shadow: 0 3px 14px var(--mdv-shadow); overflow: hidden; }
 #mdv-reading-concept .mdv-app .mdv-agent-input { display: block; flex: 1 1 0; min-width: 0; width: 0; min-height: 52px; max-height: var(--mdv-agent-input-max-height); border: 0; border-radius: 0; resize: none; outline-offset: -3px; padding: 12px var(--mdv-composer-text-inset); margin: 0; background: transparent; color: var(--mdv-ink); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
@@ -449,11 +450,6 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-agent-send svg { width: 19px; height: 19px; }
 #mdv-reading-concept .mdv-composer-reference { flex: 0 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; margin-bottom: 6px; }
 #mdv-reading-concept .mdv-reference-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--mdv-hit-target); align-items: start; padding: 4px 8px 4px var(--mdv-composer-text-inset); }
-#mdv-reading-concept .mdv-app .mdv-reference-toggle { display: flex; align-items: center; justify-content: flex-start; padding: 12px 8px 12px 0; gap: 8px; min-width: 0; text-align: left; border-radius: 8px; }
-#mdv-reading-concept .mdv-reference-toggle > svg { --icon-size: 16px; flex-shrink: 0; width: 16px; height: 16px; color: var(--mdv-muted); }
-#mdv-reading-concept .mdv-reference-toggle > svg:last-child { --icon-size: 14px; width: 14px; height: 14px; transition: transform var(--mdv-duration-reference) var(--mdv-ease-reference); }
-#mdv-reading-concept .mdv-reference-toggle[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
-#mdv-reading-concept .mdv-reference-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: var(--mdv-reference-leading); color: var(--mdv-ink); }
 #mdv-reading-concept .mdv-reference-body { --mdv-reference-scroll-thumb: transparent; max-height: 200px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--mdv-reference-scroll-thumb) transparent; transition: --mdv-reference-scroll-thumb var(--mdv-duration-material) var(--mdv-ease-material); }
 #mdv-reading-concept .mdv-reference-body:is([data-scrolling],:focus-visible) { --mdv-reference-scroll-thumb: color-mix(in srgb, var(--mdv-muted) 45%, transparent); }
 @media (hover: hover) {

@@ -808,57 +808,38 @@
       }
       return copy;
     }
-    function selectionMarkdown(range) {
-      const fragment = range.cloneContents();
+    function selectionMarkdown(selectionRange) {
+      const range = selectionRange.cloneRange();
+      const elementAt = node => node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      // Generated math/diagram DOM describes layout, not editable source. Treat
+      // either boundary inside such content as a reference to that semantic unit.
+      const start = elementAt(range.startContainer)?.closest('.mdv-math,.mdv-mermaid');
+      const end = elementAt(range.endContainer)?.closest('.mdv-math,.mdv-mermaid');
+      if (start) range.setStartBefore(start);
+      if (end) range.setEndAfter(end);
+      const cell = elementAt(range.startContainer)?.closest('td,th,caption');
+      const container = cell?.contains(range.endContainer) ? cell : reader;
+      const fragment = cloneSelectionWithin(container, range);
+      if (!fragment) return '';
       window.MarkdownItAnnotations.clean(fragment);
-      const tableSources = new WeakMap();
-      const sources = Array.from(range.commonAncestorContainer.querySelectorAll?.('table') || []).filter(table => range.intersectsNode(table));
-      fragment.querySelectorAll('table').forEach((table, index) => tableSources.set(table, sources[index]));
       const tick = String.fromCharCode(96);
-      const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
-      const codeBlock = startElement.closest('pre');
-      if (codeBlock && codeBlock.contains(range.endContainer)) {
-        const language = codeBlock.querySelector('code')?.className.match(/language-([\w+-]+)/)?.[1] || '';
-        const fence = tick.repeat(Math.max(3, ...Array.from(range.toString().matchAll(new RegExp(tick + '+', 'g')), match => match[0].length + 1)));
-        return fence + language + '\n' + range.toString() + '\n' + fence;
-      }
-      function tableMarkup(table, source = tableSources.get(table)) {
-        const copy = source ? cloneSelectedTable(source, range) : table.cloneNode(true);
-        copy.querySelectorAll('.mdv-math').forEach(element => {
-          element.textContent = element.dataset.mathSource || element.textContent;
-          element.removeAttribute('data-math-source');
-          element.removeAttribute('data-math-rendered');
-        });
-        copy.querySelectorAll('.mdv-mermaid').forEach(element => {
-          element.textContent = element.dataset.diagramSource || element.textContent;
-          element.removeAttribute('data-diagram-source');
-          element.removeAttribute('data-diagram-theme');
+      function htmlMarkup(node) {
+        const copy = node.cloneNode(true);
+        copy.querySelectorAll('.mdv-math,.mdv-mermaid').forEach(element => {
+          const math = element.classList.contains('mdv-math');
+          const source = document.createElement(math ? 'span' : 'pre');
+          source.className = math ? 'mdv-math' : 'mdv-mermaid';
+          if (math) source.dataset.mathDisplay = element.dataset.mathDisplay;
+          source.textContent = (math ? element.dataset.mathSource : element.dataset.diagramSource) || element.textContent;
+          element.replaceWith(source);
         });
         copy.querySelectorAll('img[data-source-path]').forEach(image => image.setAttribute('src', image.dataset.sourcePath));
-        [copy, ...copy.querySelectorAll('[data-source-start],[data-source-end]')].forEach(element => {
-          element.removeAttribute('data-source-start');
-          element.removeAttribute('data-source-end');
+        [copy, ...copy.querySelectorAll('*')].forEach(element => {
+          for (const attribute of [...element.attributes]) {
+            if (attribute.name.startsWith('data-') && attribute.name !== 'data-math-display') element.removeAttribute(attribute.name);
+          }
         });
-        window.MarkdownItAnnotations.clean(copy);
         return '\n\n' + copy.outerHTML + '\n\n';
-      }
-      const cell = startElement.closest('td,th,caption');
-      if (cell && cell.contains(range.endContainer)) {
-        const content = cloneSelectionWithin(cell, range, fragment);
-        return content ? serialize(content).trim() : '';
-      }
-      // cloneContents omits the common ancestor, including an enclosing
-      // superscript/subscript when only its own text has been selected.
-      const script = startElement.closest('sup,sub');
-      if (script && script.contains(range.endContainer)) {
-        const copy = script.cloneNode(false);
-        const content = cloneSelectionWithin(script, range, fragment);
-        if (content) copy.append(content);
-        return serialize(copy).trim();
-      }
-      const table = startElement.closest('table');
-      if (table && table.contains(range.endContainer)) {
-        return tableMarkup(null, table);
       }
       function serialize(node) {
         if (node.nodeType === Node.TEXT_NODE) return node.textContent.replace(/[\\*_{}\[\]<>#$]/g, '\\$&').replaceAll(tick, '\\' + tick);
@@ -873,8 +854,13 @@
           const fence = tick.repeat(Math.max(3, ...Array.from(node.textContent.matchAll(new RegExp(tick + '+', 'g')), match => match[0].length + 1)));
           return '\n\n' + fence + language + '\n' + node.textContent.replace(/\n$/, '') + '\n' + fence + '\n\n';
         }
-        if (node.tagName === 'CODE') return tick + node.textContent + tick;
-        if (node.tagName === 'TABLE') return tableMarkup(node);
+        if (node.tagName === 'CODE') {
+          const text = node.textContent;
+          const delimiter = tick.repeat(Math.max(1, ...Array.from(text.matchAll(/`+/g), match => match[0].length + 1)));
+          const padding = /^[` ]|[` ]$/.test(text) && !/^ +$/.test(text) ? ' ' : '';
+          return delimiter + padding + text + padding + delimiter;
+        }
+        if (['TABLE','UL','OL','BLOCKQUOTE'].includes(node.tagName)) return htmlMarkup(node);
         const content = Array.from(node.childNodes, serialize).join('');
         if (['STRONG','B','EM','I','DEL','S','SUP','SUB'].includes(node.tagName)) {
           // Preserve the preview's inline semantics. Rebuilding Markdown
@@ -885,8 +871,7 @@
         if (node.tagName === 'A') return '[' + content + '](' + node.getAttribute('href') + ')';
         if (node.tagName === 'IMG') return '![' + (node.getAttribute('alt') || '') + '](' + (node.dataset.sourcePath || node.getAttribute('src')) + ')';
         if (node.tagName === 'BR') return '  \n';
-        if (node.tagName === 'LI') return '- ' + content.trim() + '\n';
-        if (['P','DIV','UL','OL','BLOCKQUOTE'].includes(node.tagName)) return '\n\n' + content.trim() + '\n\n';
+        if (['P','DIV'].includes(node.tagName)) return '\n\n' + content.trim() + '\n\n';
         if (/^H[1-6]$/.test(node.tagName)) return '\n\n' + '#'.repeat(Number(node.tagName.slice(1))) + ' ' + content.trim() + '\n\n';
         return content;
       }
