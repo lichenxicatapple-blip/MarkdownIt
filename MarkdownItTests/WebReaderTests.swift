@@ -119,6 +119,15 @@ final class WebReaderTests: XCTestCase {
                 const single=blocks[0], pre=single.querySelector('pre'), button=single.querySelector('button');
                 const line=document.createRange();line.setStart(pre.querySelector('code').firstChild,0);line.setEnd(pre.querySelector('code').firstChild,1);
                 const first=line.getBoundingClientRect(), control=button.getBoundingClientRect(), style=getComputedStyle(pre);
+                // Compare actual layout with the same code before copy controls are added.
+                // CSS line-height and rendered line boxes can round differently between WebKit versions.
+                const reference=document.createElement('pre');
+                reference.append(pre.querySelector('code').cloneNode(true));
+                Object.assign(reference.style,{position:'absolute',visibility:'hidden',font:style.font,
+                  padding:style.padding,margin:'0',width:`${pre.getBoundingClientRect().width}px`});
+                single.after(reference);
+                const naturalHeight=reference.getBoundingClientRect().height;
+                reference.remove();
                 const long=blocks[2], scroller=long.querySelector('pre'), copy=long.querySelector('button');
                 const before=copy.getBoundingClientRect().x;
                 const gutters=[0,200,scroller.scrollWidth].map(offset=>{
@@ -129,7 +138,7 @@ final class WebReaderTests: XCTestCase {
                 });
                 return {count:blocks.length,highlighted:!!blocks[1].querySelector('.hljs-keyword'),
                   singleHeight:single.getBoundingClientRect().height,
-                  naturalHeight:parseFloat(style.paddingTop)+parseFloat(style.lineHeight)+parseFloat(style.paddingBottom),
+                  naturalHeight,
                   alignment:Math.abs((control.top+control.bottom)/2-(first.top+first.bottom)/2),
                   targetWidth:control.width,targetHeight:control.height,
                   scroll:scroller.scrollLeft,gutters,controlShift:copy.getBoundingClientRect().x-before,
