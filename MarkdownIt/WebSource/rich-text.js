@@ -171,6 +171,42 @@
         used.add(id);
       });
     }
+    function codeCopyButton(text) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'mdv-code-copy';
+      function feedback(copied) {
+        if (copied) button.dataset.copied = 'true';
+        else delete button.dataset.copied;
+        button.setAttribute('aria-label', t(copied ? 'Copied' : 'Copy Code'));
+        button.title = button.getAttribute('aria-label');
+      }
+      feedback(false);
+      for (const name of ['Copy', 'Check']) {
+        button.append(window.lucide.createElement(window.lucide.icons[name], {
+          'data-lucide': name.toLowerCase(), 'aria-hidden': 'true'
+        }));
+      }
+      let confirmation;
+      button.addEventListener('click', async event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (button.disabled) return;
+        button.disabled = true;
+        try {
+          const copied = await window.webkit.messageHandlers.copyCode.postMessage({token:token(), text}).catch(() => false);
+          if (!copied || !button.isConnected) return;
+          clearTimeout(confirmation);
+          feedback(true);
+          confirmation = setTimeout(() => feedback(false), parseFloat(getComputedStyle(app).getPropertyValue('--mdv-copy-confirmation')));
+        } finally { button.disabled = false; }
+      });
+      return button;
+    }
+    function cleanControls(fragment) {
+      fragment.querySelectorAll('.mdv-code-copy').forEach(button => button.remove());
+      fragment.querySelectorAll('.mdv-code-block').forEach(block => block.replaceWith(...block.childNodes));
+    }
     function renderRichMarkdown(markdown, prefix, images = []) {
       const environment = prefix === documentPrefix ? window.MarkdownItSourceMap.environment() : {};
       const documentFragment = markdownFragment(markdown, environment);
@@ -210,6 +246,14 @@
         if (frozenImageIDs.has(reference.id)) image.src = `jm-image://${token()}/${reference.id}`;
       });
       documentFragment.querySelectorAll('summary').forEach(summary => summary.classList.add('cursor-interaction'));
+      documentFragment.querySelectorAll('pre').forEach(pre => {
+        const code = pre.querySelector(':scope > code');
+        if (!code || pre.closest('.mdv-mermaid')) return;
+        const block = document.createElement('div');
+        block.className = 'mdv-code-block';
+        pre.replaceWith(block);
+        block.append(pre, codeCopyButton(code.textContent));
+      });
       return documentFragment;
     }
     let nativeSymbols = {};
@@ -238,7 +282,7 @@
       Object.entries(value.palette || {}).forEach(([name,color])=>app.style.setProperty('--mdv-'+name,color));
       updateSymbols();
     }
-    return { theme, updateSymbols, render: renderRichMarkdown, enhance: enhanceDocument, markdownFragment, fragmentIdentifier,
+    return { theme, updateSymbols, render: renderRichMarkdown, enhance: enhanceDocument, cleanControls, markdownFragment, fragmentIdentifier,
       parse: (text, environment) => markdownRenderer.parse(text, environment), get sourceMap() { return sourceMap; } };
   }};
 })();

@@ -69,6 +69,18 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) [align="right"] { text-align: right; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) :is(p,li,td,th,blockquote) code { background: var(--mdv-source); padding: 2px 5px; border-radius: 4px; font: .88em/1.6 ui-monospace, "SFMono-Regular", Menlo, monospace; overflow-wrap: anywhere; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) pre code { background: none; padding: 0; border-radius: 0; font: inherit; overflow-wrap: normal; }
+#mdv-reading-concept :is(.mdv-article,.mdv-rich-text) .mdv-code-block { position: relative; min-width: 0; margin: 18px 0; padding-inline-start: var(--mdv-code-inset); padding-inline-end: calc(var(--mdv-code-inset) + var(--mdv-hit-target) + 2 * var(--mdv-code-copy-inset)); border-radius: 10px; background: var(--mdv-source); font: 14px/1.8 ui-monospace, "SFMono-Regular", Menlo, monospace; }
+#mdv-reading-concept :is(.mdv-article,.mdv-rich-text) .mdv-code-block > pre { margin: 0; padding: var(--mdv-code-inset) 0; border-radius: 0; background: transparent; font: inherit; overscroll-behavior-x: contain; }
+#mdv-reading-concept .mdv-app .mdv-code-copy { position: absolute; inset-inline-end: var(--mdv-code-copy-inset); top: calc(var(--mdv-code-inset) + .5lh - var(--mdv-hit-target) / 2); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 0; border-radius: 50%; color: var(--mdv-muted); background: transparent; line-height: inherit; -webkit-tap-highlight-color: transparent; user-select: none; }
+#mdv-reading-concept .mdv-code-copy::before { content: ''; position: absolute; inset: var(--mdv-code-copy-inset); border-radius: 50%; background: transparent; transition: background-color var(--mdv-duration-feedback) var(--mdv-ease-feedback); }
+#mdv-reading-concept .mdv-app .mdv-code-copy:is(:hover,:active,:focus-visible) { color: var(--mdv-ink); background: transparent; }
+#mdv-reading-concept .mdv-code-copy:is(:hover,:active,:focus-visible)::before { background: color-mix(in srgb, var(--mdv-ink) 7%, transparent); }
+#mdv-reading-concept .mdv-code-copy:focus-visible { outline: 2px solid var(--mdv-accent); outline-offset: -4px; }
+#mdv-reading-concept .mdv-code-copy svg { position: absolute; width: var(--mdv-code-copy-icon); height: var(--mdv-code-copy-icon); pointer-events: none; transition: opacity var(--mdv-duration-content) var(--mdv-ease-content), transform var(--mdv-duration-content) var(--mdv-ease-content); }
+#mdv-reading-concept .mdv-code-copy svg:last-child { opacity: 0; transform: scale(.8); }
+#mdv-reading-concept .mdv-code-copy[data-copied="true"] svg:first-child { opacity: 0; transform: scale(.8); }
+#mdv-reading-concept .mdv-code-copy[data-copied="true"] svg:last-child { opacity: 1; transform: scale(1); }
+#mdv-reading-concept .mdv-code-copy[data-copied="true"] { color: var(--mdv-accent); }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) a { color: var(--mdv-accent); text-underline-offset: 3px; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) :is(ul,ol) { padding-left: 26px; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) li { margin: 6px 0; }

@@ -117,6 +117,11 @@
   --mdv-agent-input-maximum: 160px;
   --mdv-agent-input-height-ratio: 0.3;
   --mdv-agent-compact-inset: 20px;
+  --mdv-code-copy-icon: 16px;
+  --mdv-code-copy-inset: 4px;
+  --mdv-copy-confirmation: 1600ms;
+  --mdv-code-inset: 16px;
+  --mdv-code-compact-inset: 12px;
   --mdv-duration-homeEntrance: 560ms;
   --mdv-ease-homeEntrance: ease-in-out;
   --mdv-duration-material: 160ms;
@@ -329,6 +334,18 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) [align="right"] { text-align: right; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) :is(p,li,td,th,blockquote) code { background: var(--mdv-source); padding: 2px 5px; border-radius: 4px; font: .88em/1.6 ui-monospace, "SFMono-Regular", Menlo, monospace; overflow-wrap: anywhere; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) pre code { background: none; padding: 0; border-radius: 0; font: inherit; overflow-wrap: normal; }
+#mdv-reading-concept :is(.mdv-article,.mdv-rich-text) .mdv-code-block { position: relative; min-width: 0; margin: 18px 0; padding-inline-start: var(--mdv-code-inset); padding-inline-end: calc(var(--mdv-code-inset) + var(--mdv-hit-target) + 2 * var(--mdv-code-copy-inset)); border-radius: 10px; background: var(--mdv-source); font: 14px/1.8 ui-monospace, "SFMono-Regular", Menlo, monospace; }
+#mdv-reading-concept :is(.mdv-article,.mdv-rich-text) .mdv-code-block > pre { margin: 0; padding: var(--mdv-code-inset) 0; border-radius: 0; background: transparent; font: inherit; overscroll-behavior-x: contain; }
+#mdv-reading-concept .mdv-app .mdv-code-copy { position: absolute; inset-inline-end: var(--mdv-code-copy-inset); top: calc(var(--mdv-code-inset) + .5lh - var(--mdv-hit-target) / 2); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 0; border-radius: 50%; color: var(--mdv-muted); background: transparent; line-height: inherit; -webkit-tap-highlight-color: transparent; user-select: none; }
+#mdv-reading-concept .mdv-code-copy::before { content: ''; position: absolute; inset: var(--mdv-code-copy-inset); border-radius: 50%; background: transparent; transition: background-color var(--mdv-duration-feedback) var(--mdv-ease-feedback); }
+#mdv-reading-concept .mdv-app .mdv-code-copy:is(:hover,:active,:focus-visible) { color: var(--mdv-ink); background: transparent; }
+#mdv-reading-concept .mdv-code-copy:is(:hover,:active,:focus-visible)::before { background: color-mix(in srgb, var(--mdv-ink) 7%, transparent); }
+#mdv-reading-concept .mdv-code-copy:focus-visible { outline: 2px solid var(--mdv-accent); outline-offset: -4px; }
+#mdv-reading-concept .mdv-code-copy svg { position: absolute; width: var(--mdv-code-copy-icon); height: var(--mdv-code-copy-icon); pointer-events: none; transition: opacity var(--mdv-duration-content) var(--mdv-ease-content), transform var(--mdv-duration-content) var(--mdv-ease-content); }
+#mdv-reading-concept .mdv-code-copy svg:last-child { opacity: 0; transform: scale(.8); }
+#mdv-reading-concept .mdv-code-copy[data-copied="true"] svg:first-child { opacity: 0; transform: scale(.8); }
+#mdv-reading-concept .mdv-code-copy[data-copied="true"] svg:last-child { opacity: 1; transform: scale(1); }
+#mdv-reading-concept .mdv-code-copy[data-copied="true"] { color: var(--mdv-accent); }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) a { color: var(--mdv-accent); text-underline-offset: 3px; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) :is(ul,ol) { padding-left: 26px; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) li { margin: 6px 0; }
@@ -401,6 +418,7 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-rich-text :is(h1,h2,h3,h4,h5,h6) { font-size: 16px; line-height: 1.6; margin: 20px 0 10px; letter-spacing: 0; }
 #mdv-reading-concept .mdv-rich-text p { margin-bottom: 12px; }
 #mdv-reading-concept .mdv-rich-text pre { padding: 12px; font-size: 12px; line-height: 1.75; border-radius: 8px; margin: 14px 0; }
+#mdv-reading-concept .mdv-rich-text .mdv-code-block { --mdv-code-inset: var(--mdv-code-compact-inset); margin: 14px 0; border-radius: 8px; font-size: 12px; line-height: 1.75; }
 #mdv-reading-concept .mdv-rich-text :is(td,th) { min-width: 72px; padding: 8px 10px; font-size: 13px; }
 #mdv-reading-concept .mdv-rich-text :is(ul,ol) { padding-left: 22px; }
 #mdv-reading-concept .mdv-rich-text :is(.mdv-mermaid,.mdv-math[data-math-display="true"]) { margin: 14px 0; }
@@ -446,7 +464,7 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text::after { content: ""; display: block; height: 12px; }
 #mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-reference-icon + * { margin-top: 0; }
 #mdv-reading-concept .mdv-reference-row[data-scope="selection"] > .mdv-reference-remove { margin-block-start: calc(12px + (var(--mdv-reference-leading) - var(--mdv-hit-target)) / 2); }
-#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text > :is(pre,table,blockquote,ul,ol,details,.mdv-math[data-math-display="true"],.mdv-mermaid) { clear: both; }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text > :is(pre,.mdv-code-block,table,blockquote,ul,ol,details,.mdv-math[data-math-display="true"],.mdv-mermaid) { clear: both; }
 #mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text :is(h1,h2,h3,h4,h5,h6) { font-size: 14px; line-height: var(--mdv-reference-leading); }
 #mdv-reading-concept .mdv-reference-remove { color: var(--mdv-muted); }
 #mdv-reading-concept .mdv-reference-remove svg { --icon-size: 16px; width: 16px; height: 16px; }

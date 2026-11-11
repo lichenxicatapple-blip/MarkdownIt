@@ -42,7 +42,9 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    private func navigationReader(markdown: String? = nil, startingNewDocument: Bool = false) async throws -> (
+    private func navigationReader(
+        markdown: String? = nil, startingNewDocument: Bool = false, pasteboard: UIPasteboard = .general
+    ) async throws -> (
         ReaderSession, ReaderBridge, URL
     ) {
         let defaultsName = UUID().uuidString
@@ -75,7 +77,7 @@ final class WebReaderTests: XCTestCase {
         let window = UIWindow(windowScene: scene)
         let controller = UIViewController()
         window.rootViewController = controller
-        let bridge = ReaderBridge(session: session)
+        let bridge = ReaderBridge(session: session, pasteboard: pasteboard)
         addTeardownBlock { @MainActor in
             bridge.detach()
             window.isHidden = true
@@ -100,6 +102,133 @@ final class WebReaderTests: XCTestCase {
         try await waitUntil { bridge.ready && session.rendererReady }
         if try await diagnostics(bridge)["outline"] as? Bool != true { _ = try await bridge.call("toggleOutline") }
         return (session, bridge, root)
+    }
+
+    @MainActor
+    func testCodeCopyKeepsSingleLinesCompactAndControlsOutsideHorizontalScroll() async throws {
+        let code = "let title = \"你好，Markdown! 👋\"\n\tprint(title < \"&\")\n"
+        let markdown =
+            "# Code\n\nInline `code` stays inline.\n\n```sh\ngit status --short\n```\n\n```swift\n"
+            + code + "```\n\n```text\n" + String(repeating: "long/", count: 100) + "\n```\n"
+        let pasteboard = isolatedPasteboard()
+        let (session, bridge, _) = try await navigationReader(markdown: markdown, pasteboard: pasteboard)
+        let geometry =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const blocks=[...document.querySelectorAll('.mdv-article .mdv-code-block')];
+                const single=blocks[0], pre=single.querySelector('pre'), button=single.querySelector('button');
+                const line=document.createRange();line.setStart(pre.querySelector('code').firstChild,0);line.setEnd(pre.querySelector('code').firstChild,1);
+                const first=line.getBoundingClientRect(), control=button.getBoundingClientRect(), style=getComputedStyle(pre);
+                const long=blocks[2], scroller=long.querySelector('pre'), copy=long.querySelector('button');
+                const before=copy.getBoundingClientRect().x;
+                const gutters=[0,200,scroller.scrollWidth].map(offset=>{
+                  scroller.scrollLeft=offset;
+                  const edge=long.getBoundingClientRect(),viewport=scroller.getBoundingClientRect(),control=copy.getBoundingClientRect();
+                  return {leading:viewport.left-edge.left,trailing:control.left-viewport.right,
+                    inset:parseFloat(getComputedStyle(long).getPropertyValue('--mdv-code-inset')),controlShift:control.x-before};
+                });
+                return {count:blocks.length,highlighted:!!blocks[1].querySelector('.hljs-keyword'),
+                  singleHeight:single.getBoundingClientRect().height,
+                  naturalHeight:parseFloat(style.paddingTop)+parseFloat(style.lineHeight)+parseFloat(style.paddingBottom),
+                  alignment:Math.abs((control.top+control.bottom)/2-(first.top+first.bottom)/2),
+                  targetWidth:control.width,targetHeight:control.height,
+                  scroll:scroller.scrollLeft,gutters,controlShift:copy.getBoundingClientRect().x-before,
+                  clearOfCode:copy.getBoundingClientRect().left>=scroller.getBoundingClientRect().right};
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+        let value = try XCTUnwrap(geometry)
+        XCTAssertEqual(value["count"] as? Int, 3)
+        XCTAssertEqual(value["highlighted"] as? Bool, true)
+        XCTAssertEqual(
+            try XCTUnwrap(value["singleHeight"] as? Double), try XCTUnwrap(value["naturalHeight"] as? Double),
+            accuracy: 0.1)
+        XCTAssertLessThan(try XCTUnwrap(value["alignment"] as? Double), 2)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(value["targetWidth"] as? Double), 44)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(value["targetHeight"] as? Double), 44)
+        XCTAssertGreaterThan(try XCTUnwrap(value["scroll"] as? Double), 0)
+        XCTAssertEqual(value["controlShift"] as? Double, 0)
+        XCTAssertEqual(value["clearOfCode"] as? Bool, true)
+        let gutters = try XCTUnwrap(value["gutters"] as? [[String: Double]])
+        XCTAssertEqual(gutters.count, 3)
+        for gutter in gutters {
+            let inset = try XCTUnwrap(gutter["inset"])
+            XCTAssertEqual(try XCTUnwrap(gutter["leading"]), inset, accuracy: 0.01)
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(gutter["trailing"]), inset)
+            XCTAssertEqual(gutter["controlShift"], 0)
+        }
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelectorAll('.mdv-code-copy')[1].click()")
+        try await waitUntil {
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelectorAll('.mdv-code-copy')[1].dataset.copied === 'true'") as? Bool == true
+        }
+        XCTAssertEqual(pasteboard.string, code)
+        let stale =
+            try await bridge.webView.callAsyncJavaScript(
+                "return await window.webkit.messageHandlers.copyCode.postMessage({token:'stale',text:'wrong document'});",
+                arguments: [:], in: nil, contentWorld: .page) as? Bool
+        XCTAssertEqual(stale, false)
+        XCTAssertEqual(pasteboard.string, code)
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
+    @MainActor
+    func testCodeCopySupportsCodeFormatsDarkAppearanceAndFeedbackReset() async throws {
+        let markdown = """
+            # Formats
+
+            ```unknown-language
+            <tag>**literal** & 你好</tag>
+            ```
+
+                indented code
+                second line
+
+            <pre><code>HTML &amp; text\nnext line</code></pre>
+
+            ```mermaid
+            flowchart LR
+              A --> B
+            ```
+            """
+        let pasteboard = isolatedPasteboard()
+        let (session, bridge, _) = try await navigationReader(markdown: markdown, pasteboard: pasteboard)
+        let expected = ["<tag>**literal** & 你好</tag>\n", "indented code\nsecond line\n", "HTML & text\nnext line"]
+        let count =
+            try await bridge.webView.evaluateJavaScript("document.querySelectorAll('.mdv-code-copy').length") as? Int
+        XCTAssertEqual(count, expected.count)
+        let diagramControls =
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelectorAll('.mdv-mermaid .mdv-code-copy').length") as? Int
+        XCTAssertEqual(diagramControls, 0)
+        let initialPaper =
+            try await bridge.webView.evaluateJavaScript(
+                "getComputedStyle(document.querySelector('.mdv-code-block')).backgroundColor") as? String
+        bridge.webView.overrideUserInterfaceStyle = .dark
+        bridge.updateTheme()
+        try await waitUntil {
+            try await bridge.webView.evaluateJavaScript("matchMedia('(prefers-color-scheme: dark)').matches") as? Bool
+                == true
+        }
+        let darkPaper =
+            try await bridge.webView.evaluateJavaScript(
+                "getComputedStyle(document.querySelector('.mdv-code-block')).backgroundColor") as? String
+        XCTAssertNotEqual(initialPaper, darkPaper)
+        for (index, text) in expected.enumerated() {
+            _ = try await bridge.webView.callAsyncJavaScript(
+                "document.querySelectorAll('.mdv-code-copy')[index].click();",
+                arguments: ["index": index], in: nil, contentWorld: .page)
+            try await waitUntil {
+                try await bridge.webView.callAsyncJavaScript(
+                    "return document.querySelectorAll('.mdv-code-copy')[index].dataset.copied === 'true';",
+                    arguments: ["index": index], in: nil, contentWorld: .page) as? Bool == true
+            }
+            XCTAssertEqual(pasteboard.string, text)
+        }
+        try await waitUntil {
+            try await bridge.webView.evaluateJavaScript(
+                "[...document.querySelectorAll('.mdv-code-copy')].every(button=>!button.hasAttribute('data-copied')&&!button.disabled)"
+            ) as? Bool == true
+        }
+        XCTAssertEqual(session.document?.text, markdown)
     }
 
     @MainActor

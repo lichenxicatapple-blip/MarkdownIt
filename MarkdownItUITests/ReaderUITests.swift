@@ -347,6 +347,47 @@ final class ReaderUITests: XCTestCase {
                 .firstMatch.waitForExistence(timeout: 10))
     }
 
+    func testCodeBlockCopyPastesPlainTextThroughTheSystemMenu() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
+        let code = "let copiedValue = 314159"
+        editor.typeText("\n\n```swift\n\(code)\n```\n\n")
+        showTools(app)
+        tapAfterTyping(app.buttons["ModeToggle"], in: app)
+        let copy = app.webViews.buttons["Copy Code"].firstMatch
+        XCTAssertTrue(copy.waitForExistence(timeout: 8))
+        XCTAssertTrue(copy.isHittable)
+        copy.tap()
+        record("code-copy-feedback")
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        let originalCount = (editor.value as? String ?? "").components(separatedBy: code).count
+        XCTAssertEqual(originalCount, 2)
+        editor.doubleTap()
+        let paste = app.descendants(matching: .any).matching(identifier: "Paste").firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 6))
+        paste.tap()
+        let pasted = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                (editor.value as? String ?? "").components(separatedBy: code).count == originalCount + 1
+            }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pasted], timeout: 8), .completed)
+        XCTAssertFalse((editor.value as? String ?? "").contains("<svg"))
+        record("copied-code-pasted-as-text")
+    }
+
     func testSystemPasteMenuKeepsUndoAndRedoSeparateFromTyping() {
         let app = XCUIApplication()
         app.launchArguments = [

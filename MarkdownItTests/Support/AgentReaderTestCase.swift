@@ -5,6 +5,13 @@ import XCTest
 @testable import MarkdownIt
 
 extension XCTestCase {
+    @MainActor
+    func isolatedPasteboard() -> UIPasteboard {
+        let pasteboard = UIPasteboard.withUniqueName()
+        addTeardownBlock { @MainActor in UIPasteboard.remove(withName: pasteboard.name) }
+        return pasteboard
+    }
+
     func isolatedModelSettings() -> ModelSettingsStore {
         let store = ModelSettingsStore(service: "dev.catli.MarkdownIt.model.unit-testing." + UUID().uuidString)
         addTeardownBlock {
@@ -50,7 +57,7 @@ class AgentReaderTestCase: XCTestCase {
         modelClient: ModelClient, modelKey: @escaping @MainActor () -> String,
         dataSharingAllowed: Bool = true, recoveryStore: ReaderRecoveryStore? = nil,
         modelCatalog: ModelCatalog? = nil, webSearchClient: WebSearchClient? = nil,
-        conversationStore: AgentConversationStore? = nil
+        conversationStore: AgentConversationStore? = nil, pasteboard: UIPasteboard = .general
     ) async throws -> (
         ReaderSession, ReaderBridge, UIWindow, URL
     ) {
@@ -85,17 +92,19 @@ class AgentReaderTestCase: XCTestCase {
         await session.grant(root)
         await session.open(url)
         _ = try XCTUnwrap(session.document, session.errorMessage ?? "The fixture document must open before rendering")
-        let (bridge, window) = try await mountReader(session)
+        let (bridge, window) = try await mountReader(session, pasteboard: pasteboard)
         return (session, bridge, window, url)
     }
 
-    func mountReader(_ session: ReaderSession) async throws -> (ReaderBridge, UIWindow) {
+    func mountReader(_ session: ReaderSession, pasteboard: UIPasteboard = .general) async throws -> (
+        ReaderBridge, UIWindow
+    ) {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKeyWindow = scene.keyWindow
         let window = UIWindow(windowScene: scene)
         let controller = UIViewController()
         window.rootViewController = controller
-        let bridge = ReaderBridge(session: session)
+        let bridge = ReaderBridge(session: session, pasteboard: pasteboard)
         // Register cleanup before readiness can throw, not after a successful setup.
         addTeardownBlock { @MainActor in
             bridge.detach()

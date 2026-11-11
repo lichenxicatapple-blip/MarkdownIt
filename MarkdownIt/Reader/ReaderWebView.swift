@@ -61,6 +61,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
     let session: ReaderSession
     let webView: ReaderWKWebView
     let conversationWebView: WKWebView
+    private let pasteboard: UIPasteboard
     private var readerReady = false
     private var conversationReady = false
     private(set) var ready = false
@@ -96,8 +97,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         return configuration
     }
 
-    init(session: ReaderSession) {
+    init(session: ReaderSession, pasteboard: UIPasteboard = .general) {
         self.session = session
+        self.pasteboard = pasteboard
         let configuration = Self.configuration(for: session)
         webView = ReaderWKWebView(frame: .zero, configuration: configuration)
         conversationWebView = WKWebView(frame: .zero, configuration: Self.configuration(for: session))
@@ -178,6 +180,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
             if session.agentModalActive != modal { session.agentModalActive = modal }
         }
         conversationWebView.configuration.userContentController.add(self, name: "reader")
+        conversationWebView.configuration.userContentController.addScriptMessageHandler(
+            self, contentWorld: .page, name: "copyCode")
         conversationWebView.navigationDelegate = self
         conversationWebView.isOpaque = false
         conversationWebView.backgroundColor = .clear
@@ -186,6 +190,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         conversationWebView.scrollView.isScrollEnabled = false
         conversationWebView.accessibilityIdentifier = "ConversationWebView"
         configuration.userContentController.add(self, name: "reader")
+        configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "copyCode")
         configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "conversation")
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -519,6 +524,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
             "code": "chevron.left.forwardslash.chevron.right", "file-text": "doc.text", "x": "xmark",
             "arrow-up": "arrow.up", "square": "stop.fill",
             "message-square-text": "text.bubble",
+            "copy": "doc.on.doc", "check": "checkmark",
         ]
         var symbols: [String: String] = [:]
         for (name, symbol) in names {
@@ -749,6 +755,19 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         _ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
         replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void
     ) {
+        if message.name == "copyCode" {
+            guard message.webView === webView || message.webView === conversationWebView,
+                message.frameInfo.isMainFrame, let value = message.body as? [String: Any],
+                value["token"] as? String == session.documentToken, let text = value["text"] as? String
+            else {
+                replyHandler(false, nil)
+                return
+            }
+            pasteboard.string = text
+            UIAccessibility.post(notification: .announcement, argument: String(localized: "Copied"))
+            replyHandler(true, nil)
+            return
+        }
         guard message.webView === webView, message.frameInfo.isMainFrame,
             let value = message.body as? [String: Any], value["token"] as? String == session.documentToken,
             let attachment = value["attachment"] as? [String: Any]
@@ -818,6 +837,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         conversationPanel.removeFromSuperview()
         webView.conversationPanel = nil
         conversationWebView.configuration.userContentController.removeScriptMessageHandler(forName: "reader")
+        conversationWebView.configuration.userContentController.removeScriptMessageHandler(
+            forName: "copyCode", contentWorld: .page)
         conversationWebView.navigationDelegate = nil
         conversationWebView.stopLoading()
         webView.askSelectedText = nil
@@ -829,6 +850,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         projectionTask?.cancel()
         projectionTask = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "reader")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "copyCode", contentWorld: .page)
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: "conversation", contentWorld: .page)
         webView.navigationDelegate = nil

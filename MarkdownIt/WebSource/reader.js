@@ -549,6 +549,7 @@
       const fragment = cloneSelectionWithin(container, range);
       if (!fragment) return '';
       window.MarkdownItAnnotations.clean(fragment);
+      rendering.cleanControls(fragment);
       const tick = String.fromCharCode(96);
       function htmlMarkup(node) {
         const copy = node.cloneNode(true);

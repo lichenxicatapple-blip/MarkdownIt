@@ -143,6 +143,18 @@
       "action": "clear-conversation",
       "native": "trash",
       "sizeToken": "size.agentControlIcon"
+    },
+    {
+      "action": "copy-code",
+      "native": "doc.on.doc",
+      "web": "copy",
+      "sizeToken": "size.codeCopyIcon"
+    },
+    {
+      "action": "code-copied",
+      "native": "checkmark",
+      "web": "check",
+      "sizeToken": "size.codeCopyIcon"
     }
   ],
   "status": "Native SF Symbol mapping and web icon identifiers.",

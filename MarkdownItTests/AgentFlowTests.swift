@@ -304,6 +304,80 @@ final class AgentFlowTests: AgentReaderTestCase {
         }
     }
 
+    func testCodeCopyWorksInQuotesStreamingAndRestoredConversations() async throws {
+        let code = "let message = \"你好 👋\"\nprint(message)\n"
+        let markdown =
+            "# Notes\n\n- Example:\n\n  ```swift\n  "
+            + code.replacingOccurrences(of: "\n", with: "\n  ") + "```\n"
+        let reply = "let answer = \"回答\"\nprint(answer)\n"
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(
+                chunks: ["```swift\nlet answer = ", "\"回答\"\nprint(answer)\n```"], waitsAfterText: true, complete: false
+            )
+        ])
+        let pasteboard = isolatedPasteboard()
+        let (session, bridge, _, _) = try await reader(markdown, pasteboard: pasteboard)
+        _ = try await bridge.webView.evaluateJavaScript(
+            """
+            (() => {
+              const range=document.createRange();range.selectNodeContents(document.querySelector('.mdv-article ul'));
+              getSelection().removeAllRanges();getSelection().addRange(range);
+            })()
+            """)
+        _ = try await bridge.call("askSelection")
+        try await wait { session.agentOpen }
+        func copy(_ selector: String, expected: String) async throws {
+            pasteboard.string = nil
+            let found =
+                try await bridge.conversationWebView.callAsyncJavaScript(
+                    "const button=document.querySelector(selector);button?.click();return !!button;",
+                    arguments: ["selector": selector], in: nil, contentWorld: .page) as? Bool
+            XCTAssertEqual(found, true, selector)
+            try await wait {
+                try await bridge.conversationWebView.callAsyncJavaScript(
+                    "return document.querySelector(selector)?.dataset.copied === 'true';",
+                    arguments: ["selector": selector], in: nil, contentWorld: .page) as? Bool == true
+            }
+            XCTAssertEqual(pasteboard.string, expected)
+        }
+        try await copy(".mdv-composer-reference .mdv-code-copy", expected: code)
+        let recoveryValue = try await bridge.call("captureRecovery")
+        let captured = try XCTUnwrap(recoveryValue as? [String: Any])
+        let conversation = try XCTUnwrap(captured["conversation"] as? [String: Any])
+        let attachment = try XCTUnwrap(conversation["attachment"] as? [String: Any])
+        let quote = try XCTUnwrap(attachment["markdown"] as? String)
+        for chrome in ["<button", "<svg", "data:image", "mdv-code-"] {
+            XCTAssertFalse(quote.contains(chrome), "Quoted source must exclude rendering controls: \(chrome)")
+        }
+        try await send("Show a code example.", bridge: bridge)
+        try await wait {
+            try await bridge.conversationWebView.evaluateJavaScript(
+                "document.querySelector('.mdv-assistant-turn[data-state=streaming] pre code')?.textContent === 'let answer = \"回答\"\\nprint(answer)\\n'"
+            ) as? Bool == true
+        }
+        try await copy(".mdv-assistant-turn .mdv-code-copy", expected: reply)
+        try await copy(".mdv-message-reference > summary .mdv-code-copy", expected: code)
+        let collapsed =
+            try await bridge.conversationWebView.evaluateJavaScript(
+                "document.querySelector('.mdv-message-reference > summary').getAttribute('aria-expanded')") as? String
+        XCTAssertEqual(collapsed, "false", "Copying code must not toggle its enclosing reference")
+        _ = try await bridge.conversationWebView.evaluateJavaScript(
+            "document.querySelector('.mdv-message-reference > summary').click()")
+        try await copy(".mdv-message-reference > .mdv-rich-text .mdv-code-copy", expected: code)
+        _ = try await bridge.conversationWebView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
+        try await wait { session.agentTransport.activeID == nil }
+        let savedValue = try await bridge.call("captureRecovery")
+        let recovery = try XCTUnwrap(savedValue as? [String: Any])
+        _ = try await bridge.call(
+            "openDocument",
+            arguments: [
+                "payload": ["token": session.documentToken, "name": "notes.md", "text": markdown, "recovery": recovery]
+            ])
+        try await copy(".mdv-assistant-turn .mdv-code-copy", expected: reply)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
     func testFragmentedCJKRepliesPreserveFormattingWhileStreamingAndAfterStop() async throws {
         let chunks = ["**CIL（零碎股现金", "替代）*", "*支付。\n\n", "*中文（斜体）", "*后续，~~旧值（删除）~", "~改为新值。"]
         for api in ModelAPIProtocol.allCases {
@@ -1076,7 +1150,7 @@ final class AgentFlowTests: AgentReaderTestCase {
         baseURL: String = "https://agent.example.test/v1", model: String = "fixture-model",
         modelKey: @escaping @MainActor () -> String = { "fixture-key" }, dataSharingAllowed: Bool = true,
         recoveryStore: ReaderRecoveryStore? = nil, webSearchClient: WebSearchClient? = nil,
-        conversationStore: AgentConversationStore? = nil
+        conversationStore: AgentConversationStore? = nil, pasteboard: UIPasteboard = .general
     ) async throws -> (ReaderSession, ReaderBridge, UIWindow, URL) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AgentFixtureProtocol.self]
@@ -1085,7 +1159,7 @@ final class AgentFlowTests: AgentReaderTestCase {
             modelClient: ModelClient(session: URLSession(configuration: configuration)),
             modelKey: modelKey, dataSharingAllowed: dataSharingAllowed, recoveryStore: recoveryStore,
             modelCatalog: ModelCatalog(session: URLSession(configuration: configuration)),
-            webSearchClient: webSearchClient, conversationStore: conversationStore)
+            webSearchClient: webSearchClient, conversationStore: conversationStore, pasteboard: pasteboard)
     }
 
     private func completed(_ bridge: ReaderBridge, count: Int = 2, timeout: TimeInterval = 30) async throws {
