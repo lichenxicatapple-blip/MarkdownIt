@@ -1,68 +1,4 @@
 import UIKit
-import WebKit
-
-/// Web reserves one header row; UIKit owns its symbols, touch targets and glass feedback.
-@MainActor
-final class ConversationControlsHost {
-    let clearButton = ConversationControlButton(
-        symbol: "trash", title: String(localized: "Clear History"), identifier: "ClearAgentHistory", destructive: true)
-    let collapseButton = ConversationControlButton(
-        symbol: "chevron.right", title: String(localized: "Collapse conversation"), identifier: "CollapseAgent")
-    var onClear: ((String) -> Void)?
-    var onCollapse: ((String) -> Void)?
-    private weak var webView: WKWebView?
-    private var token = ""
-
-    init(webView: WKWebView) {
-        self.webView = webView
-        clearButton.addAction(
-            UIAction { [weak self] _ in
-                guard let self, self.clearButton.isEnabled else { return }
-                self.onClear?(self.token)
-            }, for: .touchUpInside)
-        collapseButton.addAction(
-            UIAction { [weak self] _ in
-                guard let self else { return }
-                self.onCollapse?(self.token)
-            }, for: .touchUpInside)
-    }
-
-    func updateLayout(_ states: [[String: Any]], token: String) {
-        self.token = token
-        for state in states {
-            let button: ConversationControlButton
-            switch state["id"] as? String {
-            case "clear": button = clearButton
-            case "collapse": button = collapseButton
-            default: continue
-            }
-            guard let webView, let host = webView.hostNativeView(button, aboveWebContent: true) else { continue }
-            let frame = CGRect(
-                x: state["x"] as? Double ?? 0, y: state["y"] as? Double ?? 0,
-                width: state["width"] as? Double ?? 0, height: state["height"] as? Double ?? 0)
-            button.frame = webView.convert(frame, to: host)
-            button.isHidden = state["visible"] as? Bool != true
-            button.isEnabled = state["enabled"] as? Bool == true
-            button.presentationOpacity = state["opacity"] as? Double ?? 1
-            if button === collapseButton {
-                button.symbol = state["sheet"] as? Bool == true ? "chevron.down" : "chevron.right"
-            }
-            host.bringSubviewToFront(button)
-        }
-    }
-
-    func hide() {
-        clearButton.isHidden = true
-        collapseButton.isHidden = true
-    }
-
-    func detach() {
-        clearButton.removeFromSuperview()
-        collapseButton.removeFromSuperview()
-        onClear = nil
-        onCollapse = nil
-    }
-}
 
 @MainActor
 final class ConversationControlButton: UIButton {
@@ -70,7 +6,6 @@ final class ConversationControlButton: UIButton {
     private let glass = UIGlassEffect(style: .regular)
     private var hovering = false
     private var showingMaterial = false
-    var presentationOpacity: CGFloat = 1 { didSet { updateOpacity() } }
     var symbol: String { didSet { if symbol != oldValue { updateSymbol() } } }
 
     init(symbol: String, title: String, identifier: String, destructive: Bool = false) {
@@ -84,7 +19,6 @@ final class ConversationControlButton: UIButton {
         self.configuration = configuration
         accessibilityLabel = title
         accessibilityIdentifier = identifier
-        isHidden = true
         isPointerInteractionEnabled = true
         glass.isInteractive = true
         material.cornerConfiguration = .capsule()
@@ -126,7 +60,7 @@ final class ConversationControlButton: UIButton {
         configuration?.image = ReaderChromeSymbols.symbol(symbol, pointSize: ReaderDesign.agentControlIcon)
     }
 
-    private func updateOpacity() { alpha = presentationOpacity * (isEnabled ? 1 : 0.35) }
+    private func updateOpacity() { alpha = isEnabled ? 1 : 0.35 }
 
     private func updateMaterial() {
         let shown = isEnabled && (isHighlighted || isFocused || hovering)

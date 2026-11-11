@@ -5,87 +5,14 @@
   const apps = Array.from(root.querySelectorAll('.mdv-app'));
   const motion = JSON.parse(document.getElementById('mdv-motion-spec').textContent);
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  const markdownRenderer = window.markdownit({
-    html: true,
-    linkify: true,
-    typographer: false,
-    highlight(code, language) {
-      return language && window.hljs.getLanguage(language) ? window.hljs.highlight(code, { language, ignoreIllegals: true }).value : '';
-    }
-  });
-  markdownRenderer.use(window.MarkdownItCjkFriendly.default);
-  markdownRenderer.use(window.markdownitTaskLists);
-  markdownRenderer.use(window.markdownitFootnote);
-  markdownRenderer.renderer.rules.footnote_caption = (tokens, index) => `[${tokens[index].meta.id + 1}]`;
-  markdownRenderer.use(window.texmath, { engine: window.katex, delimiters: ['dollars', 'brackets'] });
-  [...window.texmath.inlineRuleNames, ...window.texmath.blockRuleNames].forEach(type => {
-    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
-      const token = tokens[index];
-      const display = type.startsWith('math_block') || type === 'math_inline_double';
-      const tag = type.startsWith('math_block') ? 'div' : 'span';
-      return `<${tag} class="mdv-math" data-math-display="${display}"${renderer.renderAttrs(token)}>${markdownRenderer.utils.escapeHtml(token.content)}</${tag}>`;
-    };
-  });
-  // Retain the parser's zero-based, end-exclusive source ranges on rendered blocks.
-  markdownRenderer.core.ruler.after('block', 'mdv_source_ranges', state => {
-    state.tokens.forEach(token => {
-      if (!token.map || token.type === 'inline' || token.nesting < 0) return;
-      token.attrSet('data-source-start', String(token.map[0]));
-      token.attrSet('data-source-end', String(token.map[1]));
-      if (token.type === 'fence' || token.type === 'code_block') {
-        const count = token.content.replace(/\n$/, '').split('\n').length;
-        token.attrSet('data-code-start', String(token.map[0] + (token.type === 'fence' ? 1 : 0)));
-        token.attrSet('data-code-count', String(count));
-      }
-      if (token.type === 'paragraph_open' && token.hidden) token.attrSet('class', 'mdv-tight-paragraph');
-    });
-  });
-  ['fence', 'code_block'].forEach(type => {
-    const original = markdownRenderer.renderer.rules[type];
-    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
-      const token = tokens[index];
-      if (type === 'fence' && token.info.trim().split(/\s/)[0].toLowerCase() === 'mermaid') {
-        return `<div class="mdv-mermaid" data-source-start="${token.map[0]}" data-source-end="${token.map[1]}"><pre><code>${markdownRenderer.utils.escapeHtml(token.content)}</code></pre></div>`;
-      }
-      return original(tokens, index, options, env, renderer).replace('<pre', `<pre${renderer.renderAttrs(token)}`);
-    };
-  });
-  ['paragraph_open', 'paragraph_close'].forEach(type => {
-    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
-      const token = tokens[index];
-      if (token.hidden) return token.nesting === 1 ? `<span${renderer.renderAttrs(token)}>` : '</span>';
-      return renderer.renderToken(tokens, index, options);
-    };
-  });
-  ['th_open', 'td_open'].forEach(type => {
-    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
-      const token = tokens[index];
-      const alignment = token.attrGet('style')?.match(/text-align:(left|center|right)/)?.[1];
-      if (alignment) token.attrSet('align', alignment);
-      return renderer.renderToken(tokens, index, options);
-    };
-  });
-  markdownRenderer.renderer.rules.html_block = (tokens, index, options, env, renderer) => {
-    const token = tokens[index];
-    return token.content.replace(/<([a-z][\w:-]*)(?=[\s>])/i, (opening, tag) => `<${tag}${renderer.renderAttrs(token)}`);
-  };
-  const renderImage = markdownRenderer.renderer.rules.image;
-  markdownRenderer.renderer.rules.image = (tokens, index, options, env, renderer) => {
-    const token = tokens[index];
-    const sourcePath = token.attrGet('src');
-    token.attrSet('data-source-path', sourcePath);
-    return renderImage(tokens, index, options, env, renderer);
-  };
   reducedMotion.addEventListener('change', event => {
     if (event.matches) apps.forEach(app => app.getAnimations({ subtree: true }).forEach(animation => { if (animation.effect?.getTiming().iterations !== Infinity) animation.finish(); }));
   });
-  window.MarkdownItSourceMap.install(markdownRenderer);
   apps.forEach(app => {
     app.append(template.content.cloneNode(true));
     localize(app);
     const layout = app.dataset.layout;
     const state = { mode: 'preview', agent: false, outline: false };
-    let lastActivePanel = 'outline';
     let panelLayout = null;
     let layoutReadingAnchor = null;
     let selection = '';
@@ -94,8 +21,6 @@
     const source = app.querySelector('.mdv-source-panel');
     let documentText = '';
     let nativeSourcePosition = { line: 0, y: 0, atStart: true };
-    const workspace = app.querySelector('.mdv-workspace');
-    const agent = app.querySelector('.mdv-agent');
     const readingLayout = app.querySelector('.mdv-reading-layout');
     const outline = app.querySelector('.mdv-outline');
     const outlineBody = app.querySelector('.mdv-outline-body');
@@ -115,12 +40,6 @@
     let positioning = false;
     let transitionAnchor = null;
     let documentReady = Promise.resolve();
-    const enhancementRevisions = new WeakMap();
-    let diagramSequence = 0;
-    const diagramSources = new WeakMap();
-    const colorProbe = document.createElement('span');
-    colorProbe.hidden = true;
-    app.append(colorProbe);
     let lastPosition = null;
     let pinnedAnchor = null;
     let positionFrame = 0;
@@ -356,77 +275,6 @@
     outlineBody.addEventListener('transitionend', event => {
       if (event.propertyName === 'grid-template-rows') keepCurrentHeadingVisible();
     });
-    async function enhanceDocument(surface = reader) {
-      const revision = (enhancementRevisions.get(surface) || 0) + 1;
-      enhancementRevisions.set(surface, revision);
-      surface.querySelectorAll('.mdv-math').forEach(element => {
-        if (element.dataset.mathRendered) return;
-        const tex = element.dataset.mathSource || element.textContent;
-        element.dataset.mathSource = tex;
-        window.katex.render(tex, element, { displayMode: element.dataset.mathDisplay === 'true', throwOnError: false, trust: false, strict: 'ignore', output: 'htmlAndMathml' });
-        element.dataset.mathRendered = 'true';
-      });
-      const resolveColor = name => {
-        colorProbe.style.color = `var(${name})`;
-        return getComputedStyle(colorProbe).color;
-      };
-      const paper = getComputedStyle(app).backgroundColor;
-      const ink = getComputedStyle(app).color;
-      window.mermaid.initialize({
-        startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true,
-        theme: 'base', fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif',
-        themeVariables: {
-          darkMode: matchMedia('(prefers-color-scheme: dark)').matches,
-          background: paper, primaryColor: resolveColor('--mdv-chrome'), primaryTextColor: ink,
-          primaryBorderColor: resolveColor('--mdv-line'), secondaryColor: paper,
-          tertiaryColor: resolveColor('--mdv-source'), textColor: ink, lineColor: resolveColor('--mdv-muted'),
-          actorBkg: resolveColor('--mdv-chrome'), actorTextColor: ink, actorBorder: resolveColor('--mdv-line'),
-          signalColor: ink, signalTextColor: ink, noteBkgColor: resolveColor('--mdv-source'), noteTextColor: ink,
-          edgeLabelBackground: paper, fontSize: '16px'
-        },
-        flowchart: { htmlLabels: false, useMaxWidth: false }, sequence: { useMaxWidth: false }
-      });
-      const diagramTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      for (const element of surface.querySelectorAll('.mdv-mermaid')) {
-        if (element.dataset.diagramTheme === diagramTheme) continue;
-        const code = diagramSources.get(element) || element.textContent;
-        diagramSources.set(element, code);
-        element.dataset.diagramSource = code;
-        try {
-          const { svg } = await window.mermaid.render(`${layout}-diagram-${++diagramSequence}`, code);
-          if (revision !== enhancementRevisions.get(surface) || !element.isConnected) return;
-          element.innerHTML = svg;
-          element.dataset.diagramTheme = diagramTheme;
-          const diagram = element.querySelector('svg');
-          if (diagram.viewBox.baseVal.width && diagram.viewBox.baseVal.height) {
-            diagram.style.width = `${diagram.viewBox.baseVal.width}px`;
-            diagram.style.height = `${diagram.viewBox.baseVal.height}px`;
-          }
-          diagram.setAttribute('role', 'img');
-          if (!diagram.hasAttribute('aria-label') && !diagram.hasAttribute('aria-labelledby')) diagram.setAttribute('aria-label', t("Mermaid diagram"));
-        } catch (error) {
-          if (revision !== enhancementRevisions.get(surface) || !element.isConnected) return;
-          const pre = document.createElement('pre');
-          const codeElement = document.createElement('code');
-          codeElement.textContent = code;
-          pre.append(codeElement);
-          const message = document.createElement('p');
-          message.className = 'mdv-diagram-error';
-          message.textContent = t("Unable to parse the Mermaid diagram. The original content has been kept.");
-          element.replaceChildren(message, pre);
-        }
-      }
-      await document.fonts.ready;
-    }
-    function markdownFragment(markdown, environment = {}) {
-      return window.DOMPurify.sanitize(markdownRenderer.render(markdown, environment), {
-        USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true,
-        ALLOW_DATA_ATTR: false,
-        ADD_ATTR: ['data-source-start', 'data-source-end', 'data-code-start', 'data-code-count', 'data-source-path', 'data-math-display', 'data-reader-text'],
-        FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'textarea', 'button', 'select', 'option', 'link', 'meta', 'base'],
-        FORBID_ATTR: ['style', 'name', 'autofocus', 'form', 'contenteditable', 'tabindex']
-      });
-    }
     function imageReferences(markdown, environment) {
       return [...markdownFragment(markdown, environment).querySelectorAll('img')].map(image => ({
         id: crypto.randomUUID(), source: image.getAttribute('data-source-path') || image.getAttribute('src') || '',
@@ -442,126 +290,28 @@
       }
       return imageInventorySources.map(image => ({ ...image, id: crypto.randomUUID() }));
     }
-    const frozenImageIDs = new Set();
-    function freezeImages(ids) {
-      ids.forEach(id => frozenImageIDs.add(id));
-      app.querySelectorAll('img[data-agent-image-id]').forEach(image => {
-        if (frozenImageIDs.has(image.dataset.agentImageId)) image.src = `jm-image://${nativeToken}/${image.dataset.agentImageId}`;
-      });
-    }
-    function fragmentIdentifier(link) {
-      const value = link.getAttribute('href').slice(1);
-      try { return decodeURIComponent(value); }
-      catch { return value; }
-    }
-    function assignHeadingIDs(fragment) {
-      const used = new Set([...fragment.querySelectorAll('[id]')].map(element => element.id));
-      fragment.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(heading => {
-        if (heading.id) return;
-        // Section links use the rendered title, without formatting or punctuation.
-        const slug = heading.textContent.trim().toLowerCase().replace(/[^\p{L}\p{M}\p{N}_ -]/gu, '').replace(/ /g, '-');
-        // Empty titles retain an outline-only ID without taking a named section's anchor.
-        if (!slug) return;
-        let id = slug, suffix = 0;
-        while (used.has(id)) id = `${slug}-${++suffix}`;
-        heading.id = id;
-        used.add(id);
-      });
-    }
-    function renderRichMarkdown(markdown, prefix, images = []) {
-      const environment = prefix === layout ? window.MarkdownItSourceMap.environment() : {};
-      const documentFragment = markdownFragment(markdown, environment);
-      if (prefix === layout) documentSourceMap = environment.readerMap.runs;
-      documentFragment.querySelectorAll('input').forEach(input => {
-        if (input.type !== 'checkbox') input.remove();
-        else input.disabled = true;
-      });
-      documentFragment.querySelectorAll('[class]').forEach(element => {
-        Array.from(element.classList).filter(name => name.startsWith('mdv-') && !['mdv-tight-paragraph', 'mdv-math', 'mdv-mermaid'].includes(name)).forEach(name => element.classList.remove(name));
-      });
-      assignHeadingIDs(documentFragment);
-      const contentIds = new Map();
-      documentFragment.querySelectorAll('[id]').forEach((element, index) => {
-        const original = element.id;
-        element.id = `${prefix}-content-${index}-${original}`;
-        if (!contentIds.has(original)) contentIds.set(original, element.id);
-      });
-      documentFragment.querySelectorAll('a[href^="#"]').forEach(link => {
-        const id = fragmentIdentifier(link);
-        if (contentIds.has(id)) link.setAttribute('href', `#${encodeURIComponent(contentIds.get(id))}`);
-      });
-      documentFragment.querySelectorAll('a[href]:not([href^="#"])').forEach(link => {
-        link.setAttribute('target', '_blank');
-        link.setAttribute('rel', 'noopener noreferrer');
-      });
-      documentFragment.querySelectorAll('img').forEach(image => {
-        const path = image.getAttribute('data-source-path') || image.getAttribute('src');
-        image.setAttribute('data-source-path', path || '');
-      });
-      prepareLocalResources(documentFragment, prefix === layout);
-      // Quote images keep the immutable native snapshot after it is sent/read.
-      documentFragment.querySelectorAll('img').forEach(image => {
-        const reference = images.find(value => value.source === image.dataset.sourcePath);
-        if (!reference) return;
-        image.dataset.agentImageId = reference.id;
-        if (frozenImageIDs.has(reference.id)) image.src = `jm-image://${nativeToken}/${reference.id}`;
-      });
-      documentFragment.querySelectorAll('summary').forEach(summary => summary.classList.add('cursor-interaction'));
-      return documentFragment;
-    }
-    let documentSourceMap = new Map();
+    const rendering = window.MarkdownItRendering.create({app, documentPrefix: layout, token: () => nativeToken, prepareLocalResources});
+    const {render: renderRichMarkdown, markdownFragment, fragmentIdentifier} = rendering;
+    const enhanceDocument = (surface = reader) => rendering.enhance(surface);
     function updateDocument() {
       if (renderedMarkdown === documentText) return;
       renderedMarkdown = documentText;
       const documentFragment = renderRichMarkdown(renderedMarkdown, layout);
       reader.replaceChildren(documentFragment);
-      annotations.mount(documentSourceMap);
+      annotations.mount(rendering.sourceMap);
       const documentHeadings = Array.from(reader.querySelectorAll('h1,h2,h3,h4,h5,h6'));
       headings.splice(0, headings.length, ...documentHeadings);
       buildOutline();
       markHeading(headings[0]?.id);
       documentReady = enhanceDocument();
     }
-    function notePanelInteraction(panel) { lastActivePanel = panel; }
+    function notePanelInteraction(panel) { postNative({type:'panelInteraction',token:nativeToken,panel}); }
     function setPanelOpen(panel, shown) {
-      pinnedAnchor = displayedMode === 'preview' ? captureReadingPosition() : null;
-      state[panel] = shown;
-      if (shown) notePanelInteraction(panel);
-      render();
+      pinnedAnchor = app.dataset.ready && !panelLayout?.overlay && displayedMode === 'preview' ? captureReadingPosition() : null;
+      postNative({type:'panelRequest',token:nativeToken,panel,open:shown});
     }
-    function resolvePanelLayout() {
-      const style = getComputedStyle(app);
-      const value = name => parseFloat(style.getPropertyValue(name));
-      const width = app.clientWidth;
-      const documentMinimum = value('--mdv-document-minimum-width');
-      const agentMinimum = value('--mdv-agent-minimum-width');
-      const agentMaximum = value('--mdv-agent-width');
-      const edge = value('--mdv-agent-edge-inset');
-      const outlineWidth = value('--mdv-outline-width');
-      const side = width >= documentMinimum + agentMinimum + edge;
-      const coexist = width >= documentMinimum + agentMinimum + edge + outlineWidth;
-      if (state.agent && state.outline && headings.length && displayedMode === 'preview' && !coexist) {
-        state[lastActivePanel === 'outline' ? 'agent' : 'outline'] = false;
-      }
-      const outlineOpen = state.outline && headings.length && displayedMode === 'preview';
-      const overlay = width < documentMinimum + outlineWidth;
-      const available = width - documentMinimum - edge - (outlineOpen && !overlay ? outlineWidth : 0);
-      const agentWidth = clamp(width * value('--mdv-agent-width-fraction'), agentMinimum, Math.min(agentMaximum, Math.max(agentMinimum, available)));
-      const next = { width, sheet: !side, overlay, coexist, agentWidth,
-        documentLeading: outlineOpen && !overlay ? outlineWidth : 0,
-        reservedWidth: state.agent && side ? agentWidth + edge : 0 };
-      app.dataset.agentLayout = next.sheet ? 'sheet' : 'side';
-      app.dataset.outlineLayout = overlay ? 'overlay' : 'side';
-      app.dataset.panelsCoexist = String(coexist);
-      app.style.setProperty('--mdv-agent-panel-width', agentWidth + 'px');
-      app.style.setProperty('--mdv-agent-reserved-width', next.reservedWidth + 'px');
-      panelLayout = next;
-      return next;
-    }
-    ['pointerdown', 'wheel', 'keydown'].forEach(type => {
-      outline.addEventListener(type, () => notePanelInteraction('outline'), { passive: true, capture: true });
-      agent.addEventListener(type, () => notePanelInteraction('agent'), { passive: true, capture: true });
-    });
+    const agentExperience = {attach(value) {return window.webkit.messageHandlers.conversation.postMessage({token:nativeToken,attachment:value});}};
+    ['pointerdown','wheel','keydown'].forEach(type=>outline.addEventListener(type,()=>notePanelInteraction('outline'),{passive:true,capture:true}));
     let readingAnchorFrame = 0;
     window.addEventListener('scroll', () => {
       if (readingAnchorFrame) return;
@@ -576,7 +326,6 @@
     let nativeToken = '';
     let nativeRevision = 0;
     let nativeDocumentName = ''; 
-    let nativeSymbols = {};
     function postNative(message) { window.webkit?.messageHandlers.reader.postMessage(message); }
     const annotations = new window.MarkdownItAnnotations({reader,
       context: () => ({token:nativeToken,revision:nativeRevision,enabled:displayedMode==='preview'&&!app.dataset.modeTransition}),
@@ -633,7 +382,7 @@
       const value = selected ? { ...selected, documentName: nativeDocumentName } : null;
       if (!value?.text.trim()) return;
       pinnedAnchor = captureReadingPosition();
-      agentExperience.attach(value, value.rect || { left: 16, bottom: 80 });
+      return agentExperience.attach(value, value.rect || { left: 16, bottom: 80 });
     }
     app.addEventListener('click', event => {
       const image = event.target.closest('.mdv-article .jm-image-action')?.querySelector('img');
@@ -647,25 +396,6 @@
       event.preventDefault(); event.stopImmediatePropagation();
       postNative({type:'link', href:link.getAttribute('href')});
     }, true);
-    let nativeSymbolSequence = 0;
-    function updateSymbols() {
-      if (!Object.keys(nativeSymbols).length) return;
-      app.querySelectorAll('svg[data-lucide]:not([data-native-symbol])').forEach(svg => {
-        const source = nativeSymbols[svg.dataset.lucide];
-        if (!source) return;
-        svg.dataset.nativeSymbol = 'true';
-        // Lucide refreshes all data-lucide nodes, including existing SVGs.
-        // Native artwork owns this node from now on and uses one filled mask.
-        svg.removeAttribute('data-lucide');
-        svg.setAttribute('stroke', 'none');
-        const mask = 'native-symbol-' + (++nativeSymbolSequence);
-        const inset = 1;
-        const size = 24 - inset * 2;
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.innerHTML = '<defs><mask id="' + mask + '"><image href="' + source + '" x="' + inset + '" y="' + inset + '" width="' + size + '" height="' + size + '" preserveAspectRatio="xMidYMid meet"/></mask></defs><rect width="24" height="24" fill="currentColor" mask="url(#' + mask + ')"/>';
-      });
-    }
-    new MutationObserver(updateSymbols).observe(app, {childList:true,subtree:true});
     let recoveryFrame = 0;
     let recovering = false;
     function scheduleRecovery() {
@@ -676,13 +406,11 @@
       });
     }
     function captureRecovery() {
-      return { mode: state.mode, transitioning: !!app.dataset.modeTransition, outline: state.outline, agent: state.agent,
-        anchor: pinnedAnchor || captureReadingPosition(), nativeRequestSequence, lastActivePanel,
-        composerEpoch: nativeInputs.epoch('question'),
-        outlineScroll: outlineBody.scrollTop, outlinePaused: outlineFollowPaused,
-        branches: [...outlineBody.querySelectorAll('.mdv-outline-branch')].filter(branch => branch.dataset.expanded !== 'true').map(branch => branch.id),
-        previewDetails: [...reader.querySelectorAll('details')].map(details => details.open),
-        frozenImages: [...frozenImageIDs], conversation: agentExperience.capture() };
+      return {mode:state.mode, transitioning:!!app.dataset.modeTransition, outline:state.outline, agent:state.agent,
+        anchor:pinnedAnchor || captureReadingPosition(),
+        outlineScroll:outlineBody.scrollTop, outlinePaused:outlineFollowPaused,
+        branches:[...outlineBody.querySelectorAll('.mdv-outline-branch')].filter(branch=>branch.dataset.expanded !== 'true').map(branch=>branch.id),
+        previewDetails:[...reader.querySelectorAll('details')].map(details=>details.open)};
     }
     addEventListener('scroll', scheduleRecovery, { passive: true, capture: true });
     app.addEventListener('toggle', scheduleRecovery, true);
@@ -691,21 +419,12 @@
 
       async openDocument(document) {
         recovering = true;
-        pendingNativeAgentConsent?.resolve(false);
-        pendingNativeAgentConsent = null;
-        nativeRequests.clear();
-        frozenImageIDs.clear();
+        delete app.dataset.ready;
         dismissImageMenu();
-        nativeUndoRequests.clear();
-        postNative({ type: 'agentCancel', token: nativeToken });
-        agentExperience.reset();
-        nativeInputs.blur();
-        nativeInputs.clear();
         nativeToken = document.token;
         nativeRevision = document.revision;
         annotations.reset(document.annotations);
         nativeDocumentName = document.name || '';
-        pendingNativeAgentEntry = null;
         renderedMarkdown = null; documentText = document.text;
         nativeSourcePosition = { line: 0, y: 0, atStart: true };
         ++modeRevision; modeAnimation?.cancel(); modeAnimation = null;
@@ -715,14 +434,7 @@
         stopOutlineFollow(); outlineFollowPaused = false; outlineBody.scrollTop = 0;
         updateDocument();
         const saved = document.recovery;
-        const savedConversation = saved || document.conversation;
-        if (savedConversation) {
-          freezeImages(savedConversation.frozenImages || []);
-          agentExperience.restore(savedConversation.conversation || {});
-        }
         if (saved) {
-          nativeRequestSequence = saved.nativeRequestSequence || 0;
-          lastActivePanel = saved.lastActivePanel || 'outline';
           state.mode = saved.mode === 'source' ? 'source' : 'preview';
           displayedMode = state.mode;
           state.outline = !!saved.outline;
@@ -746,10 +458,9 @@
           outlineFollowPaused = !!saved.outlinePaused;
           if (outlineFollowPaused) { stopOutlineFollow(); outlineBody.scrollTop = saved.outlineScroll || 0; }
         } else window.scrollTo(0,0);
-        if (savedConversation) agentExperience.finishRestore(savedConversation.conversation || {});
         recovering = false;
         scheduleRecovery();
-        window.lucide.createIcons(); updateSymbols();
+        window.lucide.createIcons(); rendering.updateSymbols();
         postNative({type:'documentReady',token:nativeToken});
         return this.diagnostics();
       },
@@ -770,10 +481,10 @@
       },
       toggleOutline() {
         if (state.mode !== 'preview' || !headings.length) return;
-        setPanelOpen('outline', !state.outline);
+        postNative({type:'panelRequest',token:nativeToken,panel:'outline',toggle:true});
       },
       suppressSelection() { readSelection(); },
-      askSelection(text) { askNative(text || window.getSelection()?.toString() || ''); },
+      askSelection(text) { return askNative(text || window.getSelection()?.toString() || ''); },
       imageMenuDismissed(payload) { if (imageMenuID === payload.id) imageMenuID = null; },
       imageContext(index) {
         const contextImage = reader.querySelectorAll('img')[index];
@@ -792,84 +503,39 @@
         if (!payload?.images?.length) return;
         window.getSelection()?.removeAllRanges();
         pinnedAnchor = captureReadingPosition();
-        agentExperience.attach(payload, payload.rect);
+        return agentExperience.attach(payload, payload.rect);
       },
       askSourceSelection(payload) {
         if (displayedMode !== 'source') return;
         const reference = sourceAttachment(payload);
-        if (reference.text.trim()) agentExperience.attach(reference, reference.rect);
+        if (reference.text.trim()) return agentExperience.attach(reference, reference.rect);
       },
       async sourceState(payload) {
         if (payload.token !== nativeToken) return false;
         documentText = payload.text;
         nativeRevision = payload.revision;
         annotations.records = payload.annotations || [];
-        for (const detail of payload.events || []) app.dispatchEvent(new CustomEvent('mdv-source-history', { detail }));
         if (displayedMode === 'preview') { updateDocument(); render(); await documentReady; }
         return true;
       },
-      toggleAgent() { agentExperience.toggleGlobal(); },
-      resolveAgentEntry(payload) {
-        const entry = pendingNativeAgentEntry;
-        if (!entry || entry.id !== payload.id || entry.token !== nativeToken) return;
-        pendingNativeAgentEntry = null;
-        if (payload.allowed) entry.resume();
-      },
-      resolveAgentConsent(payload) {
-        const pending = pendingNativeAgentConsent;
-        if (!pending || pending.id !== payload.id || pending.token !== payload.token || pending.token !== nativeToken) return;
-        pendingNativeAgentConsent = null;
-        pending.resolve(payload.allowed === true);
-      },
-      async closeAgent() { setPanelOpen('agent', false); return await agentExperience.waitUntilClosed(); },
-      setInputBottomInset(inset) {
-        app.style.setProperty('--mdv-input-bottom-clearance', inset > 0 ? 'calc(' + inset + 'px + var(--mdv-floating-gap))' : '0px');
-        nativeInputs.trackLayout();
-      },
-      agentInteraction() { notePanelInteraction('agent'); },
-      updateAgentInput(payload) { nativeInputs.update(payload); },
-      resizeAgentInput(payload) { nativeInputs.resize(payload); },
-      commitAgentInput(payload) { nativeInputs.commit(payload); },
-      clearAgentHistory(payload) {
-        if (payload.token !== nativeToken) return false;
-        const retained = agentExperience.clearHistory();
-        const ids = new Set(retained);
-        for (const id of frozenImageIDs) if (!ids.has(id)) frozenImageIDs.delete(id);
-        return retained;
-      },
-      agentEvent(event) {
-        if (event.token !== nativeToken) return;
-        const request = nativeRequests.get(event.id);
-        if (!request) return;
-        if (event.type === 'images') { freezeImages(event.imageIDs || []); return; }
-        if (event.type === 'change') request.change(event.change);
-        else if (event.type === 'text') request.text(event.text);
-        else {
-          nativeRequests.delete(event.id);
-          if (event.type === 'complete') request.complete(event);
-          else if (event.type !== 'cancelled') request.fail(event.failure || { kind: 'service' });
-        }
-      },
-      agentUndoResult(payload) {
-        const resolve = nativeUndoRequests.get(payload.id);
-        nativeUndoRequests.delete(payload.id);
-        resolve?.(payload.result);
-      },
-      agentDiagnostics() {
-        return { open: state.agent, modal: agent.hasAttribute('data-modal-active'), draft: agent.querySelector('textarea').value,
-          reference: agent.querySelector('.mdv-composer-reference').textContent, referenceHTML: agent.querySelector('.mdv-composer-reference').innerHTML,
-          turns: Array.from(agent.querySelectorAll('.mdv-turn')).map(turn => ({ role: turn.dataset.role, state: turn.dataset.state, text: turn.textContent, html: turn.innerHTML })),
-          markup: agent.innerHTML };
+      finishOpening() { app.getBoundingClientRect(); app.dataset.ready='true'; },
+      documentBackground() {return {text:documentText,markdown:documentText,images:documentImageReferences(),mode:displayedMode,scope:'document',documentName:nativeDocumentName};},
+      panelLayout(value) {
+        if (panelLayout && value.revision < panelLayout.revision) return;
+        const changedColumns = panelLayout && (Boolean(panelLayout.outline && !panelLayout.overlay) !== Boolean(value.outline && !value.overlay));
+        if (changedColumns && app.dataset.ready && displayedMode === 'preview') pinnedAnchor = captureReadingPosition();
+        panelLayout = {...value,viewportWidth:app.clientWidth};
+        state.agent = value.agent; state.outline = value.outline;
+        app.dataset.compactWindow=String(value.compact);
+        app.dataset.agentLayout=value.sheet?'sheet':'side'; app.dataset.outlineLayout=value.overlay?'overlay':'side';
+        app.dataset.panelsCoexist=String(value.coexist); app.classList.toggle('mdv-agent-open',value.agent);
+        reader.inert=value.modal; outline.inert=value.modal;
+        render(); if(changedColumns && pinnedAnchor)restoreReadingPosition(pinnedAnchor);
       },
       reloadResources() {
         reader.querySelectorAll('img[src^="jm-resource:"]').forEach(image => { image.src = `jm-resource://${nativeToken}/image?path=${encodeURIComponent(image.dataset.sourcePath)}&revision=${Date.now()}`; });
       },
-      theme(theme) {
-        app.style.setProperty('--jm-font-scale', String(theme.fontScale));
-        nativeSymbols = theme.symbols || {};
-        Object.entries(theme.palette || {}).forEach(([name, value]) => app.style.setProperty('--mdv-' + name, value));
-        updateSymbols();
-      },
+      theme(theme) { rendering.theme(theme); },
       async ready() { await documentReady; return true; },
       diagnostics() {
         const unsafeTags = Array.from(reader.querySelectorAll('script,iframe,form,style')).filter(node => node.tagName.toLowerCase() !== 'style' || !node.closest('.mdv-mermaid svg')).length;
@@ -881,183 +547,36 @@
       }
     };
 
-    // Native transport and text input adapters. No model endpoint or credential enters JavaScript.
-    const nativeRequests = new Map();
-    const nativeUndoRequests = new Map();
-    let nativeRequestSequence = 0;
-    let pendingNativeAgentEntry = null;
-    let pendingNativeAgentConsent = null;
-    function ensureNativeAgentConfigured(resume) {
-      const id = nativeToken + '-entry-' + (++nativeRequestSequence);
-      pendingNativeAgentEntry = { id, token: nativeToken, resume };
-      postNative({ type: 'agentEntry', id, token: nativeToken });
-    }
-    function createNativeAgentTransport() {
-      return {
-        authorize() {
-          if (pendingNativeAgentConsent) return Promise.resolve(false);
-          const id = nativeToken + '-consent-' + (++nativeRequestSequence);
-          return new Promise(resolve => {
-            pendingNativeAgentConsent = { id, token: nativeToken, resolve };
-            postNative({ type: 'agentConsent', id, token: nativeToken });
-          });
-        },
-        stream(snapshot, intent, callbacks) {
-          const id = nativeToken + '-' + (++nativeRequestSequence);
-          nativeRequests.set(id, callbacks);
-          postNative({ type: 'agentRequest', id, token: nativeToken, snapshot: JSON.parse(JSON.stringify(snapshot)), intent });
-          return () => { postNative({ type: 'agentCancel', id, token: nativeToken }); };
-        },
-        undo(change) {
-          const id = nativeToken + '-undo-' + (++nativeRequestSequence);
-          return new Promise(resolve => {
-            nativeUndoRequests.set(id, resolve);
-            postNative({type: 'agentUndo', id, change, token: nativeToken});
-          });
-        }
-      };
-    }
-    const nativeInputs = (() => {
-      const entries = new Map();
-      const valueProperty = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-      let applying = false;
-      let committing = false;
-      let focused = null;
-      let previous = '';
-      let frame = 0;
-      let trackUntil = 0;
+    const sourceProjection = (() => {
+      let frame = 0, previous = '', trackUntil = 0;
       function schedule() { if (!frame) frame = requestAnimationFrame(sync); }
-      function trackLayout() { trackUntil = performance.now() + Math.max(motion.modeOut.duration + motion.modeIn.duration, motion.agentPanel.duration, motion.layout.duration); schedule(); }
-      function register(field, id) {
-        const entry = { field, id, epoch: 0, measurementKey: '' };
-        entries.set(id, entry);
-        resize.observe(field);
-        field.setAttribute('aria-hidden', 'true');
-        field.tabIndex = -1;
-        field.style.color = 'transparent';
-        field.style.caretColor = 'transparent';
-        field.style.pointerEvents = 'none';
-        Object.defineProperty(field, 'value', {
-          get() { return valueProperty.get.call(field); },
-          set(text) {
-            valueProperty.set.call(field, text);
-            if (!applying) {
-              ++entry.epoch;
-              postNative({ type: 'inputSetText', id, text: field.value, epoch: entry.epoch });
-            }
-          }
-        });
-        field.focus = () => {
-          document.activeElement?.blur();
-          focused = id;
-          postNative({ type: 'inputFocus', id });
-        };
-        postNative({ type: 'inputSetText', id, text: field.value, epoch: entry.epoch });
-      }
-      function update(payload) {
-        const entry = entries.get(payload.id);
-        if (!entry || payload.epoch !== entry.epoch) return false;
-        if (entry.field.value === payload.text) { resizeInput(payload); return true; }
-        notePanelInteraction('agent');
-        applying = true;
-        entry.field.value = payload.text;
-        applying = false;
-        resizeInput(payload);
-        entry.field.dispatchEvent(new Event('input', { bubbles: true }));
-        return true;
-      }
-      function resizeInput(payload) {
-        const entry = entries.get(payload.id);
-        if (!entry || payload.epoch !== entry.epoch || entry.field.value !== payload.text ||
-            payload.measurementKey !== entry.measurementKey || !Number.isFinite(payload.height) || payload.height <= 0) return;
-        entry.field.style.height = payload.height + 'px';
-      }
-      function commit(payload) {
-        if (!update(payload)) return;
-        const entry = entries.get(payload.id);
-        committing = true;
-        entry.field.form.requestSubmit();
-        committing = false;
-      }
+      function trackLayout() { trackUntil = performance.now() + Math.max(motion.modeOut.duration + motion.modeIn.duration, motion.layout.duration); schedule(); }
       function sync() {
         frame = 0;
-        const states = [];
-        for (const entry of entries.values()) {
-          const { field, id } = entry;
-          const box = field.getBoundingClientRect();
-          const panel = field.closest('.mdv-agent');
-          const visible = !!box.width && !!box.height && !panel.hidden && !panel.inert;
-          const style = getComputedStyle(field);
-          const layoutWidth = parseFloat(style.width);
-          const metrics = ['fontSize', 'lineHeight', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'].map(key => parseFloat(style[key]));
-          entry.measurementKey = JSON.stringify([layoutWidth, ...metrics]);
-          const opacity = panel.hidden ? 0 : Number(getComputedStyle(panel).opacity);
-          states.push({ id, visible, opacity, x: box.x, y: box.y, width: box.width, height: box.height,
-            layoutWidth, measurementKey: entry.measurementKey,
-            fontSize: parseFloat(style.fontSize), lineHeight: parseFloat(style.lineHeight),
-            top: parseFloat(style.paddingTop), right: parseFloat(style.paddingRight), bottom: parseFloat(style.paddingBottom), left: parseFloat(style.paddingLeft) });
-        }
         const box = source.getBoundingClientRect();
-        const controls = [...app.querySelectorAll('[data-native-agent-control]')].map(slot => {
-          const panel = slot.closest('.mdv-agent'), box = slot.getBoundingClientRect();
-          return { id: slot.dataset.nativeAgentControl, x: box.x, y: box.y, width: box.width, height: box.height,
-            visible: !!box.width && !!box.height && !panel.hidden && !panel.inert,
-            opacity: panel.hidden ? 0 : Number(getComputedStyle(panel).opacity),
-            enabled: slot.dataset.nativeAgentControl !== 'clear' || panel.hasAttribute('data-agent-has-history'),
-            sheet: app.dataset.agentLayout === 'sheet' };
-        });
-        const sourceState = { type: 'sourceLayout', token: nativeToken,
-          visible: displayedMode === 'source', interactive: state.mode === displayedMode && !app.dataset.modeTransition && !source.closest('[inert]'),
-          opacity: Number(getComputedStyle(readingLayout).opacity),
-          x: box.x, y: box.y, width: box.width, height: box.height };
-        const fingerprint = JSON.stringify([states, controls, sourceState]);
-        if (fingerprint !== previous) { previous = fingerprint; postNative({ type: 'inputLayout', token: nativeToken, inputs: states, controls }); postNative(sourceState); }
+        const value = { type:'sourceLayout', token:nativeToken, visible:displayedMode === 'source',
+          interactive:state.mode === displayedMode && !app.dataset.modeTransition && !source.closest('[inert]'),
+          opacity:Number(getComputedStyle(readingLayout).opacity), x:box.x, y:box.y, width:box.width, height:box.height };
+        const fingerprint = JSON.stringify(value);
+        if (fingerprint !== previous) { previous = fingerprint; postNative(value); }
         if (performance.now() < trackUntil) schedule();
       }
-      const observer = new MutationObserver(schedule);
-      observer.observe(app, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'inert', 'class', 'style', 'data-modal-active', 'data-agent-layout', 'data-agent-has-history'] });
-      const resize = new ResizeObserver(trackLayout);
-      resize.observe(app);
-      addEventListener('scroll', schedule, { passive: true, capture: true });
+      new MutationObserver(schedule).observe(app, {subtree:true, attributes:true, attributeFilter:['hidden','inert','class','style','data-mode-transition']});
+      new ResizeObserver(trackLayout).observe(app);
       addEventListener('resize', trackLayout);
-      window.visualViewport?.addEventListener('resize', trackLayout);
       schedule();
-      return { register, update, resize: resizeInput, commit, trackLayout, epoch(id) { return entries.get(id)?.epoch; }, get committing() { return committing; }, requestSubmit(id) { postNative({ type: 'inputSubmit', id }); },
-        blur() { focused = null; postNative({ type: 'inputBlur' }); }, clear() { focused = null; for (const entry of entries.values()) entry.field.value = ''; }, focused: () => focused };
+      return {trackLayout};
     })();
 
-    const agentExperience = window.MarkdownItAgent.create({
-      ensureConfigured: ensureNativeAgentConfigured,
-      onCheckpoint: scheduleRecovery,
-      onLifecycle(event, count) { postNative({ type: 'agentLifecycle', token: nativeToken, event, count }); },
-      provider: createNativeAgentTransport(), nativeInputs,
-      app, panel: agent, renderMarkdown: renderRichMarkdown, fragmentIdentifier,
-      enhance: enhanceDocument, motion, reducedMotion,
-      onPresentationChange(value) { postNative({ type: 'agentPresentation', token: nativeToken, ...value }); },
-      onToggle(shown) {
-        setPanelOpen('agent', shown);
-      },
-      documentAttachment() {
-        const markdown = documentText;
-        return {
-          text: markdown, markdown, images: documentImageReferences(), mode: displayedMode, scope: 'document',
-          location: t('Current document · {name}', { name: nativeDocumentName }), documentName: nativeDocumentName
-        };
-      }
-    });
     updateDocument();
     function render() {
       scheduleRecovery();
       const hasOutline = headings.length > 0;
-      const previousRect = agent.hidden ? null : agent.getBoundingClientRect();
-      const presentation = resolvePanelLayout();
       window.webkit?.messageHandlers.reader.postMessage({type:'state', token:nativeToken, mode:state.mode, outline:state.outline && hasOutline, hasOutline});
       const outlineWasExpanded = outline.dataset.expanded === 'true';
       app.classList.toggle('mdv-showing-source', displayedMode === 'source');
       reader.hidden = displayedMode !== 'preview';
       source.hidden = displayedMode !== 'source';
-      agentExperience.present(state.agent, { ...presentation, previousRect });
-      workspace.classList.toggle('mdv-has-agent', state.agent);
       const showOutline = hasOutline && state.outline && displayedMode === 'preview';
       outline.hidden = !hasOutline || displayedMode !== 'preview';
       outline.dataset.expanded = String(showOutline);
@@ -1066,7 +585,7 @@
       readingLayout.classList.toggle('mdv-with-outline', showOutline);
       if (!showOutline) stopOutlineFollow();
       if (showOutline && !outlineWasExpanded) keepCurrentHeadingVisible();
-      nativeInputs.trackLayout();
+      sourceProjection.trackLayout();
       annotations.scheduleLayout();
     }
     function switchMode(nextMode) {
@@ -1376,7 +895,7 @@
         const offsets = [0];
         documentText.split('\n').forEach(line => offsets.push(offsets.at(-1) + line.length + 1));
         const environment = {};
-        const tokens = markdownRenderer.parse(documentText, environment);
+        const tokens = rendering.parse(documentText, environment);
         markdown = sourceQuote(markdown, start, end, tokens, offsets);
         const documentImages = documentImageReferences();
         const images = imageReferences(markdown, { references: environment.references })
@@ -1410,9 +929,8 @@
     document.addEventListener('selectionchange', readSelection);
     document.addEventListener('pointerdown', event => {
       if (event.button !== 0 || event.ctrlKey) return;
-      if (state.outline && panelLayout.overlay && !outline.contains(event.target)) {
-        state.outline = false;
-        render();
+      if (state.outline && panelLayout?.overlay && !outline.contains(event.target)) {
+        setPanelOpen('outline', false);
       }
     });
 
@@ -1430,8 +948,9 @@
       const targetLink = event.target.closest('[data-toc-target]');
       if (targetLink && app.contains(targetLink)) {
         event.preventDefault();
+        pinnedAnchor = null; lastPosition = null;
         outlineFollowPaused = false;
-        if (panelLayout.overlay) state.outline = false;
+        if (panelLayout?.overlay) setPanelOpen('outline',false);
         render();
         markHeading(targetLink.dataset.tocTarget);
         keepCurrentHeadingVisible();
@@ -1453,18 +972,18 @@
       render();
 
     });
-    state.outline = !resolvePanelLayout().overlay;
     render();
     layoutReadingAnchor = captureReadingPosition();
     const panelSizeObserver = new ResizeObserver(() => {
-      if (panelLayout && Math.abs(app.clientWidth - panelLayout.width) < .5) return;
+      if (!app.dataset.ready) { if(pinnedAnchor)restoreReadingPosition(pinnedAnchor); return; }
+      if (panelLayout && Math.abs(app.clientWidth - panelLayout.viewportWidth) < .5) return;
       pinnedAnchor = displayedMode === 'preview' ? pinnedAnchor || layoutReadingAnchor || captureReadingPosition() : null;
       render();
       if (pinnedAnchor) restoreReadingPosition(pinnedAnchor);
     });
     panelSizeObserver.observe(app);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { documentReady = enhanceDocument(); });
-    requestAnimationFrame(() => { app.dataset.ready = 'true'; postNative({type:'ready'}); });
+    requestAnimationFrame(() => postNative({type:'ready'}));
     window.lucide.createIcons();
     let scrollQueued = false;
     function updateReadingHeading() {

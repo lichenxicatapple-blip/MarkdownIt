@@ -1,7 +1,6 @@
 import UIKit
-import WebKit
 
-/// UIKit owns editable text and physical keys; the shared surface owns composer layout.
+/// One native draft input. TextKit owns measurement; its panel owns placement.
 @MainActor
 final class NativeComposerHost: NSObject, UITextViewDelegate {
     struct Recovery: Codable, Sendable {
@@ -10,205 +9,160 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
         let focused: Bool
         let epoch: Int
     }
+    let view = ConversationTextView()
     var onCheckpoint: (() -> Void)?
+    var onInteraction: (() -> Void)?
+    var onSizeChange: (() -> Void)?
+    var call: (@MainActor (String, [String: Any]) async -> Void)?
+    var horizontalInset = ReaderDesign.agentInset - ReaderDesign.composerMargin - 1 {
+        didSet {
+            guard horizontalInset != oldValue else { return }
+            view.textContainerInset.left = horizontalInset
+            view.textContainerInset.right = horizontalInset
+            onSizeChange?()
+        }
+    }
+    private var epoch = 0
+    private var pendingFocus = false
+    private var resolvingFocus = false
+
+    override init() {
+        super.init()
+        view.isHidden = true
+        view.backgroundColor = .clear
+        view.textColor = .label
+        view.tintColor = ReaderDesign.agentAccent
+        view.returnKeyType = .default
+        view.contentInsetAdjustmentBehavior = .never
+        view.textContainer.lineFragmentPadding = 0
+        view.delegate = self
+        view.accessibilityLabel = String(localized: "AI message")
+        view.accessibilityIdentifier = "QuestionInput"
+        view.onSubmit = { [weak self] _ in self?.submit("question") }
+        view.onFocusReadinessChange = { [weak self] in self?.resolvePendingFocus() }
+        updateTypography()
+    }
+
+    func updateTypography() {
+        guard view.markedTextRange == nil else { return }
+        let size = UIFontMetrics(forTextStyle: .body).scaledValue(for: 16, compatibleWith: view.traitCollection)
+        let font = UIFont.systemFont(ofSize: size)
+        let leading = max(0, size * 1.65 - font.lineHeight)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = leading
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font, .paragraphStyle: paragraph, .foregroundColor: UIColor.label,
+        ]
+        view.font = font
+        view.typingAttributes = attributes
+        let inset = horizontalInset
+        view.textContainerInset = UIEdgeInsets(
+            top: 12 + leading / 2, left: inset, bottom: 12 + leading / 2, right: inset)
+        if !view.text.isEmpty {
+            view.textStorage.addAttributes(attributes, range: NSRange(location: 0, length: view.text.utf16.count))
+        }
+        onSizeChange?()
+    }
+
+    func height(for width: CGFloat, maximum: CGFloat) -> CGFloat {
+        min(
+            maximum,
+            max(
+                ReaderDesign.agentInputMinimum,
+                ceil(view.sizeThatFits(CGSize(width: max(1, width), height: .greatestFiniteMagnitude)).height)))
+    }
+
+    func setVisible(_ visible: Bool) {
+        if !visible { blur() }
+        view.isHidden = !visible
+        resolvePendingFocus()
+    }
+
     func checkpoint() -> Recovery? {
-        guard let view = inputs["question"]?.view else { return nil }
-        return Recovery(
-            text: view.text ?? "", selection: view.selectedRange,
-            focused: view.isFirstResponder || pendingFocus == "question",
-            epoch: inputs["question"]?.epoch ?? 0)
+        Recovery(
+            text: view.text ?? "", selection: view.selectedRange, focused: view.isFirstResponder || pendingFocus,
+            epoch: epoch)
     }
     func restore(_ value: Recovery) {
-        guard let view = inputs["question"]?.view else { return }
-        view.selectedRange = NSRange(
-            location: min(max(0, value.selection.location), view.text.utf16.count),
-            length: min(
-                max(0, value.selection.length), max(0, view.text.utf16.count - max(0, value.selection.location))))
+        let count = view.text.utf16.count
+        let location = min(max(0, value.selection.location), count)
+        view.selectedRange = NSRange(location: location, length: min(max(0, value.selection.length), count - location))
         if value.focused { focus("question") }
     }
-    /// Mirror the draft for recovery without ending an active IME composition.
     func synchronize() async {
-        guard let input = inputs["question"] else { return }
-        await call?("updateAgentInput", ["id": "question", "text": input.view.text ?? "", "epoch": input.epoch])
+        await call?("updateAgentInput", ["id": "question", "text": view.text ?? "", "epoch": epoch])
     }
-
-    /// Input epochs belong to one Web page. Cached recovery data is retained by
-    /// the session before a reload; the new page starts its counters at zero.
     func beginPage() {
         blur()
-        for id in inputs.keys {
-            inputs[id]?.epoch = 0
-            inputs[id]?.metrics = []
-            inputs[id]?.layoutWidth = 0
-            inputs[id]?.measurementKey = ""
-            inputs[id]?.measurement = nil
-            inputs[id]?.view.text = ""
-            inputs[id]?.view.isHidden = true
-        }
+        epoch = 0
+        view.text = ""
+        view.isHidden = true
+        onSizeChange?()
     }
-    private struct Input {
-        let view: ConversationTextView
-        var epoch = 0
-        var metrics: [Double] = []
-        var layoutWidth: CGFloat = 0
-        var measurementKey = ""
-        var measurement: Measurement?
-    }
-    private struct Measurement: Equatable {
-        let text: String
-        let epoch: Int
-        let key: String
-        let height: CGFloat
-    }
-    private var inputs: [String: Input] = [:]
-    private weak var webView: WKWebView?
-    private var pendingFocus: String?
-    private var resolvingFocus = false
-    var call: (@MainActor (String, [String: Any]) async -> Void)?
-
-    init(webView: WKWebView) {
-        self.webView = webView
-        super.init()
-        for id in ["question"] {
-            let view = ConversationTextView()
-            view.isHidden = true
-            view.backgroundColor = .clear
-            view.textColor = .label
-            view.tintColor = .tintColor
-            view.returnKeyType = .default
-            view.contentInsetAdjustmentBehavior = .never
-            view.textContainer.lineFragmentPadding = 0
-            view.delegate = self
-            view.accessibilityLabel = String(localized: "AI message")
-            view.accessibilityIdentifier = "QuestionInput"
-            view.onSubmit = { [weak self] _ in self?.submit(id) }
-            view.onFocusReadinessChange = { [weak self] in self?.resolvePendingFocus() }
-            inputs[id] = Input(view: view)
-        }
-    }
-
-    func updateLayout(_ states: [[String: Any]]) {
-        for state in states {
-            guard let id = state["id"] as? String, var input = inputs[id] else { continue }
-            let visible = state["visible"] as? Bool == true
-            let view = input.view
-            guard let webView, let host = webView.hostNativeView(view, aboveWebContent: true) else { continue }
-            if !visible && view.isFirstResponder { _ = view.resignFirstResponder() }
-            view.isHidden = !visible
-            view.alpha = state["opacity"] as? Double ?? 1
-            let frame = CGRect(
-                x: state["x"] as? Double ?? 0, y: state["y"] as? Double ?? 0,
-                width: state["width"] as? Double ?? 0, height: state["height"] as? Double ?? 0)
-            view.frame = webView.convert(frame, to: host)
-            let metrics = ["fontSize", "lineHeight", "top", "right", "bottom", "left"].map { state[$0] as? Double ?? 0 }
-            input.layoutWidth = state["layoutWidth"] as? Double ?? frame.width
-            input.measurementKey = state["measurementKey"] as? String ?? ""
-            if input.metrics != metrics && view.markedTextRange == nil {
-                input.metrics = metrics
-                let font = UIFont.systemFont(ofSize: max(12, metrics[0]))
-                // Keep native glyph/caret metrics; distribute CSS half-leading at the container edges.
-                let leading = max(0, metrics[1] - font.lineHeight)
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.lineSpacing = leading
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: font, .paragraphStyle: paragraph, .foregroundColor: UIColor.label,
-                ]
-                view.font = font
-                view.typingAttributes = attributes
-                view.textContainerInset = UIEdgeInsets(
-                    top: metrics[2] + leading / 2, left: metrics[5], bottom: metrics[4] + leading / 2,
-                    right: metrics[3])
-                if !view.text.isEmpty {
-                    view.textStorage.addAttributes(
-                        attributes, range: NSRange(location: 0, length: view.text.utf16.count))
-                }
-            }
-            inputs[id] = input
-            publish(id, includingText: false)
-            if visible { host.bringSubviewToFront(view) }
-        }
-        resolvePendingFocus()
-    }
-
     func setText(id: String, text: String, epoch: Int) {
-        guard var input = inputs[id], epoch >= input.epoch else { return }
-        input.epoch = epoch
-        input.view.text = text
-        input.view.selectedRange = NSRange(location: text.utf16.count, length: 0)
-        inputs[id] = input
-        publish(id, includingText: false)
+        guard id == "question", epoch >= self.epoch else { return }
+        self.epoch = epoch
+        // A matching draft update must not replace an active IME composition.
+        if view.text != text {
+            view.text = text
+            view.selectedRange = NSRange(location: text.utf16.count, length: 0)
+        }
+        onSizeChange?()
     }
-
     func focus(_ id: String) {
-        guard inputs[id] != nil else { return }
-        pendingFocus = id
+        guard id == "question" else { return }
+        pendingFocus = true
         resolvePendingFocus()
     }
-
     private func resolvePendingFocus() {
-        guard !resolvingFocus, let id = pendingFocus, let view = inputs[id]?.view,
-            !view.isHidden, !view.bounds.isEmpty, let window = view.window, !window.isHidden
+        guard !resolvingFocus, pendingFocus, !view.isHidden, !view.bounds.isEmpty,
+            let window = view.window, !window.isHidden, !view.ancestorsHidden
         else { return }
         resolvingFocus = true
         defer { resolvingFocus = false }
-        if view.becomeFirstResponder() { pendingFocus = nil }
+        if view.becomeFirstResponder() { pendingFocus = false }
     }
-
     func blur() {
-        pendingFocus = nil
-        for input in inputs.values { _ = input.view.resignFirstResponder() }
+        pendingFocus = false
+        _ = view.resignFirstResponder()
     }
-
     func submit(_ id: String) {
-        guard let input = inputs[id] else { return }
-        input.view.unmarkText()
-        let payload: [String: Any] = ["id": id, "text": input.view.text ?? "", "epoch": input.epoch]
+        guard id == "question" else { return }
+        view.unmarkText()
+        let payload: [String: Any] = ["id": id, "text": view.text ?? "", "epoch": epoch]
         Task { await call?("commitAgentInput", payload) }
     }
-
     func textViewDidBeginEditing(_ textView: UITextView) {
-        Task { await call?("agentInteraction", [:]) }
+        onInteraction?()
+        onSizeChange?()
     }
-
     func textViewDidChange(_ textView: UITextView) {
-        guard let id = inputs.first(where: { $0.value.view === textView })?.key else { return }
-        publish(id, includingText: true)
-    }
-
-    /// TextKit measures the same text, font and wrapping that the user sees.
-    /// Web owns the capsule's min/max height and rejects obsolete measurements.
-    private func publish(_ id: String, includingText: Bool) {
-        guard var input = inputs[id], input.layoutWidth > 0 else { return }
-        let height = ceil(
-            input.view.sizeThatFits(
-                CGSize(width: input.layoutWidth, height: .greatestFiniteMagnitude)
-            ).height)
-        let measurement = Measurement(
-            text: input.view.text ?? "", epoch: input.epoch, key: input.measurementKey, height: height)
-        guard includingText || input.measurement != measurement else { return }
-        input.measurement = measurement
-        inputs[id] = input
-        let payload: [String: Any] = [
-            "id": id, "text": measurement.text, "epoch": measurement.epoch,
-            "measurementKey": measurement.key, "height": height,
-        ]
+        onInteraction?()
+        onSizeChange?()
         Task {
-            await call?(includingText ? "updateAgentInput" : "resizeAgentInput", payload)
-            if includingText { onCheckpoint?() }
+            await synchronize()
+            onCheckpoint?()
         }
     }
-
     func textViewDidChangeSelection(_ textView: UITextView) { onCheckpoint?() }
-
     func detach() {
         blur()
-        for input in inputs.values {
-            input.view.onFocusReadinessChange = nil
-            input.view.removeFromSuperview()
-            input.view.delegate = nil
-            input.view.onSubmit = nil
-        }
-        inputs.removeAll()
+        view.onFocusReadinessChange = nil
+        view.delegate = nil
+        view.onSubmit = nil
+        view.removeFromSuperview()
         call = nil
+        onSizeChange = nil
+    }
+}
+
+extension UIView {
+    fileprivate var ancestorsHidden: Bool {
+        var ancestor = superview
+        while let view = ancestor {
+            if view.isHidden || view.alpha <= 0.01 { return true }
+            ancestor = view.superview
+        }
+        return false
     }
 }

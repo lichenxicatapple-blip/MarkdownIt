@@ -9,7 +9,14 @@ final class WebSearchAuthorization: ObservableObject {
     }
 
     @Published private(set) var request: Request?
-    @Published var isPresented = false
+    @Published private var presented = false
+    var isPresented: Bool {
+        get { presented }
+        set {
+            guard presented != newValue else { return }
+            presented = newValue
+        }
+    }
     private let consent: WebSearchConsent
     private var continuation: CheckedContinuation<Bool, Never>?
     private var isCurrent: (@MainActor () -> Bool)?

@@ -174,12 +174,15 @@
         "Both header controls use compact SF Symbols and 44pt hit targets; a smaller circular system glass surface appears only during hover, press or keyboard focus.",
         "The side-panel collapse control shares the document close control's horizontal centerline and hit-target size; panel top and bottom margins may differ.",
         "Outline and conversation are mutually exclusive when three readable columns do not fit; narrowing retains the last actively used panel and widening does not reopen either.",
-        "The complete panel clears local native input toolbars while the document and outline retain full height; input spacing stays inside the panel, with interruptible motion and Reduce Motion support."
+        "The complete panel clears local native input toolbars while the document and outline retain full height; input spacing stays inside the panel, with interruptible motion and Reduce Motion support.",
+        "One native panel owns its shell, header, composer, keyboard avoidance and presentation motion; document scrolling never projects coordinates into panel controls."
       ],
       "specification": "design/README.md#ai-对话",
       "nativeOwners": [
+        "MarkdownIt/Reader/ReaderWorkspace.swift",
         "MarkdownIt/Reader/ReaderViewport.swift",
-        "MarkdownIt/AI/ConversationControlsHost.swift"
+        "MarkdownIt/AI/ConversationPanel.swift",
+        "MarkdownIt/AI/ConversationControlButton.swift"
       ]
     },
     {
@@ -205,12 +208,12 @@
       "id": "ConversationComposer",
       "nativeOwners": [
         "MarkdownIt/AI/NativeComposerHost.swift",
-        "MarkdownIt/AI/ConversationInput.swift"
+        "MarkdownIt/AI/ConversationInput.swift",
+        "MarkdownIt/AI/ConversationPanel.swift"
       ],
       "webOwners": [
-        "MarkdownIt/WebSource/native-agent.js",
-        "MarkdownIt/WebSource/agent/agent.js",
-        "MarkdownIt/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/agent/native.js",
+        "MarkdownIt/WebSource/agent/agent.js"
       ],
       "selector": ".mdv-composer",
       "owns": [
@@ -218,9 +221,9 @@
       ],
       "invariants": [
         "One draft and its next-turn reference share the native input bridge.",
-        "The reference sits above one input capsule; native text and the Web send button have separate hit regions within it.",
+        "The reference sits above one input capsule; native text and the native send button have separate hit regions within it.",
         "Long drafts scroll within the native input after reaching a viewport-relative height limit, preserving readable conversation space.",
-        "TextKit measures natural input height; Web constrains it to the available viewport. Measurements are accepted only for the matching draft epoch, text and layout parameters."
+        "TextKit measures natural input height at the panel width; the native panel constrains it to available space. Draft epochs reject obsolete text updates without replacing IME composition."
       ],
       "specification": "design/README.md#引用与输入"
     },
@@ -290,6 +293,7 @@
     {
       "id": "RichText",
       "webOwners": [
+        "MarkdownIt/WebSource/rich-text.js",
         "MarkdownIt/WebSource/reader.js",
         "MarkdownIt/WebSource/agent/agent.js"
       ],

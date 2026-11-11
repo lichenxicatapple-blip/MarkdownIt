@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 @testable import MarkdownIt
@@ -413,16 +414,27 @@ final class WebSearchTests: AgentReaderTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         let authorization = WebSearchAuthorization(defaults: defaults)
+        var updates = 0
+        let observation = authorization.objectWillChange.sink { updates += 1 }
+        defer { observation.cancel() }
         let task = Task { await authorization.authorize(provider: .serper) { true } }
         try await wait { authorization.request != nil }
         let id = try XCTUnwrap(authorization.request?.id)
+        let beforeDismissal = updates
         authorization.isPresented = false
+        XCTAssertEqual(updates, beforeDismissal + 1)
+        let afterDismissal = updates
+        authorization.isPresented = false
+        XCTAssertEqual(updates, afterDismissal, "Repeated system dismissal must not publish another view update")
         XCTAssertNotNil(
             authorization.request, "The system dismisses presentation before delivering the selected action")
         authorization.finish(allowed: true, id: id)
         let allowed = await task.value
         XCTAssertTrue(allowed)
         XCTAssertNil(authorization.request)
+        let afterDecision = updates
+        authorization.isPresented = false
+        XCTAssertEqual(updates, afterDecision, "Dialog cleanup must not publish after the decision is resolved")
     }
 
 }

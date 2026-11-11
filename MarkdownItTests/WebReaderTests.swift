@@ -93,7 +93,10 @@ final class WebReaderTests: XCTestCase {
                     """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         window.makeKeyAndVisible()
         bridge.webView.frame = controller.view.bounds
-        controller.view.addSubview(bridge.webView)
+        let readerContainer = ReaderContainer(webView: bridge.webView)
+        readerContainer.frame = bridge.webView.frame
+        readerContainer.autoresizingMask = bridge.webView.autoresizingMask
+        controller.view.addSubview(readerContainer)
         try await waitUntil { bridge.ready && session.rendererReady }
         if try await diagnostics(bridge)["outline"] as? Bool != true { _ = try await bridge.call("toggleOutline") }
         return (session, bridge, root)
@@ -486,7 +489,11 @@ final class WebReaderTests: XCTestCase {
         ) { layoutFits() && controlsFit() && container.keyboardLayoutGuide.layoutFrame.height > 0 }
         editor.selectedRange = NSRange(location: editor.text.utf16.count, length: 0)
         editor.insertText("Last edited line.")
-        try await waitUntil(timeout: 8) {
+        try await waitUntil(
+            timeout: 8,
+            message:
+                "Source \(editor.convert(editor.bounds, to: window)), caret \(editor.selectedTextRange.map { editor.convert(editor.caretRect(for: $0.end), to: window) } ?? .null), keyboard guide \(container.keyboardLayoutGuide.layoutFrame), offset \(editor.contentOffset), selection \(editor.selectedRange), first responder \(editor.isFirstResponder)"
+        ) {
             guard let selection = editor.selectedTextRange else { return false }
             let caret = editor.convert(editor.caretRect(for: selection.end), to: window)
             let source = editor.convert(editor.bounds, to: window)
@@ -518,7 +525,10 @@ final class WebReaderTests: XCTestCase {
         let controller = UIViewController()
         window.rootViewController = controller
         window.makeKeyAndVisible()
-        controller.view.addSubview(bridge.webView)
+        let readerContainer = ReaderContainer(webView: bridge.webView)
+        readerContainer.frame = bridge.webView.frame
+        readerContainer.autoresizingMask = bridge.webView.autoresizingMask
+        controller.view.addSubview(readerContainer)
         defer {
             bridge.detach()
             window.isHidden = true
@@ -528,7 +538,7 @@ final class WebReaderTests: XCTestCase {
         for size in [
             CGSize(width: 1024, height: 1366), CGSize(width: 1024, height: 430), CGSize(width: 390, height: 844),
         ] {
-            bridge.webView.frame = CGRect(origin: .zero, size: size)
+            readerContainer.frame = CGRect(origin: .zero, size: size)
             try await waitUntil { bridge.ready && session.rendererReady }
             try await waitUntil {
                 let viewport = try await bridge.webView.evaluateJavaScript("[innerWidth, innerHeight]") as? [Double]
@@ -603,7 +613,10 @@ final class WebReaderTests: XCTestCase {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         bridge.webView.frame = controller.view.bounds
-        controller.view.addSubview(bridge.webView)
+        let readerContainer = ReaderContainer(webView: bridge.webView)
+        readerContainer.frame = bridge.webView.frame
+        readerContainer.autoresizingMask = bridge.webView.autoresizingMask
+        controller.view.addSubview(readerContainer)
         defer {
             bridge.detach()
             window.isHidden = true
@@ -1201,7 +1214,10 @@ final class WebReaderTests: XCTestCase {
         window.makeKeyAndVisible()
         bridge.webView.frame = controller.view.bounds
         bridge.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        controller.view.addSubview(bridge.webView)
+        let readerContainer = ReaderContainer(webView: bridge.webView)
+        readerContainer.frame = bridge.webView.frame
+        readerContainer.autoresizingMask = bridge.webView.autoresizingMask
+        controller.view.addSubview(readerContainer)
         defer {
             // End the fixture's input session before hiding its temporary window.
             window.endEditing(true)
@@ -1280,7 +1296,7 @@ final class WebReaderTests: XCTestCase {
         XCTAssertFalse((status["selectedText"] as? String ?? "").isEmpty)
         _ = try await bridge.call("askSelection")
         try await waitUntil { session.agentOpen }
-        let collapse = bridge.conversationControls.collapseButton
+        let collapse = bridge.conversationPanel.collapseButton
         try await waitUntil { !collapse.isHidden && collapse.bounds.width > 0 }
         XCTAssertEqual(collapse.bounds.size, CGSize(width: 44, height: 44))
         XCTAssertEqual(collapse.configuration?.image?.isSymbolImage, true)

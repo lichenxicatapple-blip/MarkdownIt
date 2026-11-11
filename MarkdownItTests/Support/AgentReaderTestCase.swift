@@ -105,7 +105,10 @@ class AgentReaderTestCase: XCTestCase {
         window.makeKeyAndVisible()
         bridge.webView.frame = controller.view.bounds
         bridge.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        controller.view.addSubview(bridge.webView)
+        let readerContainer = ReaderContainer(webView: bridge.webView)
+        readerContainer.frame = bridge.webView.frame
+        readerContainer.autoresizingMask = bridge.webView.autoresizingMask
+        controller.view.addSubview(readerContainer)
         // Hosted simulators can spend over 30 seconds launching a WebContent
         // process before this page runs. Keep that budget separate from actions.
         try await wait(timeout: 60) {
@@ -127,7 +130,7 @@ class AgentReaderTestCase: XCTestCase {
             let status = try await self.state(bridge)
             return status["open"] as? Bool == true
         }
-        _ = try await bridge.webView.callAsyncJavaScript(
+        _ = try await bridge.conversationWebView.callAsyncJavaScript(
             "const field = document.querySelector(selector); field.value = text; field.dispatchEvent(new Event('input',{bubbles:true})); field.form.requestSubmit();",
             arguments: ["text": text, "selector": ".mdv-composer textarea"],
             in: nil, contentWorld: .page)

@@ -59,17 +59,22 @@ final class LocalizationTests: XCTestCase {
             await session.grant(root)
             await session.open(file)
             let bridge = ReaderBridge(session: session)
-            bridge.webView.configuration.userContentController.addUserScript(
-                WKUserScript(
-                    source: "window.MarkdownItLanguages = ['\(preferred)'];",
-                    injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            for surface in [bridge.webView, bridge.conversationWebView] {
+                surface.configuration.userContentController.addUserScript(
+                    WKUserScript(
+                        source: "window.MarkdownItLanguages = ['\(preferred)'];",
+                        injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
             let window = UIWindow(windowScene: scene)
             let controller = UIViewController()
             window.rootViewController = controller
             window.makeKeyAndVisible()
             bridge.webView.frame = CGRect(x: 0, y: 0, width: 1024, height: 900)
-            controller.view.addSubview(bridge.webView)
+            let readerContainer = ReaderContainer(webView: bridge.webView)
+            readerContainer.frame = bridge.webView.frame
+            readerContainer.autoresizingMask = bridge.webView.autoresizingMask
+            controller.view.addSubview(readerContainer)
             defer {
                 bridge.detach()
                 window.isHidden = true
@@ -85,7 +90,7 @@ final class LocalizationTests: XCTestCase {
                   const { t, formatSeconds } = window.MarkdownItLocalization;
                   return { language: document.documentElement.lang,
                     contents: document.querySelector('.mdv-outline').getAttribute('aria-label'),
-                    send: document.querySelector('.mdv-agent-send').getAttribute('aria-label'),
+
                     retry: t('Retry in {duration}', { duration: formatSeconds(1) }),
                     author: document.querySelector('.mdv-article .author-text').textContent };
                 })()
@@ -96,7 +101,10 @@ final class LocalizationTests: XCTestCase {
             let nativeBundle = try localizedBundle(language)
             XCTAssertEqual(String(localized: "Markdown source", bundle: nativeBundle), source)
             XCTAssertEqual(bridge.sourceEditor.textView.accessibilityLabel, String(localized: "Markdown source"))
-            XCTAssertEqual(values["send"], send)
+            let webSend =
+                try await bridge.conversationWebView.evaluateJavaScript(
+                    "document.querySelector('.mdv-agent-send').getAttribute('aria-label')") as? String
+            XCTAssertEqual(webSend, send)
             // ICU versions may use either 秒 or 秒钟 for the long Chinese unit.
             XCTAssertNotNil(values["retry"]?.range(of: retry, options: .regularExpression))
             XCTAssertEqual(values["author"], "作者自己的文字")

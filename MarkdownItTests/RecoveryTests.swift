@@ -44,10 +44,10 @@ final class RecoveryTests: AgentReaderTestCase {
         let (session, bridge, _) = try await reader(original, store: store)
         _ = try await bridge.call("toggleAgent")
         try await wait {
-            bridge.webView.superview?.subviews.contains { $0 is ConversationTextView } == true
+            bridge.composer.view.window != nil
         }
         let input = try XCTUnwrap(
-            bridge.webView.superview?.subviews.compactMap { $0 as? ConversationTextView }.first)
+            bridge.composer.view)
         try await wait { input.isFirstResponder && !input.isHidden }
         for text in ["ni", "你好"] {
             input.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
@@ -146,7 +146,7 @@ final class RecoveryTests: AgentReaderTestCase {
         _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 230])
         _ = try await bridge.call("askSelection", arguments: ["payload": "A quoted paragraph."])
         try await wait { session.agentOpen }
-        _ = try await bridge.webView.evaluateJavaScript(
+        _ = try await bridge.conversationWebView.evaluateJavaScript(
             "document.querySelector('.mdv-composer textarea').value = 'Unsent draft 👩🏽‍💻';")
         try await wait { bridge.composer.checkpoint()?.text == "Unsent draft 👩🏽‍💻" }
         await session.checkpointForBackground()
@@ -159,6 +159,10 @@ final class RecoveryTests: AgentReaderTestCase {
         let next = await restored(ReaderRecoveryStore(directory: store.directory))
         let (nextBridge, _) = try await mountReader(next)
         try await wait { next.agentOpen && nextBridge.composer.checkpoint()?.text == "Unsent draft 👩🏽‍💻" }
+        let inert =
+            try await nextBridge.conversationWebView.evaluateJavaScript(
+                "document.querySelector('.mdv-agent').inert") as? Bool
+        XCTAssertEqual(inert, false, "Restoring an open panel must restore interaction and accessibility")
         let captured = try await nextBridge.call("captureRecovery")
         let value = try XCTUnwrap(captured as? [String: Any])
         let after = try XCTUnwrap(value["anchor"] as? [String: Any])
@@ -322,7 +326,7 @@ final class RecoveryTests: AgentReaderTestCase {
         let (session, bridge, _) = try await reader("# Reading\n\nContent.\n", store: store)
         _ = try await bridge.call("askSelection", arguments: ["payload": "Content."])
         try await wait { session.agentOpen }
-        _ = try await bridge.webView.evaluateJavaScript(
+        _ = try await bridge.conversationWebView.evaluateJavaScript(
             "const field = document.querySelector('.mdv-composer textarea'); for (let i = 0; i < 5; ++i) field.value = 'Draft ' + i; field.value = 'Keep this draft';"
         )
         try await wait { bridge.composer.checkpoint()?.text == "Keep this draft" }
@@ -475,6 +479,10 @@ extension RecoveryTests {
         XCTAssertEqual(loaded?.annotationDraft?.text, "ni")
         XCTAssertTrue(session.annotations.visible.isEmpty)
         bridge.detach()
+        await session.checkpointRecovery(includeWeb: false)
+        let detached = try await store.load()
+        let detachedDraft = try XCTUnwrap(detached?.annotationDraft)
+        XCTAssertEqual(detachedDraft.text, "ni", "A pending checkpoint must retain the draft captured at detach")
         _ = await session.document?.closeSavingChanges()
         let next = await restored(ReaderRecoveryStore(directory: store.directory))
         let (nextBridge, _) = try await mountReader(next)

@@ -66,6 +66,23 @@ def reader_design(spec):
         "homeGroupGap": "space.homeGroupGap",
         "homeActionGap": "space.homeActionGap",
         "homeDocumentGap": "space.homeDocumentGap",
+        "compactWindow": "size.compactWindow",
+        "documentMinimumWidth": "size.documentMinimumWidth",
+        "agentMinimumWidth": "size.agentMinimumWidth",
+        "agentWidth": "size.agentWidth",
+        "agentWidthFraction": "ratio.agentWidth",
+        "agentSheetFraction": "ratio.agentSheetHeight",
+        "agentRadius": "size.agentRadius",
+        "agentSheetRadius": "size.agentSheetRadius",
+        "agentInputMinimum": "size.agentInputMinimum",
+        "agentInputMaximum": "size.agentInputMaximum",
+        "agentInputHeightFraction": "ratio.agentInputHeight",
+        "outlineWidth": "size.outlineOpen",
+        "agentEdgeInset": "space.agentEdgeInset",
+        "agentInset": "space.agentInset",
+        "agentCompactInset": "space.agentCompactInset",
+        "agentControlInset": "space.agentControlInset",
+        "composerMargin": "space.composerMargin",
         "agentControlIcon": "size.agentControlIcon",
         "agentControlSurface": "size.agentControlSurface",
         "recentsWidth": "size.recentsWidth",
@@ -76,11 +93,15 @@ def reader_design(spec):
         for name, key in names.items()
     ]
     for key, token in spec["tokens"].items():
-        if not key.startswith("color.annotation"):
+        if not (
+            key.startswith("color.annotation")
+            or key.startswith("color.agent")
+            or key == "color.shadow"
+        ):
             continue
         colors = re.fullmatch(r"light-dark\((#[0-9a-fA-F]+), (#[0-9a-fA-F]+)\)", token["value"])
         if not colors:
-            raise ValueError(f"Invalid native annotation palette: {key}")
+            raise ValueError(f"Invalid native palette: {key}")
 
         def native_color(value):
             value = value.removeprefix("#")
@@ -374,11 +395,17 @@ def generate(destination):
         + "\n</style>",
         "agent-markup": (SOURCE / "agent/panel.html").read_text(),
     }
-    html = (SOURCE / "reader.html").read_text()
-    for marker, value in bindings.items():
-        html = replace_once(html, f"<!-- {marker} -->", value)
+
+    def page(source):
+        html = source.read_text()
+        for marker, value in bindings.items():
+            if f"<!-- {marker} -->" in html:
+                html = replace_once(html, f"<!-- {marker} -->", value)
+        return html
+
+    html = page(SOURCE / "reader.html")
     runtime = (SOURCE / "reader.js").read_text()
-    for module in ["native-bridge", "native-agent"]:
+    for module in ["native-bridge", "native-source"]:
         runtime = replace_once(
             runtime, f"    /* {module} */", (SOURCE / f"{module}.js").read_text()
         )
@@ -388,6 +415,15 @@ def generate(destination):
     privacy_content(destination / "Privacy")
     (package / "index.html").write_text(html)
     (package / "reader.js").write_text(runtime)
+    (package / "conversation.html").write_text(page(SOURCE / "agent/surface.html"))
+    (package / "conversation.js").write_text(
+        replace_once(
+            (SOURCE / "agent/surface.js").read_text(),
+            "  /* native-agent */",
+            (SOURCE / "agent/native.js").read_text(),
+        )
+    )
+    shutil.copy2(SOURCE / "rich-text.js", package / "rich-text.js")
     localization = replace_once(
         (SOURCE / "localization.js").read_text(),
         "/* localization-data */ {}",

@@ -54,8 +54,6 @@
   --mdv-composer-margin: 12px;
   --mdv-reference-height: 260px;
   --mdv-reference-leading: 20px;
-  --mdv-agent-sheet-height: 78dvh;
-  --mdv-agent-input-max-height: min(160px, 30dvh);
   --mdv-agent-text-size: 15px;
   --mdv-agent-leading: 1.8;
   --mdv-agent-paper: light-dark(#fafcff, #111925);
@@ -111,6 +109,14 @@
   --mdv-pencil-vertical-escape: 0.5;
   --mdv-pencil-start-above: 0.2;
   --mdv-pencil-start-below: 0.55;
+  --mdv-agent-sheet-height-ratio: 0.78;
+  --mdv-agent-radius: 24px;
+  --mdv-compact-window: 560px;
+  --mdv-agent-sheet-radius: 20px;
+  --mdv-agent-input-minimum: 52px;
+  --mdv-agent-input-maximum: 160px;
+  --mdv-agent-input-height-ratio: 0.3;
+  --mdv-agent-compact-inset: 20px;
   --mdv-duration-homeEntrance: 560ms;
   --mdv-ease-homeEntrance: ease-in-out;
   --mdv-duration-material: 160ms;
@@ -300,7 +306,6 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-outline-branch[data-expanded="false"] { grid-template-rows: 0fr; opacity: 0; }
 #mdv-reading-concept .mdv-outline-branch-clip { min-height: 0; overflow: hidden; }
 #mdv-reading-concept .mdv-workspace { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
-#mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1.4fr) minmax(230px, 1fr); }
 #mdv-reading-concept .mdv-reader { min-width: 0; padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
 #mdv-reading-concept .mdv-article { position: relative; padding: calc(var(--mdv-hit-target) + 32px) 36px 28px; font-size: var(--mdv-text-size); line-height: var(--mdv-text-leading); }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) h1 { font: 500 25px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; letter-spacing: -.5px; margin: 0 0 24px; color: var(--mdv-ink); }
@@ -352,8 +357,8 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-source-panel { flex: 1; min-height: 0; }
 @media (max-width: 560px) {
 #mdv-reading-concept .mdv-app { min-height: 700px; border-radius: 15px; }
-#mdv-reading-concept .mdv-article { padding-inline: 22px; padding-bottom: 24px; }
-#mdv-reading-concept .mdv-article h1 { font-size: 23px; }
+
+
 
 }
 @media (prefers-reduced-motion: reduce) {
@@ -372,43 +377,14 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-app[data-outline-layout="overlay"] .mdv-outline-inner { position: static; }
 
 
+#mdv-reading-concept .mdv-app[data-compact-window="true"] .mdv-article { padding-inline:22px; padding-bottom:24px; }
+
 </style>
 <style id="mdv-agent-styles">
 /* The conversation scopes its cool surfaces without changing document colors. */
 @property --mdv-reference-scroll-thumb { syntax: "<color>"; inherits: true; initial-value: transparent; }
-#mdv-reading-concept .mdv-app { --mdv-agent-content-inset: var(--mdv-agent-inset); --mdv-composer-text-inset: calc(var(--mdv-agent-content-inset) - var(--mdv-composer-margin) - 1px); }
-html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden; overscroll-behavior: none; scrollbar-gutter: auto; }
-#mdv-reading-concept .mdv-app button > svg { stroke-width: 1.75; }
-#mdv-reading-concept .mdv-agent {
-  --mdv-agent-safe-bottom: calc(var(--mdv-agent-edge-inset) + env(safe-area-inset-bottom, 0px));
-  --mdv-agent-bottom-inset: max(var(--mdv-agent-safe-bottom), var(--mdv-input-bottom-clearance, 0px), var(--mdv-agent-visual-bottom-inset, 0px));
-  --mdv-paper: var(--mdv-agent-paper);
-  --mdv-chrome: var(--mdv-agent-chrome);
-  --mdv-line: var(--mdv-agent-line);
-  --mdv-accent: var(--mdv-agent-accent);
-  position: fixed;
-  z-index: 12;
-  /* Include the panel border when aligning its control with native reader controls. */
-  inset: calc(var(--mdv-floating-inset) - var(--mdv-agent-control-inset) - 1px) var(--mdv-agent-edge-inset) var(--mdv-agent-bottom-inset) auto;
-  width: var(--mdv-agent-panel-width, var(--mdv-agent-width));
-  transition: width var(--mdv-duration-agentPanel) var(--mdv-ease-agentPanel), bottom var(--mdv-duration-inputAvoidance) var(--mdv-ease-inputAvoidance), max-height var(--mdv-duration-inputAvoidance) var(--mdv-ease-inputAvoidance);
-  min-width: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--mdv-line);
-  border-radius: 24px;
-  background: radial-gradient(ellipse at 100% 0, var(--mdv-agent-glow), transparent 55%), radial-gradient(ellipse at 0 100%, var(--mdv-agent-glow), transparent 45%), var(--mdv-paper);
-  box-shadow: 0 8px 28px var(--mdv-shadow);
-}
-#mdv-reading-concept .mdv-app[data-panels-coexist="false"] .mdv-reading-layout { transition-duration: var(--mdv-duration-agentPanel); transition-timing-function: var(--mdv-ease-agentPanel); }
-#mdv-reading-concept .mdv-workspace { grid-template-columns: minmax(0, 1fr) 0px; transition: grid-template-columns var(--mdv-duration-agentPanel) var(--mdv-ease-agentPanel); }
-#mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr) var(--mdv-agent-reserved-width); }
-#mdv-reading-concept .mdv-agent-open .mdv-article { padding-top: calc(var(--mdv-hit-target) + 32px); }
-#mdv-reading-concept .mdv-agent-grabber { display: none; }
-#mdv-reading-concept .mdv-agent-controls { display: flex; flex: 0 0 auto; justify-content: space-between; align-items: center; padding: var(--mdv-agent-control-inset) var(--mdv-agent-control-inset) 0; pointer-events: none; }
-#mdv-reading-concept .mdv-agent-control { display: block; width: var(--mdv-hit-target); height: var(--mdv-hit-target); }
+#mdv-reading-concept .mdv-app { --mdv-agent-content-inset: var(--mdv-agent-inset); --mdv-composer-text-inset: calc(var(--mdv-agent-content-inset) - var(--mdv-composer-margin)); }
+#mdv-reading-concept .mdv-agent { --mdv-paper:var(--mdv-agent-paper); --mdv-chrome:var(--mdv-agent-chrome); --mdv-line:var(--mdv-agent-line); --mdv-accent:var(--mdv-agent-accent); display:flex; flex-direction:column; height:100dvh; overflow:hidden; color:var(--mdv-ink); }
 #mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; padding: 0 var(--mdv-agent-content-inset); scrollbar-width: thin; }
 #mdv-reading-concept .mdv-agent-scroll { --mdv-scroll-top-alpha: #000; --mdv-scroll-bottom-alpha: #000; mask-image: linear-gradient(to bottom, var(--mdv-scroll-top-alpha), #000 var(--mdv-agent-scroll-edge), #000 calc(100% - var(--mdv-agent-scroll-edge)), var(--mdv-scroll-bottom-alpha)); }
 #mdv-reading-concept .mdv-agent-scroll[data-scrolled] { --mdv-scroll-top-alpha: transparent; }
@@ -438,16 +414,8 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-message-reference > .mdv-rich-text { padding-top: 10px; font-size: 13px; }
 #mdv-reading-concept .mdv-message-reference[open] > summary > svg { transform: rotate(90deg); }
 #mdv-reading-concept .mdv-message-reference > summary > svg { transition: transform var(--mdv-duration-reference) var(--mdv-ease-reference); }
-#mdv-reading-concept .mdv-composer { position: relative; display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; margin: 0 var(--mdv-composer-margin) var(--mdv-composer-margin); }
-#mdv-reading-concept .mdv-composer-input-row { display: flex; flex: 0 0 auto; align-items: flex-end; min-width: 0; border: 1px solid var(--mdv-line); border-radius: 27px; background: var(--mdv-agent-composer); box-shadow: 0 3px 14px var(--mdv-shadow); overflow: hidden; }
-#mdv-reading-concept .mdv-app .mdv-agent-input { display: block; flex: 1 1 0; min-width: 0; width: 0; min-height: 52px; max-height: var(--mdv-agent-input-max-height); border: 0; border-radius: 0; resize: none; outline-offset: -3px; padding: 12px var(--mdv-composer-text-inset); margin: 0; background: transparent; color: var(--mdv-ink); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
-#mdv-reading-concept .mdv-composer-input-row:has(.mdv-agent-input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--mdv-accent) 65%, transparent); outline-offset: 2px; }
-#mdv-reading-concept .mdv-agent-input:focus-visible { outline: none; }
-#mdv-reading-concept .mdv-composer-footer { position: relative; display: flex; flex: 0 0 auto; align-items: center; padding: 4px 4px 4px 0; }
-#mdv-reading-concept .mdv-app .mdv-agent-send { border-radius: 50%; background: var(--mdv-agent-send); color: var(--mdv-agent-send-ink); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 11px; }
-#mdv-reading-concept .mdv-app .mdv-agent-send:hover { background: color-mix(in srgb, var(--mdv-agent-send) 88%, var(--mdv-ink)); }
-#mdv-reading-concept .mdv-agent-send:disabled { opacity: .25; }
-#mdv-reading-concept .mdv-agent-send svg { width: 19px; height: 19px; }
+#mdv-reading-concept .mdv-composer { display:flex; flex-direction:column; flex:0 1 auto; min-height:0; margin:0 var(--mdv-composer-margin); }
+#mdv-reading-concept .mdv-composer-input-row { display:none; }
 #mdv-reading-concept .mdv-composer-reference { flex: 0 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; margin-bottom: 6px; }
 #mdv-reading-concept .mdv-reference-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--mdv-hit-target); align-items: start; padding: 4px 8px 4px var(--mdv-composer-text-inset); }
 #mdv-reading-concept .mdv-reference-body { --mdv-reference-scroll-thumb: transparent; max-height: 200px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--mdv-reference-scroll-thumb) transparent; transition: --mdv-reference-scroll-thumb var(--mdv-duration-material) var(--mdv-ease-material); }
@@ -482,7 +450,6 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text :is(h1,h2,h3,h4,h5,h6) { font-size: 14px; line-height: var(--mdv-reference-leading); }
 #mdv-reading-concept .mdv-reference-remove { color: var(--mdv-muted); }
 #mdv-reading-concept .mdv-reference-remove svg { --icon-size: 16px; width: 16px; height: 16px; }
-#mdv-reading-concept .mdv-agent-scrim { position: fixed; z-index: 11; inset: 0; background: color-mix(in srgb, var(--mdv-modal-scrim) 55%, transparent); }
 #mdv-reading-concept .mdv-agent-pending { display: flex; gap: var(--mdv-agent-dot-gap); align-items: center; min-height: 28px; color: var(--mdv-accent); }
 #mdv-reading-concept .mdv-agent-dot { width: var(--mdv-agent-dot-size); height: var(--mdv-agent-dot-size); border-radius: 50%; background: currentColor; opacity: .45; transform: scale(.94); animation: mdv-agent-bounce var(--mdv-duration-agentWaiting) var(--mdv-ease-agentWaiting) infinite; animation-delay: calc(var(--mdv-dot-index) * var(--mdv-agent-dot-stagger)); }
 #mdv-reading-concept .mdv-request-status:has(> .mdv-agent-pending) { min-height: 28px; pointer-events: none; }
@@ -510,21 +477,9 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
   48%, 100% { transform: translateY(0) scale(.94); opacity: .45; }
 }
 
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] { --mdv-agent-content-inset: 20px; }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr); }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent { --mdv-agent-safe-bottom: 0px; inset: auto 0 var(--mdv-agent-bottom-inset); width: 100%; height: var(--mdv-agent-sheet-height); max-height: min(calc(100dvh - 24px - var(--mdv-agent-bottom-inset)), var(--mdv-agent-viewport-height, 100dvh)); border: 0; border-top: 1px solid var(--mdv-line); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 40px var(--mdv-shadow); }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-grabber { display: grid; place-items: center; flex: 1; height: var(--mdv-hit-target); touch-action: none; pointer-events: auto; }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-agent-grabber span { width: 32px; height: 4px; background: var(--mdv-line); border-radius: 3px; }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-composer { margin-bottom: max(var(--mdv-composer-margin), calc(env(safe-area-inset-bottom, 0px) - var(--mdv-agent-bottom-inset))); }
-#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-user-turn { margin-left: 16px; }
-
-@media (prefers-reduced-motion: reduce) {
-#mdv-reading-concept .mdv-agent-dot { animation: none; }
-#mdv-reading-concept .mdv-reference-body { transition: none; }
-#mdv-reading-concept .mdv-agent { transition: none; }
-
-}
-
+#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] { --mdv-agent-content-inset:var(--mdv-agent-compact-inset); }
+#mdv-reading-concept .mdv-app[data-agent-layout="sheet"] .mdv-user-turn { margin-left:16px; }
+@media (prefers-reduced-motion: reduce) { #mdv-reading-concept .mdv-agent-dot {animation:none;} #mdv-reading-concept .mdv-reference-body {transition:none;} }
 
 </style>
 <template id="mdv-app-template">
@@ -540,27 +495,6 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
       </article>
       <div class="mdv-source-panel" aria-hidden="true" hidden></div>
     </main>
-<aside class="mdv-agent" data-component="QuestionPanel" aria-label="AI conversation" data-l10n-aria-label="AI conversation" hidden>
-  <div class="mdv-agent-controls" aria-hidden="true">
-    <span data-native-agent-control="clear" class="mdv-agent-control"></span>
-    <div class="mdv-agent-grabber"><span></span></div>
-    <span data-native-agent-control="collapse" class="mdv-agent-control"></span>
-  </div>
-  <div class="mdv-agent-scroll" role="region" aria-label="Conversation" data-l10n-aria-label="Conversation">
-    <div class="mdv-conversation" data-component="ConversationThread" aria-label="Conversation thread" data-l10n-aria-label="Conversation thread"></div>
-  </div>
-  <form class="mdv-composer" data-component="ConversationComposer">
-    <div class="mdv-composer-reference" data-component="ContextAttachment" role="group" aria-label="Reference" data-l10n-aria-label="Reference" hidden></div>
-    <label class="mdv-sr-only" for="mdv-question-input" data-l10n="Ask a question or follow up">Ask a question or follow up</label>
-    <div class="mdv-composer-input-row">
-      <textarea id="mdv-question-input" class="mdv-agent-input" aria-label="Ask a question or follow up" data-l10n-aria-label="Ask a question or follow up" rows="1" spellcheck="false" enterkeyhint="enter"></textarea>
-      <div class="mdv-composer-footer">
-        <button type="submit" class="mdv-agent-send cursor-interaction" aria-label="Send message" data-l10n-aria-label="Send message" disabled><i data-lucide="arrow-up" aria-hidden="true"></i></button>
-      </div>
-    </div>
-  </form>
-  <p class="mdv-agent-announcement mdv-sr-only" role="status" aria-live="polite"></p>
-</aside>
 
   </div>
   </div>
@@ -570,7 +504,7 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 <script src="annotations/waves.js"></script>
 <script src="annotations/annotations.js"></script>
 <script src="localization.js"></script>
-<script src="agent.js"></script>
+<script src="rich-text.js"></script>
 <style>
 html,
 body { margin: 0; padding: 0; width: 100%; min-height: 100%; color-scheme: light dark; -webkit-text-size-adjust: 100%; }

@@ -14,7 +14,7 @@ SwiftUI／UIKit 负责系统能力、源码编辑与输入，WKWebView 负责只
 | `Reader/` | 阅读界面、会话协调、视口、WebKit 桥接及共享控件 |
 | `Editor/` | 原生源码编辑与撤销历史 |
 | `Annotations/` | 阅读划线与批注的模型、持久化、原生卡片及 Pencil 手势 |
-| `AI/` | 上下文、提示词、图片、搜索、系统时间与编辑工具、模型协议、设置及原生对话输入 |
+| `AI/` | 上下文、提示词、图片、搜索、系统时间与编辑工具、模型协议、设置及原生对话面板 |
 | `Privacy/` | 原生隐私政策界面 |
 | `WebSource/` | 正文、目录与对话的 Web 呈现源文件 |
 | `Resources/` | 生成并打包的 Web、隐私政策及 Debug 样例资源 |
@@ -23,14 +23,20 @@ SwiftUI／UIKit 负责系统能力、源码编辑与输入，WKWebView 负责只
 flowchart LR
     UI[SwiftUI / UIKit] <--> Session[ReaderSession]
     Session <--> Bridge[ReaderBridge]
-    Bridge <--> Web[WKWebView]
-    Web --> Rendering[正文、目录与对话渲染]
+    Bridge <--> Workspace[ReaderWorkspace / ReaderViewport]
+    Workspace --> Web[正文 WebView]
+    Workspace --> Panel[ConversationPanel]
+    Panel --> Conversation[对话 WebView]
+    Panel --> Input[原生按钮与输入]
+    Web --> Rendering[共享富文本渲染]
+    Conversation --> Rendering
     Bridge <--> Editor[SourceEditor / TextKit 2]
     Editor --> History[SourceHistory / UndoManager]
     History --> Session
     Session --> Document[MarkdownDocument / UIDocument]
     Document <--> Files[Markdown 文件与授权资源]
     Web --> Resources[LocalResourceHandler]
+    Conversation --> Resources
     Resources --> Files
     Session --> Agent[AgentModelTransport]
     Agent --> Tools[AgentDocumentTools]
@@ -42,7 +48,7 @@ flowchart LR
 | 边界 | 主要实现 | 职责 |
 | --- | --- | --- |
 | 原生呈现与协调 | [ReaderScreen](../MarkdownIt/Reader/ReaderScreen.swift)、[ReaderSession](../MarkdownIt/Reader/ReaderSession.swift) | 入口、面板、当前文档、保存协调与文档身份 |
-| WebKit 桥接与输入 | [ReaderWebView](../MarkdownIt/Reader/ReaderWebView.swift)、[NativeComposerHost](../MarkdownIt/AI/NativeComposerHost.swift)、[ConversationInput](../MarkdownIt/AI/ConversationInput.swift) | 双向消息、系统选择菜单、原生输入及键盘事件 |
+| 阅读布局、桥接与输入 | [ReaderWorkspace](../MarkdownIt/Reader/ReaderWorkspace.swift)、[ReaderViewport](../MarkdownIt/Reader/ReaderViewport.swift)、[ReaderWebView](../MarkdownIt/Reader/ReaderWebView.swift)、[ConversationPanel](../MarkdownIt/AI/ConversationPanel.swift)、[NativeComposerHost](../MarkdownIt/AI/NativeComposerHost.swift)、[ConversationInput](../MarkdownIt/AI/ConversationInput.swift) | 空间分配、面板呈现、双向消息、系统选择菜单、原生输入及键盘事件 |
 | 源码编辑与历史 | [SourceEditor](../MarkdownIt/Editor/SourceEditor.swift)、[SourceHistory](../MarkdownIt/Editor/SourceHistory.swift) | 原生 TextKit 2 输入、工作文本、事务、选区与源码阅读位置 |
 | 阅读划线与批注 | [ReadingAnnotations](../MarkdownIt/Annotations/ReadingAnnotations.swift)、[ReadingAnnotationStore](../MarkdownIt/Annotations/ReadingAnnotationStore.swift)、[ReaderAnnotationHost](../MarkdownIt/Annotations/ReaderAnnotationHost.swift) | 关联范围、编辑变换、持久化与就地原生输入 |
 | 文档与授权 | [MarkdownDocument](../MarkdownIt/Documents/MarkdownDocument.swift)、[LocalResources](../MarkdownIt/Documents/LocalResources.swift)、[RecentDocuments](../MarkdownIt/Documents/RecentDocuments.swift) | 原位置读写、编码、受限资源访问、最近记录和书签 |
@@ -80,17 +86,17 @@ flowchart LR
 
 源码使用 `UITextView` 的 TextKit 2 与公开文本位置接口，字体、光标、选择和组合输入沿用 UIKit。`SourceUndoManager` 仅接受文档模型注册的事务，防止 UIKit 的自动注册形成第二份编辑历史；不修改系统光标几何或使用私有文本布局接口。
 
-源码和对话输入视图与 WebView 同属 `ReaderViewport`，不作为 WebView 的子视图，避免原生响应者进入 WebKit 的键盘处理层级。源码输入位于透明 Web 源码区域下方，对话输入位于 Web 上方。桥接将同一布局结果转换到原生宿主坐标，并仅将源码区域的可交互事件交给编辑器；Web 中的对话及遮罩正常合成在源码上方，模态期间原生源码退出触控和辅助功能焦点。
+`ReaderViewport` 承载正文 WebView、原生源码编辑器与完整的原生 AI 面板。`ReaderWorkspace` 统一决定正文、目录与 AI 面板的空间分配、互斥及侧边／底部呈现；Web 只接收布局结果，不维护另一份断点或宽度策略。正文和 AI 使用独立的 WebView，共用 `rich-text.js` 的 Markdown 解析、清理、数学与图表实现。正文的滚动和边界回弹只作用于正文，不参与 AI 控件定位。
 
-对话输入由 Web 布局胶囊容器、引用和发送按钮，`NativeComposerHost` 按 textarea 的实际区域定位原生文本视图。TextKit 根据实际文字、字体、内边距和未变换的排版宽度计算自然高度；Web 只负责上下限和容器布局。高度更新同时核对输入 epoch、文字及排版参数标识，防止旧宽度或旧草稿的测量覆盖当前布局。文本区域在发送按钮前结束，避免原生控件拦截 Web 按钮。等待与接收反馈由 Web 的活动请求状态驱动；正文增量直接进入排版，退场动画不延后内容，也不修改请求历史或草稿。
+`ConversationPanel` 统一管理面板背景、顶部操作、拖动指示条、富文本内容区域及原生输入胶囊。清空、收起和发送按钮使用原生控件；顶部操作复用 `ConversationControlButton` 的 SF Symbols 和系统玻璃反馈。控件都以面板为坐标系，不从网页逐帧回传控件位置。对话与引用由面板内部的 WebView 排版和滚动；网页只向原生层报告发送、生成及历史可用状态。
 
-AI 顶部操作行由 Web 保留布局位置，`ConversationControlsHost` 使用同一坐标投影消息定位原生按钮，不增加独立的布局监听或动画轮询。SF Symbols、触控、指针与聚焦反馈由 UIKit 管理；交互期间通过 `UIGlassEffect` 呈现系统材质。清空沿用原生确认和文档 token 校验，收起进入原有面板关闭流程。操作行固定在对话滚动区域之外。
+`NativeComposerHost` 持有一个 TextKit 输入视图，按当前宽度直接计算自然高度，由原生面板限定最大高度。原生层同时管理胶囊和发送按钮的独立点击区域，保留系统字体、光标、选区与组合输入。输入 epoch 隔离草稿变更；保存检查点同步文字而不结束输入法组合状态。Web 中的草稿适配器只承载会话数据，不决定原生控件的几何位置。
 
-`ReaderViewport` 使用独立的原生键盘布局指引跟随局部输入浮条，由无交互的原生布局观测视图覆盖实际底部占位，并在该区域自身布局变化时同步避让量，再由桥接交给 Web 调整整个 AI 面板的底部边界。此更新不依赖阅读容器的尺寸变化。停靠键盘已由外层容器缩短视口，不重复扣除；局部浮条使面板底边上移并减少对话的可滚动高度，不缩短正文或目录。浮动键盘靠近顶部时解除底部跟随约束。Web 复用共享输入避让动效并同步原生输入位置。
+原生键盘布局指引统一提供底部占位：停靠键盘缩短阅读视口，局部输入浮条只抬高 AI 面板底边，正文和目录保持完整高度。AI 面板的开合、尺寸变化与键盘避让由同一个原生容器连续衔接，支持快速反转与 Reduce Motion。顶部附近的浮动键盘不将整个面板推出屏幕。
 
 对话输入的聚焦请求由原生宿主暂存，在收到可见布局或输入视图附着到窗口后处理，不以固定间隔轮询或超时丢弃。收起面板或释放宿主会取消待处理请求，避免迟到布局重新唤起输入。
 
-`ReaderAlert` 在原生提示框关闭完成后执行重试、放弃或打开设置，避免后续操作与上一层提示框的退场重叠。模型设置还等待 Web 面板完成隐藏及模态清理；重新打开面板会取消该次关闭确认，不以固定延时判断转场结束。
+`ReaderAlert` 在原生提示框关闭完成后执行重试、放弃或打开设置，避免后续操作与上一层提示框的退场重叠。模型设置还等待原生 AI 面板完成隐藏及模态清理；重新打开面板会取消该次关闭确认，不以固定延时判断转场结束。
 
 对话的滚动跟随状态由 `agent.js` 持有。用户向上浏览时暂停，主动回到末尾后恢复；跟随开启时，内容、视口和滚动位置的变化都保持末尾可见，包括尺寸更新后迟到的滚动事件。只在滚动位置落后于实际末尾时写入目标位置，不干预 WebKit 超出末尾后的边界回弹。布局变化本身不重新开启已暂停的跟随。
 
@@ -100,7 +106,9 @@ Web 快照按 `documentToken` 和原生 revision 串行投递，等待期间合�
 
 跨模式定位以源码位置为语义锚点，将块内位置和代码行偏移映射为源码行位置，并记录内容在视口中的纵向位置。切换时等待目标排版、公式和图表就绪，映射位置后再淡入；未滚动的往返复用原锚点，图片或字体引起的重排在用户继续交互前保持该锚点。
 
-`reader.js` 统一拥有目录与 AI 的布局决策，以共享设计参数计算正文与辅助面板能否同时容纳。显式开关与宽度变化共用互斥规则；只记录用户主动操作的面板，保留隐藏组件的会话与导航状态。呈现方式通过同一组属性交给 CSS 与 `agent.js`，面板实际可见状态和正文列起点经带文档 token 的呈现消息投递给原生悬浮控件，原生层不重复维护断点或目录宽度。`agentOpen` 表示面板开关目标，`agentVisible` 在退场结束后才变为 false；底部操作及其键盘定位宿主在面板可见期间移除，退场完成后恢复。宽度重排沿用语义阅读锚点；高度变化不重新选择左右布局。源码宽度变化由 `SourceEditor` 在修改原生 frame 前捕获位置、重排后恢复；Web 布局不向源码回写陈旧锚点。
+原生布局结果带递增版本交给正文和对话，两端拒绝过期结果；两页内容初始化后重新接收当前布局，内容恢复不自行重置面板呈现。呈现完成后才确认关闭。窗口收窄时保留最近主动操作的面板，变宽不自动重开已收起的面板。布局改变保留语义阅读锚点、源码位置、目录导航、草稿和对话。`agentOpen` 表示目标状态，`agentVisible` 覆盖整个退场过程，底部操作组及其定位宿主在面板可见期间移除。
+
+正文选段通过带返回值的原生桥接交给对话，完成引用安装后才结束该操作；文档 token 隔离迟到的交接。发送前从原生工作文本的最新 Web 快照取得全文和图片清单。会话与渲染仍由独立的 `agent.js` 管理，文档、请求、工具及恢复记录保持原有身份和所有权。原生检查点合并正文现场与对话现场；同一文档两种模式共用一份会话。视图拆除前捕获原生现场并撤销渲染就绪状态，尚未结束的保存任务沿用已捕获的现场，不再读取已拆除的输入或批注视图。
 
 `ReaderViewport.swift` 集中管理原生视口。阅读容器、AI 输入避让及悬浮操作的键盘布局指引统一启用未停靠跟随，避免相反配置覆盖窗口共用的跟随状态。`ReaderContainer` 读取实际覆盖范围，仅当输入区域横向覆盖容器并延伸至底边时缩短正文视口；局部输入浮条保持原有形状，其余状态填满容器。无交互的原生布局观测视图保持对输入区域的 Auto Layout 依赖，在区域变化时更新阅读视口；窗口变化使用同一过程，不估算键盘高度。`ReaderViewport` 将视口尺寸提交给 Web，SwiftUI 阅读画布延伸至底部。场景进入后台后，系统为快照生成的临时尺寸只影响外层容器，不触发正在阅读的 Web 文档重排；场景激活时按容器的最新尺寸布局。前台旋转与窗口调整正常更新视口，不重载文档或重建会话。
 

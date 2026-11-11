@@ -20,6 +20,12 @@ extension WKWebView {
 final class ReaderViewport: UIView {
     let webView: ReaderWKWebView
     private let inputBoundary = ReaderKeyboardRegion()
+    private let scrim = UIControl()
+    private var previousLayout: ReaderWorkspace.Layout?
+    private var previousBounds = CGRect.zero
+    private var presentationRevision = 0
+    private var previousAgent = false
+    private var previousPanelFrame = CGRect.zero
 
     init(webView: ReaderWKWebView) {
         self.webView = webView
@@ -28,6 +34,13 @@ final class ReaderViewport: UIView {
         backgroundColor = .systemBackground
         webView.autoresizingMask = []
         addSubview(webView)
+        scrim.backgroundColor = UIColor.black.withAlphaComponent(0.14)
+        scrim.isHidden = true
+        addSubview(scrim)
+        if let panel = webView.conversationPanel { addSubview(panel) }
+        scrim.addAction(
+            UIAction { [weak webView] _ in webView?.workspace.request("agent", open: false) }, for: .touchUpInside)
+        webView.workspace.onChange = { [weak self] in self?.setNeedsLayout() }
         // The document follows only docked input. The AI panel also needs the
         // local hardware-keyboard toolbar without reducing the reading canvas.
         keyboardLayoutGuide.followsUndockedKeyboard = true
@@ -69,13 +82,99 @@ final class ReaderViewport: UIView {
         // Background snapshots temporarily resize the scene. Keep those sizes out
         // of the live document's viewport and composited scrolling layers.
         guard window?.windowScene?.activationState != .background else { return }
-        if webView.frame != bounds { webView.frame = bounds }
-        updateInputBottomInset()
+        layoutWorkspace()
     }
 
     private func updateInputBottomInset() {
         guard window?.windowScene?.activationState != .background else { return }
-        webView.inputBottomInset = max(0, bounds.maxY - inputBoundary.frame.minY)
+        let inset = max(0, bounds.maxY - inputBoundary.frame.minY)
+        if webView.inputBottomInset != inset {
+            webView.inputBottomInset = inset
+            setNeedsLayout()
+        }
+    }
+
+    private func layoutWorkspace() {
+        let workspace = webView.workspace
+        let layout = workspace.resolve(width: bounds.width)
+        let changed = previousLayout != layout || previousBounds != bounds
+        let panel = webView.conversationPanel
+        let opening = workspace.agent && (!previousAgent || panel?.isHidden == true)
+        let closing = !workspace.agent && previousAgent
+        let bottom = max(
+            webView.inputBottomInset > 0 ? webView.inputBottomInset + ReaderDesign.floatingGap : 0,
+            layout.sheet ? 0 : safeAreaInsets.bottom + ReaderDesign.agentEdgeInset)
+        let top = ReaderDesign.floatingInset - ReaderDesign.agentControlInset
+        let panelFrame: CGRect
+        if layout.sheet {
+            let height = max(0, min(bounds.height * ReaderDesign.agentSheetFraction, bounds.height - bottom - 24))
+            panelFrame = CGRect(x: 0, y: bounds.height - bottom - height, width: bounds.width, height: height)
+        } else {
+            panelFrame = CGRect(
+                x: bounds.width - ReaderDesign.agentEdgeInset - layout.agentWidth, y: top,
+                width: layout.agentWidth, height: max(0, bounds.height - bottom - top))
+        }
+        let targetDocument = CGRect(
+            x: 0, y: 0, width: max(0, bounds.width - layout.reservedWidth), height: bounds.height)
+        let geometryChanged = webView.frame != targetDocument || (panel != nil && previousPanelFrame != panelFrame)
+        guard changed || geometryChanged || opening || closing else { return }
+        let initialLayout = previousBounds.isEmpty
+        previousAgent = workspace.agent
+        previousPanelFrame = panelFrame
+        previousLayout = layout
+        previousBounds = bounds
+        presentationRevision += 1
+        let revision = presentationRevision
+        panel?.sheet = layout.sheet
+        panel?.bottomInset = layout.sheet && bottom == 0 ? safeAreaInsets.bottom : 0
+        scrim.frame = bounds
+        if opening && panel?.isHidden == true {
+            panel?.frame = panelFrame
+            panel?.isHidden = false
+            panel?.alpha = 0
+            panel?.transform =
+                layout.sheet
+                ? CGAffineTransform(translationX: 0, y: panelFrame.height) : CGAffineTransform(translationX: 24, y: 0)
+        }
+        if workspace.agent { scrim.isHidden = !layout.sheet }
+        panel?.isUserInteractionEnabled = workspace.agent
+        panel?.accessibilityViewIsModal = workspace.agent && layout.sheet
+        if !workspace.agent { panel?.composer.setVisible(false) }
+        workspace.project(layout, visible: panel?.isHidden == false)
+        let updates = {
+            self.webView.frame = targetDocument
+            panel?.transform =
+                workspace.agent
+                ? .identity
+                : (layout.sheet
+                    ? CGAffineTransform(translationX: 0, y: panelFrame.height)
+                    : CGAffineTransform(translationX: 24, y: 0))
+            panel?.bounds.size = panelFrame.size
+            panel?.center = CGPoint(x: panelFrame.midX, y: panelFrame.midY)
+            panel?.alpha = workspace.agent ? 1 : 0
+            self.scrim.alpha = workspace.agent && layout.sheet ? 1 : 0
+            panel?.layoutIfNeeded()
+            if workspace.agent { panel?.composer.setVisible(true) }
+        }
+        let finish: (Bool) -> Void = { [weak self] _ in
+            guard let self, revision == self.presentationRevision else { return }
+            if !workspace.agent {
+                panel?.isHidden = true
+                panel?.layer.removeAllAnimations()
+                self.scrim.isHidden = true
+            }
+            workspace.project(layout, visible: workspace.agent)
+        }
+        if UIAccessibility.isReduceMotionEnabled || initialLayout {
+            UIView.performWithoutAnimation(updates)
+            finish(true)
+        } else {
+            UIView.animate(
+                withDuration: opening || closing || changed
+                    ? ReaderDesign.agentDuration : ReaderDesign.inputAvoidanceDuration,
+                delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut],
+                animations: updates, completion: finish)
+        }
     }
 
     @objc private func inputWillChange(_ notification: Notification) {

@@ -37,10 +37,36 @@ enum ReaderDesign {
     static let homeGroupGap: CGFloat = 28
     static let homeActionGap: CGFloat = 8
     static let homeDocumentGap: CGFloat = 16
+    static let compactWindow: CGFloat = 560
+    static let documentMinimumWidth: CGFloat = 420
+    static let agentMinimumWidth: CGFloat = 320
+    static let agentWidth: CGFloat = 384
+    static let agentWidthFraction: CGFloat = 0.34
+    static let agentSheetFraction: CGFloat = 0.78
+    static let agentRadius: CGFloat = 24
+    static let agentSheetRadius: CGFloat = 20
+    static let agentInputMinimum: CGFloat = 52
+    static let agentInputMaximum: CGFloat = 160
+    static let agentInputHeightFraction: CGFloat = 0.3
+    static let outlineWidth: CGFloat = 248
+    static let agentEdgeInset: CGFloat = 16
+    static let agentInset: CGFloat = 24
+    static let agentCompactInset: CGFloat = 20
+    static let agentControlInset: CGFloat = 8
+    static let composerMargin: CGFloat = 12
     static let agentControlIcon: CGFloat = 16
     static let agentControlSurface: CGFloat = 34
     static let recentsWidth: CGFloat = 360
     static let recentsMaxHeight: CGFloat = 540
+    static var shadow: UIColor { palette(light: 0x1F23_2918, dark: 0x0000_0040) }
+    static var agentPaper: UIColor { palette(light: 0xFAFC_FFFF, dark: 0x1119_25FF) }
+    static var agentChrome: UIColor { palette(light: 0xEAF0_FCFF, dark: 0x2535_53FF) }
+    static var agentLine: UIColor { palette(light: 0xDCE5_F1FF, dark: 0x2A39_51FF) }
+    static var agentGlow: UIColor { palette(light: 0xC9D9_FF45, dark: 0x4566_AA20) }
+    static var agentComposer: UIColor { palette(light: 0xFFFF_FFFF, dark: 0x1B26_39FF) }
+    static var agentAccent: UIColor { palette(light: 0x416E_D9FF, dark: 0x9DBA_FFFF) }
+    static var agentSend: UIColor { palette(light: 0x476F_DFFF, dark: 0xB5CA_FFFF) }
+    static var agentSendInk: UIColor { palette(light: 0xFFFF_FFFF, dark: 0x1828_42FF) }
     static var annotationPaper: UIColor { palette(light: 0xFFFD_F8FF, dark: 0x2829_23FF) }
     static var annotationInk: UIColor { palette(light: 0x3937_2FFF, dark: 0xECE7_D7FF) }
     static var annotationMuted: UIColor { palette(light: 0x837E_70FF, dark: 0xB5B0_9FFF) }

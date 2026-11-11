@@ -46,7 +46,6 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-outline-branch[data-expanded="false"] { grid-template-rows: 0fr; opacity: 0; }
 #mdv-reading-concept .mdv-outline-branch-clip { min-height: 0; overflow: hidden; }
 #mdv-reading-concept .mdv-workspace { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
-#mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1.4fr) minmax(230px, 1fr); }
 #mdv-reading-concept .mdv-reader { min-width: 0; padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
 #mdv-reading-concept .mdv-article { position: relative; padding: calc(var(--mdv-hit-target) + 32px) 36px 28px; font-size: var(--mdv-text-size); line-height: var(--mdv-text-leading); }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) h1 { font: 500 25px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; letter-spacing: -.5px; margin: 0 0 24px; color: var(--mdv-ink); }
@@ -98,8 +97,8 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-source-panel { flex: 1; min-height: 0; }
 @media (max-width: 560px) {
 #mdv-reading-concept .mdv-app { min-height: 700px; border-radius: 15px; }
-#mdv-reading-concept .mdv-article { padding-inline: 22px; padding-bottom: 24px; }
-#mdv-reading-concept .mdv-article h1 { font-size: 23px; }
+
+
 
 }
 @media (prefers-reduced-motion: reduce) {
@@ -117,3 +116,5 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-app[data-outline-layout="overlay"] .mdv-with-outline .mdv-outline { width: min(var(--mdv-outline-width), calc(100vw - 44px)); background: var(--mdv-chrome); border-radius: 0 14px 14px 0; box-shadow: 6px 0 20px var(--mdv-shadow); }
 #mdv-reading-concept .mdv-app[data-outline-layout="overlay"] .mdv-outline-inner { position: static; }
 
+
+#mdv-reading-concept .mdv-app[data-compact-window="true"] .mdv-article { padding-inline:22px; padding-bottom:24px; }

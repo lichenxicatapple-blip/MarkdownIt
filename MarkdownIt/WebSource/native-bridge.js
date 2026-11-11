@@ -1,7 +1,6 @@
     let nativeToken = '';
     let nativeRevision = 0;
     let nativeDocumentName = ''; 
-    let nativeSymbols = {};
     function postNative(message) { window.webkit?.messageHandlers.reader.postMessage(message); }
     const annotations = new window.MarkdownItAnnotations({reader,
       context: () => ({token:nativeToken,revision:nativeRevision,enabled:displayedMode==='preview'&&!app.dataset.modeTransition}),
@@ -58,7 +57,7 @@
       const value = selected ? { ...selected, documentName: nativeDocumentName } : null;
       if (!value?.text.trim()) return;
       pinnedAnchor = captureReadingPosition();
-      agentExperience.attach(value, value.rect || { left: 16, bottom: 80 });
+      return agentExperience.attach(value, value.rect || { left: 16, bottom: 80 });
     }
     app.addEventListener('click', event => {
       const image = event.target.closest('.mdv-article .jm-image-action')?.querySelector('img');
@@ -72,25 +71,6 @@
       event.preventDefault(); event.stopImmediatePropagation();
       postNative({type:'link', href:link.getAttribute('href')});
     }, true);
-    let nativeSymbolSequence = 0;
-    function updateSymbols() {
-      if (!Object.keys(nativeSymbols).length) return;
-      app.querySelectorAll('svg[data-lucide]:not([data-native-symbol])').forEach(svg => {
-        const source = nativeSymbols[svg.dataset.lucide];
-        if (!source) return;
-        svg.dataset.nativeSymbol = 'true';
-        // Lucide refreshes all data-lucide nodes, including existing SVGs.
-        // Native artwork owns this node from now on and uses one filled mask.
-        svg.removeAttribute('data-lucide');
-        svg.setAttribute('stroke', 'none');
-        const mask = 'native-symbol-' + (++nativeSymbolSequence);
-        const inset = 1;
-        const size = 24 - inset * 2;
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.innerHTML = '<defs><mask id="' + mask + '"><image href="' + source + '" x="' + inset + '" y="' + inset + '" width="' + size + '" height="' + size + '" preserveAspectRatio="xMidYMid meet"/></mask></defs><rect width="24" height="24" fill="currentColor" mask="url(#' + mask + ')"/>';
-      });
-    }
-    new MutationObserver(updateSymbols).observe(app, {childList:true,subtree:true});
     let recoveryFrame = 0;
     let recovering = false;
     function scheduleRecovery() {
@@ -101,13 +81,11 @@
       });
     }
     function captureRecovery() {
-      return { mode: state.mode, transitioning: !!app.dataset.modeTransition, outline: state.outline, agent: state.agent,
-        anchor: pinnedAnchor || captureReadingPosition(), nativeRequestSequence, lastActivePanel,
-        composerEpoch: nativeInputs.epoch('question'),
-        outlineScroll: outlineBody.scrollTop, outlinePaused: outlineFollowPaused,
-        branches: [...outlineBody.querySelectorAll('.mdv-outline-branch')].filter(branch => branch.dataset.expanded !== 'true').map(branch => branch.id),
-        previewDetails: [...reader.querySelectorAll('details')].map(details => details.open),
-        frozenImages: [...frozenImageIDs], conversation: agentExperience.capture() };
+      return {mode:state.mode, transitioning:!!app.dataset.modeTransition, outline:state.outline, agent:state.agent,
+        anchor:pinnedAnchor || captureReadingPosition(),
+        outlineScroll:outlineBody.scrollTop, outlinePaused:outlineFollowPaused,
+        branches:[...outlineBody.querySelectorAll('.mdv-outline-branch')].filter(branch=>branch.dataset.expanded !== 'true').map(branch=>branch.id),
+        previewDetails:[...reader.querySelectorAll('details')].map(details=>details.open)};
     }
     addEventListener('scroll', scheduleRecovery, { passive: true, capture: true });
     app.addEventListener('toggle', scheduleRecovery, true);
@@ -116,21 +94,12 @@
 
       async openDocument(document) {
         recovering = true;
-        pendingNativeAgentConsent?.resolve(false);
-        pendingNativeAgentConsent = null;
-        nativeRequests.clear();
-        frozenImageIDs.clear();
+        delete app.dataset.ready;
         dismissImageMenu();
-        nativeUndoRequests.clear();
-        postNative({ type: 'agentCancel', token: nativeToken });
-        agentExperience.reset();
-        nativeInputs.blur();
-        nativeInputs.clear();
         nativeToken = document.token;
         nativeRevision = document.revision;
         annotations.reset(document.annotations);
         nativeDocumentName = document.name || '';
-        pendingNativeAgentEntry = null;
         renderedMarkdown = null; documentText = document.text;
         nativeSourcePosition = { line: 0, y: 0, atStart: true };
         ++modeRevision; modeAnimation?.cancel(); modeAnimation = null;
@@ -140,14 +109,7 @@
         stopOutlineFollow(); outlineFollowPaused = false; outlineBody.scrollTop = 0;
         updateDocument();
         const saved = document.recovery;
-        const savedConversation = saved || document.conversation;
-        if (savedConversation) {
-          freezeImages(savedConversation.frozenImages || []);
-          agentExperience.restore(savedConversation.conversation || {});
-        }
         if (saved) {
-          nativeRequestSequence = saved.nativeRequestSequence || 0;
-          lastActivePanel = saved.lastActivePanel || 'outline';
           state.mode = saved.mode === 'source' ? 'source' : 'preview';
           displayedMode = state.mode;
           state.outline = !!saved.outline;
@@ -171,10 +133,9 @@
           outlineFollowPaused = !!saved.outlinePaused;
           if (outlineFollowPaused) { stopOutlineFollow(); outlineBody.scrollTop = saved.outlineScroll || 0; }
         } else window.scrollTo(0,0);
-        if (savedConversation) agentExperience.finishRestore(savedConversation.conversation || {});
         recovering = false;
         scheduleRecovery();
-        window.lucide.createIcons(); updateSymbols();
+        window.lucide.createIcons(); rendering.updateSymbols();
         postNative({type:'documentReady',token:nativeToken});
         return this.diagnostics();
       },
@@ -195,10 +156,10 @@
       },
       toggleOutline() {
         if (state.mode !== 'preview' || !headings.length) return;
-        setPanelOpen('outline', !state.outline);
+        postNative({type:'panelRequest',token:nativeToken,panel:'outline',toggle:true});
       },
       suppressSelection() { readSelection(); },
-      askSelection(text) { askNative(text || window.getSelection()?.toString() || ''); },
+      askSelection(text) { return askNative(text || window.getSelection()?.toString() || ''); },
       imageMenuDismissed(payload) { if (imageMenuID === payload.id) imageMenuID = null; },
       imageContext(index) {
         const contextImage = reader.querySelectorAll('img')[index];
@@ -217,84 +178,39 @@
         if (!payload?.images?.length) return;
         window.getSelection()?.removeAllRanges();
         pinnedAnchor = captureReadingPosition();
-        agentExperience.attach(payload, payload.rect);
+        return agentExperience.attach(payload, payload.rect);
       },
       askSourceSelection(payload) {
         if (displayedMode !== 'source') return;
         const reference = sourceAttachment(payload);
-        if (reference.text.trim()) agentExperience.attach(reference, reference.rect);
+        if (reference.text.trim()) return agentExperience.attach(reference, reference.rect);
       },
       async sourceState(payload) {
         if (payload.token !== nativeToken) return false;
         documentText = payload.text;
         nativeRevision = payload.revision;
         annotations.records = payload.annotations || [];
-        for (const detail of payload.events || []) app.dispatchEvent(new CustomEvent('mdv-source-history', { detail }));
         if (displayedMode === 'preview') { updateDocument(); render(); await documentReady; }
         return true;
       },
-      toggleAgent() { agentExperience.toggleGlobal(); },
-      resolveAgentEntry(payload) {
-        const entry = pendingNativeAgentEntry;
-        if (!entry || entry.id !== payload.id || entry.token !== nativeToken) return;
-        pendingNativeAgentEntry = null;
-        if (payload.allowed) entry.resume();
-      },
-      resolveAgentConsent(payload) {
-        const pending = pendingNativeAgentConsent;
-        if (!pending || pending.id !== payload.id || pending.token !== payload.token || pending.token !== nativeToken) return;
-        pendingNativeAgentConsent = null;
-        pending.resolve(payload.allowed === true);
-      },
-      async closeAgent() { setPanelOpen('agent', false); return await agentExperience.waitUntilClosed(); },
-      setInputBottomInset(inset) {
-        app.style.setProperty('--mdv-input-bottom-clearance', inset > 0 ? 'calc(' + inset + 'px + var(--mdv-floating-gap))' : '0px');
-        nativeInputs.trackLayout();
-      },
-      agentInteraction() { notePanelInteraction('agent'); },
-      updateAgentInput(payload) { nativeInputs.update(payload); },
-      resizeAgentInput(payload) { nativeInputs.resize(payload); },
-      commitAgentInput(payload) { nativeInputs.commit(payload); },
-      clearAgentHistory(payload) {
-        if (payload.token !== nativeToken) return false;
-        const retained = agentExperience.clearHistory();
-        const ids = new Set(retained);
-        for (const id of frozenImageIDs) if (!ids.has(id)) frozenImageIDs.delete(id);
-        return retained;
-      },
-      agentEvent(event) {
-        if (event.token !== nativeToken) return;
-        const request = nativeRequests.get(event.id);
-        if (!request) return;
-        if (event.type === 'images') { freezeImages(event.imageIDs || []); return; }
-        if (event.type === 'change') request.change(event.change);
-        else if (event.type === 'text') request.text(event.text);
-        else {
-          nativeRequests.delete(event.id);
-          if (event.type === 'complete') request.complete(event);
-          else if (event.type !== 'cancelled') request.fail(event.failure || { kind: 'service' });
-        }
-      },
-      agentUndoResult(payload) {
-        const resolve = nativeUndoRequests.get(payload.id);
-        nativeUndoRequests.delete(payload.id);
-        resolve?.(payload.result);
-      },
-      agentDiagnostics() {
-        return { open: state.agent, modal: agent.hasAttribute('data-modal-active'), draft: agent.querySelector('textarea').value,
-          reference: agent.querySelector('.mdv-composer-reference').textContent, referenceHTML: agent.querySelector('.mdv-composer-reference').innerHTML,
-          turns: Array.from(agent.querySelectorAll('.mdv-turn')).map(turn => ({ role: turn.dataset.role, state: turn.dataset.state, text: turn.textContent, html: turn.innerHTML })),
-          markup: agent.innerHTML };
+      finishOpening() { app.getBoundingClientRect(); app.dataset.ready='true'; },
+      documentBackground() {return {text:documentText,markdown:documentText,images:documentImageReferences(),mode:displayedMode,scope:'document',documentName:nativeDocumentName};},
+      panelLayout(value) {
+        if (panelLayout && value.revision < panelLayout.revision) return;
+        const changedColumns = panelLayout && (Boolean(panelLayout.outline && !panelLayout.overlay) !== Boolean(value.outline && !value.overlay));
+        if (changedColumns && app.dataset.ready && displayedMode === 'preview') pinnedAnchor = captureReadingPosition();
+        panelLayout = {...value,viewportWidth:app.clientWidth};
+        state.agent = value.agent; state.outline = value.outline;
+        app.dataset.compactWindow=String(value.compact);
+        app.dataset.agentLayout=value.sheet?'sheet':'side'; app.dataset.outlineLayout=value.overlay?'overlay':'side';
+        app.dataset.panelsCoexist=String(value.coexist); app.classList.toggle('mdv-agent-open',value.agent);
+        reader.inert=value.modal; outline.inert=value.modal;
+        render(); if(changedColumns && pinnedAnchor)restoreReadingPosition(pinnedAnchor);
       },
       reloadResources() {
         reader.querySelectorAll('img[src^="jm-resource:"]').forEach(image => { image.src = `jm-resource://${nativeToken}/image?path=${encodeURIComponent(image.dataset.sourcePath)}&revision=${Date.now()}`; });
       },
-      theme(theme) {
-        app.style.setProperty('--jm-font-scale', String(theme.fontScale));
-        nativeSymbols = theme.symbols || {};
-        Object.entries(theme.palette || {}).forEach(([name, value]) => app.style.setProperty('--mdv-' + name, value));
-        updateSymbols();
-      },
+      theme(theme) { rendering.theme(theme); },
       async ready() { await documentReady; return true; },
       diagnostics() {
         const unsafeTags = Array.from(reader.querySelectorAll('script,iframe,form,style')).filter(node => node.tagName.toLowerCase() !== 'style' || !node.closest('.mdv-mermaid svg')).length;

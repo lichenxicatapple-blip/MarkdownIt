@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5DF282AE84374C4AA5EBE5AA /* ReaderWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B316C769FB84FB880DB527F /* ReaderWorkspace.swift */; };
+		CBBD2CBA957842B9A4F80ED4 /* ConversationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431F7E7B4739420E82915A17 /* ConversationPanel.swift */; };
 		FA11AA220000000000000005 /* ResourceFolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11AA220000000000000006 /* ResourceFolderPicker.swift */; };
 		FA11AA220000000000000003 /* RecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11AA220000000000000004 /* RecoveryTests.swift */; };
 		FA11AA220000000000000001 /* ReaderRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11AA220000000000000002 /* ReaderRecovery.swift */; };
@@ -34,7 +36,7 @@
 		586D29A3AEC84159017E0FBA /* NativeComposerHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47640BD493BB7D4616EE00FA /* NativeComposerHost.swift */; };
 		D19C3026F6834D76AC081203 /* AgentConversationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19C3026F6834D76AC081204 /* AgentConversationStore.swift */; };
 		D19C3026F6834D76AC081201 /* ModelDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19C3026F6834D76AC081202 /* ModelDiagnostics.swift */; };
-		3167FB30C5DE432881F51797 /* ConversationControlsHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78510654FB046CAAA861AE4 /* ConversationControlsHost.swift */; };
+		3167FB30C5DE432881F51797 /* ConversationControlButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78510654FB046CAAA861AE4 /* ConversationControlButton.swift */; };
 		5C6EA45C49D310B2115D70F1 /* LocalResources.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BEBD418B69151CBB0001E8 /* LocalResources.swift */; };
 		6576A37D958ABF84871D89CF /* AgentPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A840D9E3ECA797CF4C533D7 /* AgentPrompt.swift */; };
 		7448F3A19A7271538D572AE5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC5F13BD83ADEDB81E93D094 /* MarkdownDocument.swift */; };
@@ -118,6 +120,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1B316C769FB84FB880DB527F /* ReaderWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderWorkspace.swift; sourceTree = "<group>"; };
+		431F7E7B4739420E82915A17 /* ConversationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationPanel.swift; sourceTree = "<group>"; };
 		FA11AA220000000000000006 /* ResourceFolderPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceFolderPicker.swift; sourceTree = "<group>"; };
 		FA11AA220000000000000004 /* RecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownItTests/RecoveryTests.swift; sourceTree = "<group>"; };
 		FA11AA220000000000000002 /* ReaderRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderRecovery.swift; sourceTree = "<group>"; };
@@ -138,7 +142,7 @@
 		47640BD493BB7D4616EE00FA /* NativeComposerHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeComposerHost.swift; sourceTree = "<group>"; };
 		D19C3026F6834D76AC081204 /* AgentConversationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationStore.swift; sourceTree = "<group>"; };
 		D19C3026F6834D76AC081202 /* ModelDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDiagnostics.swift; sourceTree = "<group>"; };
-		B78510654FB046CAAA861AE4 /* ConversationControlsHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationControlsHost.swift; sourceTree = "<group>"; };
+		B78510654FB046CAAA861AE4 /* ConversationControlButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationControlButton.swift; sourceTree = "<group>"; };
 		49AB56E596C0477DBEFF87F2 /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		49C9185D88A70CD0DB01D41A /* MarkdownIt/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = MarkdownIt/Assets.xcassets; sourceTree = "<group>"; };
 		4D4310404624E719957C7B19 /* MarkdownIt/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = MarkdownIt/Info.plist; sourceTree = "<group>"; };
@@ -266,6 +270,7 @@
 				FA11AA220000000000000002 /* ReaderRecovery.swift */,
 				BB3EF24BC49856ED5299CA5F /* ReaderSession.swift */,
 				CD853267303494CB4ED32A7F /* ReaderViewport.swift */,
+				1B316C769FB84FB880DB527F /* ReaderWorkspace.swift */,
 				F8979B91FC72FE9B258C1258 /* ReaderWebView.swift */,
 			);
 			name = Reader;
@@ -336,7 +341,8 @@
 				D9972678B557E39E2012BA9E /* ModelTools.swift */,
 				CE081A97C56B9CD8DD33698E /* ModelWireFormat.swift */,
 				47640BD493BB7D4616EE00FA /* NativeComposerHost.swift */,
-				B78510654FB046CAAA861AE4 /* ConversationControlsHost.swift */,
+				431F7E7B4739420E82915A17 /* ConversationPanel.swift */,
+				B78510654FB046CAAA861AE4 /* ConversationControlButton.swift */,
 				D19C3026F6834D76AC081202 /* ModelDiagnostics.swift */,
 				D19C3026F6834D76AC081204 /* AgentConversationStore.swift */,
 				A36B00000000000000000001 /* AgentContextSources.swift */,
@@ -678,7 +684,8 @@
 				50DE5D85065E8840A693CD94 /* ModelTools.swift in Sources */,
 				990F5D3790C4EA70856D63E7 /* ModelWireFormat.swift in Sources */,
 				586D29A3AEC84159017E0FBA /* NativeComposerHost.swift in Sources */,
-				3167FB30C5DE432881F51797 /* ConversationControlsHost.swift in Sources */,
+				CBBD2CBA957842B9A4F80ED4 /* ConversationPanel.swift in Sources */,
+				3167FB30C5DE432881F51797 /* ConversationControlButton.swift in Sources */,
 				D19C3026F6834D76AC081201 /* ModelDiagnostics.swift in Sources */,
 				D19C3026F6834D76AC081203 /* AgentConversationStore.swift in Sources */,
 				B6900FC331D6A603F7B9D71C /* ReaderDesign.swift in Sources */,
@@ -686,6 +693,7 @@
 				76D01DB5A6882AF69F2EDA6E /* ReaderSession.swift in Sources */,
 				19A22C9682350DED0A57FB3D /* ReaderWebView.swift in Sources */,
 				48026A6F6C7F2104233E0B57 /* ReaderViewport.swift in Sources */,
+				5DF282AE84374C4AA5EBE5AA /* ReaderWorkspace.swift in Sources */,
 				A36B00000000000000000002 /* AgentContextSources.swift in Sources */,
 				A36B00000000000000000004 /* AgentContextMemory.swift in Sources */,
 				C07E57000000000000000002 /* AgentContextBudget.swift in Sources */,

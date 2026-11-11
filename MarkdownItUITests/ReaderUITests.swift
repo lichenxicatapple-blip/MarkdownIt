@@ -454,10 +454,11 @@ final class ReaderUITests: XCTestCase {
             app.buttons["GlobalAI"].tap()
             let input = app.textViews["QuestionInput"]
             XCTAssertTrue(input.waitForExistence(timeout: 8))
+            XCTAssertEqual(app.buttons["SendAgentMessage"].label, send)
             XCTAssertFalse(app.alerts[title].exists, "Opening AI must not ask for sending permission")
             input.tap()
             input.typeText("Explain Markdown.")
-            tapAfterTyping(app.webViews.buttons[send], in: app, beside: input)
+            tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
             let alert = app.alerts[title]
             XCTAssertTrue(alert.waitForExistence(timeout: 6))
             XCTAssertEqual(alert.buttons["AllowModelDataSharing"].firstMatch.label, allow)
@@ -470,8 +471,8 @@ final class ReaderUITests: XCTestCase {
             alert.buttons["CancelModelDataSharing"].firstMatch.tap()
             XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
             XCTAssertEqual(input.value as? String, "Explain Markdown.")
-            waitForEnabled(app.webViews.buttons[send])
-            app.webViews.buttons[send].tap()
+            waitForEnabled(app.buttons["SendAgentMessage"])
+            app.buttons["SendAgentMessage"].tap()
             XCTAssertTrue(alert.waitForExistence(timeout: 6), "Cancel must not store permission")
             alert.buttons["AllowModelDataSharing"].firstMatch.tap()
             XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
@@ -484,7 +485,9 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(input.waitForExistence(timeout: 25), "Relaunch must restore the open AI panel")
             XCTAssertEqual(input.value as? String, "")
             let replies = app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "通过目录导航"))
+            XCTAssertTrue(replies.firstMatch.waitForExistence(timeout: 25))
             XCTAssertEqual(replies.count, 1, "The existing conversation must survive relaunch")
+            record("ai-conversation-restored-\(language)")
             app.buttons["CollapseAgent"].tap()
             XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
             showTools(app)
@@ -492,7 +495,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(input.waitForExistence(timeout: 8))
             input.tap()
             input.typeText("Explain Markdown again.")
-            tapAfterTyping(app.webViews.buttons[send], in: app, beside: input)
+            tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
             XCTAssertEqual(
                 XCTWaiter.wait(
                     for: [
@@ -570,7 +573,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(input.label, "AI message")
         XCTAssertTrue(app.buttons["CollapseAgent"].exists)
         XCTAssertFalse(app.webViews.buttons["Remove reference"].exists)
-        XCTAssertTrue(app.webViews.buttons["Send message"].exists)
+        XCTAssertEqual(app.buttons["SendAgentMessage"].label, "Send message")
         XCTAssertFalse(app.webViews.buttons["Expand reference"].exists)
         for id in ["ToolsToggle", "GlobalAI", "ModeToggle", "More"] {
             XCTAssertFalse(app.buttons[id].exists, "AI hides the complete bottom group on every layout")
@@ -1460,7 +1463,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 8))
         input.tap()
         input.typeText("请修改第一段，让它更简洁。")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
         allowDataSharingIfRequested(app)
         XCTAssertTrue(app.webViews.staticTexts["请切换到源码模式后再修改。"].waitForExistence(timeout: 12))
         record("ai-preview-read-only")
@@ -1472,7 +1475,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["GlobalAI"].tap()
         input.tap()
         input.typeText("解释这份文档。")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
         XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
         let answerEnd = app.webViews.staticTexts["保留原有格式"]
         let visibleAnswer = XCTNSPredicateExpectation(
@@ -1481,8 +1484,8 @@ final class ReaderUITests: XCTestCase {
             XCTWaiter.wait(for: [visibleAnswer], timeout: 8), .completed,
             "The latest answer must follow into view without a manual scroll")
         record("ai-source-reading")
-        let viewport = app.webViews.firstMatch
-        let send = app.webViews.buttons["发送问题"]
+        let viewport = app.otherElements["ConversationPanel"]
+        let send = app.buttons["SendAgentMessage"]
         // Rotation can switch between sheet and side presentations. Their outer
         // margins differ, but the native input must stay beside its send control.
         let inputSendGap = send.frame.minX - input.frame.maxX
@@ -1510,7 +1513,7 @@ final class ReaderUITests: XCTestCase {
         }
         input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         input.typeText("请修改第一段，让它更简洁。")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
         XCTAssertTrue(app.webViews.staticTexts["已修改这句话，其余内容保持原样。"].waitForExistence(timeout: 12))
         XCTAssertTrue(app.webViews.buttons["撤销这次修改"].exists)
         record("ai-source-edit-applied")
@@ -1679,7 +1682,7 @@ final class ReaderUITests: XCTestCase {
         for turn in 1...5 {
             if turn == 1 { input.tap() } else { waitForVisibleSoftwareKeyboard(in: app) }
             input.typeText("Reading question \(turn)")
-            tapAfterTyping(app.webViews.buttons["Send message"], in: app)
+            tapAfterTyping(app.buttons["SendAgentMessage"], in: app)
             if turn == 1 { allowDataSharingIfRequested(app) }
             let end = answerEnds.element(boundBy: turn - 1)
             XCTAssertEqual(
@@ -1687,9 +1690,7 @@ final class ReaderUITests: XCTestCase {
                     for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in end.isHittable }, object: nil)],
                     timeout: 10), .completed)
         }
-        let conversation = app.webViews.otherElements
-            .matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Conversation", "Conversation,"))
-            .firstMatch
+        let conversation = app.webViews["ConversationWebView"]
         XCTAssertTrue(conversation.exists)
         let firstQuestion = app.webViews.staticTexts["Reading question 1"]
         func isVisible(_ element: XCUIElement) -> Bool {
@@ -1781,7 +1782,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(ask.waitForExistence(timeout: 6))
         ask.tap()
         XCTAssertTrue(app.descendants(matching: .any)["QuestionInput"].waitForExistence(timeout: 6))
-        XCTAssertTrue(app.webViews.buttons["发送问题"].exists)
+        XCTAssertEqual(app.buttons["SendAgentMessage"].label, "发送问题")
         record("selection-question")
         app.buttons["CollapseAgent"].tap()
     }
@@ -1820,8 +1821,10 @@ final class ReaderUITests: XCTestCase {
             record("image-tap-menu-\(language)")
             action.tap()
             XCTAssertTrue(app.textViews["QuestionInput"].waitForExistence(timeout: 8))
-            let quote = app.webViews.otherElements[reference].images["市场结构示意图"].firstMatch
+            let quote = app.webViews["ConversationWebView"].otherElements[reference]
+                .descendants(matching: .any).matching(identifier: "市场结构示意图").firstMatch
             XCTAssertTrue(quote.waitForExistence(timeout: 5))
+            XCTAssertTrue(quote.elementType == .image || quote.images.firstMatch.exists)
             record("image-quote-composer-\(language)")
             app.terminate()
         }
@@ -2028,18 +2031,19 @@ final class ReaderUITests: XCTestCase {
         key.typeText("ui-test-only-key")
         tapAfterTyping(app.buttons["SettingsDone"], in: app)
         XCTAssertTrue(app.textViews["QuestionInput"].waitForExistence(timeout: 6))
-        XCTAssertTrue(app.webViews.buttons["发送问题"].exists)
-        XCTAssertFalse(app.webViews.buttons["发送问题"].isEnabled)
+        XCTAssertEqual(app.buttons["SendAgentMessage"].label, "发送问题")
+        XCTAssertFalse(app.buttons["SendAgentMessage"].isEnabled)
         XCTAssertEqual(app.webViews.otherElements.matching(identifier: "用户提问").count, 0)
         record("configured-return-to-input")
     }
 
-    func testAgentFailureRetryPreservesDraftAndConversation() {
+    func testAgentFailureRetryPreservesDraftAndConversation() throws {
+        try useComponentSynchronization()
         let app = XCUIApplication()
         let input = openQuestionInput(app)
         input.typeText("Explain Markdown.")
         XCTAssertEqual(input.value as? String, "Explain Markdown.")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app)
         allowDataSharingIfRequested(app)
         let retry = app.webViews.buttons["重试"]
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
@@ -2082,7 +2086,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertFalse(clear.isEnabled)
         input.tap()
         input.typeText("Explain the document in Chinese.")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app, beside: input)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
         allowDataSharingIfRequested(app)
         let reply = app.webViews.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "这份文档演示了"))
             .firstMatch
@@ -2112,7 +2116,7 @@ final class ReaderUITests: XCTestCase {
         let app = XCUIApplication()
         let input = openQuestionInput(app)
         input.typeText("a question")
-        tapAfterTyping(app.webViews.buttons["发送问题"], in: app)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app)
         allowDataSharingIfRequested(app)
         XCTAssertTrue(app.webViews.staticTexts["无法连接到服务"].waitForExistence(timeout: 3))
         XCTAssertEqual(input.value as? String, "")
@@ -2267,7 +2271,7 @@ extension ReaderUITests {
         XCTAssertTrue(input.waitForExistence(timeout: 8))
         input.tap()
         input.typeText("SEARCH_PUBLIC_REFERENCE")
-        tapAfterTyping(app.webViews.buttons["Send message"], in: app, beside: input)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
         allowDataSharingIfRequested(app)
         let cancel = app.alerts.buttons["CancelSearchDataSharing"].firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 8))
@@ -2277,7 +2281,7 @@ extension ReaderUITests {
             app.webViews.staticTexts["Continue using the document without web search."].waitForExistence(timeout: 8))
         input.tap()
         input.typeText("SEARCH_PUBLIC_REFERENCE again")
-        tapAfterTyping(app.webViews.buttons["Send message"], in: app, beside: input)
+        tapAfterTyping(app.buttons["SendAgentMessage"], in: app, beside: input)
         let allow = app.alerts.buttons["AllowSearchDataSharing"].firstMatch
         XCTAssertTrue(allow.waitForExistence(timeout: 8))
         allow.tap()

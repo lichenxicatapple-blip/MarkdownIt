@@ -24,11 +24,9 @@
   const { t, formatSeconds } = window.MarkdownItLocalization;
   const refreshIcons = () => window.lucide?.createIcons({ attrs: { width: 18, height: 18 } });
   function create(dependencies) {
-    const { app, panel, renderMarkdown, fragmentIdentifier, enhance, motion, reducedMotion, onToggle, documentAttachment, provider, nativeInputs, onPresentationChange, ensureConfigured } = dependencies;
+    const { app, panel, renderMarkdown, fragmentIdentifier, enhance, motion, reducedMotion, onToggle, documentAttachment, provider, nativeInputs, ensureConfigured } = dependencies;
     const checkpoint = dependencies.onCheckpoint || (() => {});
     let restoring = false;
-    let sheet = false;
-    let documentLeading = 0;
     const scroll = panel.querySelector('.mdv-agent-scroll');
     const thread = panel.querySelector('.mdv-conversation');
     const composer = panel.querySelector('.mdv-composer');
@@ -36,22 +34,12 @@
     const reference = composer.querySelector('.mdv-composer-reference');
     const sendButton = composer.querySelector('.mdv-agent-send');
     const announcement = panel.querySelector('[role="status"]');
-    const scrim = createNode('div', 'mdv-agent-scrim');
-    scrim.hidden = true;
-    scrim.setAttribute('aria-hidden', 'true');
-    panel.id = app.dataset.layout + '-conversation';
-    app.append(scrim, panel);
-    nativeInputs?.register(input, "question");
+    nativeInputs.register(input, "question");
     const messages = [];
     const documentChanges = new Map();
     let attachment = null;
     let messageSequence = 0;
     let isOpen = false;
-    let presented = false;
-    let panelAnimation = null;
-    let scrimAnimation = null;
-    let panelRevision = 0;
-    const closeWaiters = new Set();
     let activeStream = null;
     let pendingAuthorization = null;
     let conversationRevision = 0;
@@ -60,7 +48,6 @@
     let followBottom = true;
     let followFrame = 0;
     let downwardScrollOrigin = null;
-    let drag = null;
     const disclosureAnimations = new WeakMap();
     const seconds = spec => reducedMotion.matches ? 0 : spec.duration;
     function announce(text) { announcement.textContent = text; }
@@ -177,6 +164,7 @@
       sendButton.disabled = !!pendingAuthorization || (!generating && !input.value.trim());
       sendButton.setAttribute('aria-label', generating ? t("Stop generating") : t("Send message"));
       sendButton.type = generating ? 'button' : 'submit';
+      dependencies.onControls?.({hasHistory:messages.length > 0, generating, sendEnabled:!sendButton.disabled});
       const desired = generating ? 'square' : 'arrow-up';
       if (sendButton.dataset.icon !== desired) {
         sendButton.replaceChildren(icon(desired));
@@ -263,89 +251,11 @@
       if (['ArrowUp','PageUp','Home'].includes(event.key)) pauseFollowing();
       if (event.key === 'End') followLatest();
     });
-    function notifyPresentation() {
-      checkpoint();
-      onPresentationChange?.({ open: isOpen, visible: !panel.hidden,
-        modal: panel.hasAttribute('data-modal-active'), documentLeading });
-    }
-    function updateModality(shown) {
-      const modal = shown && sheet;
-      panel.toggleAttribute('data-modal-active', modal);
-      notifyPresentation();
-      panel.setAttribute('role', modal ? 'dialog' : 'complementary');
-      if (modal) panel.setAttribute('aria-modal', 'true');
-      else panel.removeAttribute('aria-modal');
-      [app.querySelector('.mdv-reader'), app.querySelector('.mdv-outline')].filter(Boolean).forEach(node => { node.inert = modal; });
-    }
-    function resolveCloseWaiters(closed) {
-      for (const resolve of closeWaiters) resolve(closed);
-      closeWaiters.clear();
-    }
-    function waitUntilClosed() {
-      if (presented) return Promise.resolve(false);
-      if (panel.hidden) return Promise.resolve(true);
-      return new Promise(resolve => closeWaiters.add(resolve));
-    }
-    function present(shown, presentation) {
-      if (shown) resolveCloseWaiters(false);
-      const changed = sheet !== presentation.sheet;
-      const previousRect = presentation.previousRect;
-      documentLeading = presentation.documentLeading;
-      sheet = presentation.sheet;
-      viewportChanged();
-      if (shown === presented) {
-        if (changed) {
-          panelAnimation?.cancel(); scrimAnimation?.cancel();
-          panelAnimation = null; scrimAnimation = null;
-          scrim.hidden = !shown || !sheet;
-          panel.hidden = !shown;
-          panel.inert = !shown;
-          updateModality(shown);
-          if (!shown) resolveCloseWaiters(true);
-          if (shown && previousRect && !reducedMotion.matches) {
-            const target = panel.getBoundingClientRect();
-            const transform = `translate(${previousRect.left - target.left}px, ${previousRect.top - target.top}px) scale(${previousRect.width / target.width}, ${previousRect.height / target.height})`;
-            panelAnimation = panel.animate([{ transform, transformOrigin: 'top left' }, { transform: 'none', transformOrigin: 'top left' }], motion.agentPanel);
-          }
-        } else notifyPresentation();
-        keepAtBottom();
-        return;
-      }
-      presented = shown;
+    function present(shown) {
       isOpen = shown;
-      if (!shown) cancelPendingFollow();
-      const revision = ++panelRevision;
-      const hidden = panel.hidden;
-      const style = hidden ? null : getComputedStyle(panel);
-      const start = { opacity: hidden ? 0 : style.opacity, transform: hidden ? (sheet ? 'translateY(100%)' : 'translateX(24px)') : style.transform };
-      panelAnimation?.cancel();
-      scrimAnimation?.cancel();
-      panel.hidden = false;
       panel.inert = !shown;
-      nativeInputs?.trackLayout();
-      app.classList.toggle('mdv-agent-open', shown);
-      if (shown) updateModality(true);
-      else { nativeInputs?.blur(); notifyPresentation(); }
-      const useScrim = sheet && (shown || !scrim.hidden);
-      if (useScrim) scrim.hidden = false;
-      const finish = () => {
-        if (revision !== panelRevision) return;
-        panel.hidden = !shown;
-        panelAnimation?.cancel();
-        scrimAnimation?.cancel();
-        panelAnimation = null;
-        scrimAnimation = null;
-        scrim.hidden = !shown || !sheet;
-        if (!shown) {
-          updateModality(false);
-          resolveCloseWaiters(true);
-        }
-        keepAtBottom();
-      };
-      if (restoring || !seconds(motion.agentPanel)) { finish(); return; }
-      panelAnimation = panel.animate([start, { opacity: shown ? 1 : 0, transform: shown ? 'none' : sheet ? 'translateY(100%)' : 'translateX(24px)' }], { ...motion.agentPanel, fill: 'both' });
-      if (useScrim) scrimAnimation = scrim.animate([{ opacity: shown ? 0 : 1 }, { opacity: shown ? 1 : 0 }], { ...motion.agentPanel, fill: 'both' });
-      panelAnimation.onfinish = finish;
+      if (!shown) { cancelPendingFollow(); nativeInputs.blur(); }
+      else keepAtBottom();
     }
     function attach(value, rect, authorized = false) {
       if (!value?.text.trim()) return;
@@ -720,9 +630,8 @@
     input.addEventListener('input', updateSendState);
     input.addEventListener('input', checkpoint);
     scroll.addEventListener('scroll', checkpoint, { passive: true });
-    function toggleGlobal(authorized = false) {
-      if (!isOpen && !authorized && ensureConfigured) { ensureConfigured(() => toggleGlobal(true)); return; }
-      if (isOpen) { onToggle(false); return; }
+    function openGlobal(authorized = false) {
+      if (!authorized && ensureConfigured) { ensureConfigured(() => openGlobal(true)); return; }
       // Entry intent determines the next request's context. Reopening globally
       // must never resurrect an abandoned selection; sent turns keep theirs.
       attachment = null;
@@ -730,7 +639,6 @@
       renderAttachment(attachment);
       input.focus({ preventScroll: true });
     }
-    scrim.addEventListener('click', () => onToggle(false));
     app.addEventListener('click', event => {
       const link = event.target.closest('.mdv-rich-text a[href^="#"]');
       if (!link) return;
@@ -744,64 +652,16 @@
       if (event.key === 'Escape') {
         if (isOpen) { event.preventDefault(); onToggle(false); }
       }
-      if (event.key === 'Tab' && sheet && isOpen) {
-        const controls = Array.from(panel.querySelectorAll('button:not([disabled]),textarea,a[href],summary')).filter(node => node.getClientRects().length && !node.closest('[inert]'));
-        const first = controls[0];
-        const last = controls.at(-1);
-        if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      }
     });
-    const grabber = panel.querySelector('.mdv-agent-grabber');
-    grabber.addEventListener('pointerdown', event => {
-      if (!sheet || event.button !== 0) return;
-      panelAnimation?.cancel();
-      panelAnimation = null;
-      drag = { y: event.clientY, offset: 0 };
-      grabber.setPointerCapture(event.pointerId);
-    });
-    grabber.addEventListener('pointermove', event => {
-      if (!drag) return;
-      drag.offset = Math.max(0, event.clientY - drag.y);
-      panel.style.transform = reducedMotion.matches ? 'none' : 'translateY(' + drag.offset + 'px)';
-    });
-    function endDrag(cancelled) {
-      if (!drag) return;
-      const offset = drag.offset;
-      drag = null;
-      if (!cancelled && offset > 72) { onToggle(false); panel.style.removeProperty('transform'); }
-      else {
-        if (!reducedMotion.matches) panel.animate([{ transform: 'translateY(' + offset + 'px)' }, { transform: 'none' }], motion.agentPanel);
-        panel.style.removeProperty('transform');
-      }
-    }
-    grabber.addEventListener('pointerup', () => endDrag(false));
-    grabber.addEventListener('pointercancel', () => endDrag(true));
     reducedMotion.addEventListener('change', event => {
-      if (event.matches) {
-        panelAnimation?.finish();
-        app.getAnimations({ subtree: true }).forEach(animation => {
-          if (animation.effect?.getTiming().iterations !== Infinity) animation.finish();
-        });
-      }
+      if (event.matches) app.getAnimations({subtree:true}).forEach(animation => {
+        if (animation.effect?.getTiming().iterations !== Infinity) animation.finish();
+      });
     });
-    function viewportChanged() {
-      const viewport = window.visualViewport;
-      if (sheet && viewport) {
-        panel.style.setProperty('--mdv-agent-viewport-height', Math.max(160, viewport.height - 16) + 'px');
-        panel.style.setProperty('--mdv-agent-visual-bottom-inset', Math.max(0, innerHeight - viewport.height - viewport.offsetTop) + 'px');
-      } else {
-        panel.style.removeProperty('--mdv-agent-viewport-height');
-        panel.style.removeProperty('--mdv-agent-visual-bottom-inset');
-      }
-    }
-    window.visualViewport?.addEventListener('resize', viewportChanged);
-    window.visualViewport?.addEventListener('scroll', viewportChanged);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       panel.querySelectorAll('.mdv-rich-text').forEach(surface => enhance(surface).then(keepAtBottom));
     });
     updateSendState();
-    viewportChanged();
     function clearMessages(reason) {
       dependencies.onLifecycle?.(reason, messages.length);
       cancelPendingFollow();
@@ -820,7 +680,6 @@
       return (attachment?.images || []).map(image => image.id);
     }
     function reset(reason = 'document_reset') {
-      resolveCloseWaiters(false);
       clearMessages(reason);
       attachment = null;
       input.value = '';
@@ -889,7 +748,7 @@
       if (followBottom) keepAtBottom();
       else updateScrollEdge();
     }
-    return { attach, present, send, toggleGlobal, clearHistory, reset, waitUntilClosed, capture, restore, finishRestore };
+    return { attach, present, send, openGlobal, clearHistory, reset, capture, restore, finishRestore };
 
 
   }

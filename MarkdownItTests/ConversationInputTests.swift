@@ -10,7 +10,7 @@ final class ConversationInputTests: XCTestCase {
         let (host, input, _) = try makeFocusFixture()
         host.focus("question")
         XCTAssertFalse(input.isFirstResponder)
-        host.updateLayout(focusLayout(visible: true))
+        host.setVisible(true)
         XCTAssertTrue(input.isFirstResponder, "A visible layout must fulfill the pending focus request")
     }
 
@@ -18,7 +18,7 @@ final class ConversationInputTests: XCTestCase {
         let (host, input, _) = try makeFocusFixture()
         host.focus("question")
         host.blur()
-        host.updateLayout(focusLayout(visible: true))
+        host.setVisible(true)
         XCTAssertFalse(input.isFirstResponder, "A cancelled request must not reopen the keyboard")
         host.focus("question")
         XCTAssertTrue(input.isFirstResponder)
@@ -28,15 +28,11 @@ final class ConversationInputTests: XCTestCase {
 
     func testPendingFocusWaitsForWindowAttachment() throws {
         let (host, input, window) = try makeFocusFixture(attached: false)
-        host.updateLayout(focusLayout(visible: true))
+        host.setVisible(true)
         host.focus("question")
         XCTAssertFalse(input.isFirstResponder)
         window.makeKeyAndVisible()
         XCTAssertTrue(input.isFirstResponder, "Attaching the input must fulfill its pending focus request")
-    }
-
-    private func focusLayout(visible: Bool) -> [[String: Any]] {
-        [["id": "question", "visible": visible, "x": 20.0, "y": 20.0, "width": 300.0, "height": 52.0]]
     }
 
     private func makeFocusFixture(attached: Bool = true) throws -> (
@@ -49,8 +45,10 @@ final class ConversationInputTests: XCTestCase {
         if attached { window.makeKeyAndVisible() }
         let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 200))
         controller.view.addSubview(webView)
-        let host = NativeComposerHost(webView: webView)
-        host.updateLayout(focusLayout(visible: false))
+        let host = NativeComposerHost()
+        controller.view.addSubview(host.view)
+        host.view.frame = CGRect(x: 20, y: 20, width: 300, height: 52)
+        host.setVisible(false)
         let input = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? ConversationTextView }.first)
         addTeardownBlock { @MainActor in
             host.detach()
@@ -68,18 +66,14 @@ final class ConversationInputTests: XCTestCase {
         window.makeKeyAndVisible()
         let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 200))
         controller.view.addSubview(webView)
-        let host = NativeComposerHost(webView: webView)
+        let host = NativeComposerHost()
         defer {
             host.detach()
             window.isHidden = true
         }
-        var layout: [String: Any] = [
-            "id": "question", "visible": true, "opacity": 1.0,
-            "x": 20.0, "y": 20.0, "width": 300.0, "height": 52.0,
-            "fontSize": 16.0, "lineHeight": 26.4,
-            "top": 12.0, "right": 11.0, "bottom": 12.0, "left": 11.0,
-        ]
-        host.updateLayout([layout])
+        controller.view.addSubview(host.view)
+        host.view.frame = CGRect(x: 20, y: 20, width: 300, height: 52)
+        host.setVisible(true)
         let input = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? ConversationTextView }.first)
         XCTAssertTrue(input.superview === webView.superview)
         XCTAssertFalse(input.isDescendant(of: webView))
@@ -117,8 +111,7 @@ final class ConversationInputTests: XCTestCase {
             XCTAssertEqual(caret.midY, input.bounds.midY, accuracy: 2, "Caret alignment for \(text)")
         }
         for count in [2, 5] {
-            layout["height"] = ceil(24 + 26.4 * Double(count))
-            host.updateLayout([layout])
+            input.frame.size.height = ceil(24 + 26.4 * Double(count))
             host.setText(
                 id: "question", text: Array(repeating: "Hello 你好", count: count).joined(separator: "\n"),
                 epoch: count + 10)
