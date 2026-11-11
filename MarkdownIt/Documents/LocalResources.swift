@@ -2,6 +2,18 @@ import Foundation
 import UniformTypeIdentifiers
 import WebKit
 
+struct ResourcePermissionRequest: Identifiable, Equatable {
+    enum Purpose: Equatable {
+        case images
+        case document(link: String)
+    }
+
+    let id = UUID()
+    let documentToken: String
+    let directory: URL
+    let purpose: Purpose
+}
+
 struct ResourceAccess: Sendable {
     var documentURL: URL
     var roots: [URL]
@@ -46,7 +58,8 @@ struct ResourceAccess: Sendable {
 
     func containsDirectory(_ directory: URL) -> Bool { contains(canonicalURL(directory)) }
 
-    private func resourceURL(_ source: String) throws -> URL {
+    /// Resolves the reference without granting access. Reads must still pass through `resolve`.
+    func resourceURL(_ source: String) throws -> URL {
         guard !source.contains("\0"), let components = URLComponents(string: source) else {
             throw CocoaError(.fileReadInvalidFileName)
         }

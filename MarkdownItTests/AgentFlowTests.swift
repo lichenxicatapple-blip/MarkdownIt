@@ -2526,9 +2526,11 @@ final class AgentFlowTests: AgentReaderTestCase {
             XCTAssertEqual(try XCTUnwrap(geometry["alignment"] as? Double), 0, accuracy: 0.5)
             XCTAssertGreaterThan(try XCTUnwrap(geometry["scrolled"] as? Double), 0)
             XCTAssertEqual(try XCTUnwrap(geometry["removalMovement"] as? Double), 0, accuracy: 0.5)
+            // WebKit stores FloatRect components, but DOMRect adds x and width as doubles.
+            // Compare computed and stored edges at the same underlying precision.
             XCTAssertLessThanOrEqual(
-                try XCTUnwrap(geometry["contentBoundary"] as? Double),
-                try XCTUnwrap(geometry["targetBoundary"] as? Double))
+                Float32(try XCTUnwrap(geometry["contentBoundary"] as? Double)),
+                Float32(try XCTUnwrap(geometry["targetBoundary"] as? Double)))
             XCTAssertTrue((geometry["text"] as? String)?.contains(paragraph) == true)
             XCTAssertTrue((geometry["text"] as? String)?.contains("最后一个段落。") == true)
             XCTAssertEqual(geometry["tables"] as? Int, 1)

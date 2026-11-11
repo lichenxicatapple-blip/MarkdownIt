@@ -61,23 +61,21 @@ final class ResourceHandlerTests: XCTestCase {
         let first = SchemeRequest(url)
         session.resources.webView(web, start: first)
         XCTAssertEqual((first.error as? CocoaError)?.code, .fileReadNoPermission)
-        XCTAssertTrue(session.needsResourcePermission)
-        XCTAssertEqual(session.resourcePermissionDirectory?.lastPathComponent, "Downloads")
-        session.needsResourcePermission = false  // Dismiss the prompt before presenting the folder picker.
+        XCTAssertNotNil(session.resourcePermission)
+        XCTAssertEqual(session.resourcePermission?.directory.lastPathComponent, "Downloads")
         let accepted = await session.grant(unrelated)
         XCTAssertFalse(accepted)
-        XCTAssertTrue(session.needsResourcePermission)
-        XCTAssertEqual(session.resourcePermissionDirectory?.lastPathComponent, "Downloads")
+        XCTAssertNotNil(session.resourcePermission)
+        XCTAssertEqual(session.resourcePermission?.directory.lastPathComponent, "Downloads")
         XCTAssertFalse(session.recentDocuments.documents.flatMap(\.folders).contains { $0.url == unrelated })
-        session.needsResourcePermission = false  // Cancel the repeated permission prompt.
+        session.cancelResourcePermission()  // Cancel the repeated permission prompt.
         let second = SchemeRequest(url)
         session.resources.webView(web, start: second)
         XCTAssertEqual((second.error as? CocoaError)?.code, .fileReadNoPermission)
-        XCTAssertFalse(
-            session.needsResourcePermission, "Cancel returns to reading without immediately reopening the prompt")
+        XCTAssertNil(session.resourcePermission, "Cancel returns to reading without immediately reopening the prompt")
         let valid = await session.grant(downloads)
         XCTAssertTrue(valid)
-        XCTAssertNil(session.resourcePermissionDirectory)
+        XCTAssertNil(session.resourcePermission?.directory)
         let third = SchemeRequest(url)
         session.resources.webView(web, start: third)
         let deadline = Date().addingTimeInterval(5)
@@ -86,7 +84,7 @@ final class ResourceHandlerTests: XCTestCase {
         }
         XCTAssertTrue(third.finished)
         XCTAssertEqual(third.data, image)
-        XCTAssertFalse(session.needsResourcePermission)
+        XCTAssertNil(session.resourcePermission)
     }
 
     @MainActor
@@ -102,7 +100,6 @@ final class ResourceHandlerTests: XCTestCase {
         await session.open(file)
         session.localResourcesChanged(["images/figure.svg"], token: session.documentToken)
         session.resources.onPermissionDenied?(session.documentToken, "images/figure.svg")
-        session.needsResourcePermission = false
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.keyWindow
         let window = UIWindow(windowScene: scene)
@@ -110,7 +107,7 @@ final class ResourceHandlerTests: XCTestCase {
         window.rootViewController = host
         window.makeKeyAndVisible()
         addTeardownBlock { @MainActor in
-            session.needsResourcePermission = false
+            session.cancelResourcePermission()
             host.dismiss(animated: false)
             window.isHidden = true
             previous?.makeKey()
@@ -126,10 +123,10 @@ final class ResourceHandlerTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         let original = try XCTUnwrap(host.presentedViewController)
-        XCTAssertTrue(session.needsResourcePermission)
+        XCTAssertNotNil(session.resourcePermission)
         XCTAssertFalse(original is UIAlertController, "The permission sheet supports a separately styled path")
         XCTAssertTrue(
-            ResourceFolderPath.display(try XCTUnwrap(session.resourcePermissionDirectory)).hasSuffix(" / images"))
+            ResourceFolderPath.display(try XCTUnwrap(session.resourcePermission?.directory)).hasSuffix(" / images"))
         let presentationDeadline = Date().addingTimeInterval(5)
         while original.isBeingPresented && Date() < presentationDeadline {
             try await Task.sleep(for: .milliseconds(20))
@@ -142,7 +139,7 @@ final class ResourceHandlerTests: XCTestCase {
         attachment.name = "folder-permission"
         attachment.lifetime = .keepAlways
         add(attachment)
-        session.needsResourcePermission = false
+        session.cancelResourcePermission()
         let dismissDeadline = Date().addingTimeInterval(5)
         while host.presentedViewController != nil && Date() < dismissDeadline {
             try await Task.sleep(for: .milliseconds(20))

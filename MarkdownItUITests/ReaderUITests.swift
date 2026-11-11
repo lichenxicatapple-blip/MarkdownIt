@@ -116,6 +116,60 @@ final class ReaderUITests: XCTestCase {
         let open = app.navigationBars.buttons["打开"].firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 10))
         record("local-image-folder-picker")
+        cancelFolderPicker(in: app)
+        XCTAssertTrue(open.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(
+            title.waitForNonExistence(timeout: 5), "Cancelling the picker returns to reading without another prompt")
+        let reading = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in app.buttons["ToolsToggle"].isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [reading], timeout: 5), .completed)
+    }
+
+    func testLocalDocumentLinkOffersFolderAuthorizationAndCanBeCancelled() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
+        editor.typeText(
+            "\n\n[Open linked chapter](/var/mobile/Library/Mobile%20Documents/com~apple~CloudDocs/Downloads/Lessons/chapter.md)\n\n"
+        )
+        showTools(app)
+        tapAfterTyping(app.buttons["ModeToggle"], in: app)
+        let link = app.webViews.links["Open linked chapter"]
+        XCTAssertTrue(link.waitForExistence(timeout: 8))
+        link.tap()
+        let title = app.staticTexts["ResourcePermissionTitle"]
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        XCTAssertEqual(title.label, "打开本地文档")
+        XCTAssertEqual(
+            app.staticTexts["ResourcePermissionExplanation"].label, "文档位于以下文件夹，请允许访问。")
+        XCTAssertEqual(app.staticTexts["ResourcePermissionPath"].label, "iCloud 云盘 / Downloads / Lessons")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "A local link needs actionable authorization rather than an error")
+        record("local-document-permission")
+        app.buttons["ContinueResourcePermission"].tap()
+        let open = app.navigationBars.buttons["打开"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        record("local-document-folder-picker")
+        cancelFolderPicker(in: app)
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(link.waitForExistence(timeout: 5))
+        link.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "A cancelled link can request permission again")
+        app.buttons["CancelResourcePermission"].tap()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(link.isHittable)
+    }
+
+    private func cancelFolderPicker(in app: XCUIApplication) {
         let cancel = app.navigationBars.buttons["取消"].firstMatch
         // The system picker can retain a nested directory. Its Cancel action
         // appears at the navigation root on compact devices.
@@ -127,12 +181,6 @@ final class ReaderUITests: XCTestCase {
         }
         XCTAssertTrue(cancel.isHittable)
         cancel.tap()
-        XCTAssertTrue(open.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(
-            title.waitForNonExistence(timeout: 5), "Cancelling the picker returns to reading without another prompt")
-        let reading = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in app.buttons["ToolsToggle"].isHittable }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [reading], timeout: 5), .completed)
     }
 
     func testDocumentTitleDoesNotOverlapCloseControlWithOutlineExpanded() throws {
@@ -572,6 +620,11 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 8))
         XCTAssertEqual(input.label, "AI message")
         XCTAssertTrue(app.buttons["CollapseAgent"].exists)
+        let title = app.staticTexts["ConversationTitle"]
+        XCTAssertEqual(title.label, "AI Conversation")
+        XCTAssertGreaterThanOrEqual(title.frame.minX, app.buttons["ClearAgentHistory"].frame.maxX)
+        XCTAssertLessThanOrEqual(title.frame.maxX, app.buttons["CollapseAgent"].frame.minX)
+        XCTAssertEqual(title.frame.midY, app.buttons["CollapseAgent"].frame.midY, accuracy: 1)
         XCTAssertFalse(app.webViews.buttons["Remove reference"].exists)
         XCTAssertEqual(app.buttons["SendAgentMessage"].label, "Send message")
         XCTAssertFalse(app.webViews.buttons["Expand reference"].exists)
@@ -1083,7 +1136,8 @@ final class ReaderUITests: XCTestCase {
         tapAfterTyping(app.buttons["SettingsDone"], in: app)
     }
 
-    func testModelSelectionAllowsCustomInputWhileCatalogIsLoading() {
+    func testModelSelectionAllowsCustomInputWhileCatalogIsLoading() throws {
+        try useComponentSynchronization()
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-agent-fixture",

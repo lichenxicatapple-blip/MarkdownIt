@@ -34,51 +34,37 @@ enum ResourceFolderPath {
 struct ResourceFolderPermission: ViewModifier {
     @ObservedObject var session: ReaderSession
     @State private var pickerPresented = false
-    @State private var requestToken: String?
 
     func body(content: Content) -> some View {
         content
             .sheet(
-                isPresented: Binding(
-                    get: { session.needsResourcePermission },
-                    set: { if session.needsResourcePermission != $0 { session.needsResourcePermission = $0 } })
-            ) {
-                ResourceFolderPrompt(path: folderPath) {
-                    session.needsResourcePermission = false
+                item: Binding(
+                    get: { session.resourcePermission },
+                    set: { if $0 == nil { session.cancelResourcePermission() } })
+            ) { request in
+                ResourceFolderPrompt(request: request) {
+                    session.cancelResourcePermission(requestID: request.id)
                 } choose: {
-                    requestToken = session.documentToken
                     pickerPresented = true
                 }
                 .presentationSizing(.fitted)
                 .presentationBackgroundInteraction(.disabled)
                 .fileImporter(
                     isPresented: $pickerPresented, allowedContentTypes: [.folder], allowsMultipleSelection: false,
-                    onCompletion: finishSelection,
-                    onCancellation: {
-                        let token = requestToken
-                        requestToken = nil
-                        guard token == session.documentToken else { return }
-                        session.needsResourcePermission = false
-                    })
+                    onCompletion: { finishSelection($0, requestID: request.id) },
+                    onCancellation: { session.cancelResourcePermission(requestID: request.id) })
             }
     }
 
-    private func finishSelection(_ result: Result<[URL], Error>) {
-        guard let token = requestToken else { return }
-        requestToken = nil
-        guard token == session.documentToken else { return }
+    private func finishSelection(_ result: Result<[URL], Error>, requestID: UUID) {
         guard case .success(let urls) = result, let url = urls.first else { return }
-        Task { if await session.grant(url) { session.reloadResources() } }
-    }
-
-    private var folderPath: String {
-        session.resourcePermissionDirectory.map(ResourceFolderPath.display) ?? ""
+        Task { await session.finishResourcePermission(url, requestID: requestID) }
     }
 
 }
 
 private struct ResourceFolderPrompt: View {
-    let path: String
+    let request: ResourcePermissionRequest
     let cancel: () -> Void
     let choose: () -> Void
     @State private var messageHeight: CGFloat = 0
@@ -126,21 +112,35 @@ private struct ResourceFolderPrompt: View {
 
     private var message: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Load Local Images")
+            Text(title)
                 .font(.title3.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("ResourcePermissionTitle")
-            Text("This document references images in the folder below. Please allow access.")
+            Text(explanation)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("ResourcePermissionExplanation")
-            Text(verbatim: path)
+            Text(verbatim: ResourceFolderPath.display(request.directory))
                 .font(.body.weight(.medium))
                 .foregroundStyle(.primary)
                 .accessibilityIdentifier("ResourcePermissionPath")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var title: LocalizedStringKey {
+        switch request.purpose {
+        case .images: "Load Local Images"
+        case .document: "Open Local Document"
+        }
+    }
+
+    private var explanation: LocalizedStringKey {
+        switch request.purpose {
+        case .images: "This document references images in the folder below. Please allow access."
+        case .document: "This document is in the folder below. Please allow access."
+        }
     }
 
     private var cancelButton: some View {

@@ -38,8 +38,7 @@ final class ReaderSession: ObservableObject {
     @Published var hasOutline = false
     @Published var rendererReady = false
     @Published var errorMessage: String?
-    @Published var needsResourcePermission = false
-    @Published private(set) var resourcePermissionDirectory: URL?
+    @Published private(set) var resourcePermission: ResourcePermissionRequest?
     @Published var agentOpen = false
     @Published var agentVisible = false
     @Published var agentModalActive = false
@@ -142,14 +141,12 @@ final class ReaderSession: ObservableObject {
         var retained = false
         defer { if scoped && !retained { url.stopAccessingSecurityScopedResource() } }
         guard scoped || BookmarkedLocation.isAppOwned(url) else {
-            if resourcePermissionDirectory != nil { needsResourcePermission = true }
             return false
         }
-        if let directory = resourcePermissionDirectory, let document {
+        if let directory = resourcePermission?.directory, let document {
             let proposed = ResourceAccess(
                 documentURL: document.fileURL, roots: [url], token: documentToken)
             guard proposed.containsDirectory(directory) else {
-                needsResourcePermission = true
                 return false
             }
         }
@@ -160,11 +157,31 @@ final class ReaderSession: ObservableObject {
             retained = true
         }
         if !grantedRoots.contains(url) { grantedRoots.append(url) }
-        resourcePermissionDirectory = nil
-        needsResourcePermission = false
+        resourcePermission = nil
         configureResources()
         if let document { await recentDocuments.rememberFolders([url], for: document.fileURL) }
         requestCheckpoint()
+        return true
+    }
+
+    func cancelResourcePermission(requestID: UUID? = nil) {
+        guard let request = resourcePermission, requestID == nil || requestID == request.id else { return }
+        resourcePermission = nil
+    }
+
+    @discardableResult
+    func finishResourcePermission(_ url: URL, requestID: UUID) async -> Bool {
+        guard let request = resourcePermission, request.id == requestID, request.documentToken == documentToken else {
+            return false
+        }
+        guard await grant(url) else { return false }
+        guard request.documentToken == documentToken else { return false }
+        switch request.purpose {
+        case .images:
+            reloadResources()
+        case .document(let link):
+            await resolveLink(link)
+        }
         return true
     }
 
@@ -193,15 +210,15 @@ final class ReaderSession: ObservableObject {
         // Resource requests and script messages arrive over separate WebKit
         // channels. Use document order to request concrete resource folders,
         // rather than whichever image happened to fail first.
-        guard let document, let localResourcePaths, let deniedResourcePath else { return }
+        guard resourcePermission == nil, let document, let localResourcePaths, let deniedResourcePath else { return }
         self.deniedResourcePath = nil
         let access = ResourceAccess(documentURL: document.fileURL, roots: grantedRoots, token: documentToken)
         guard
             let directory = access.directoryRequiringAccess(for: localResourcePaths + [deniedResourcePath])
                 ?? access.directoryContaining(deniedResourcePath)
         else { return }
-        resourcePermissionDirectory = directory
-        needsResourcePermission = true
+        resourcePermission = ResourcePermissionRequest(
+            documentToken: documentToken, directory: directory, purpose: .images)
     }
 
     func consumeSourceFocusRequest() -> Bool {
@@ -342,8 +359,7 @@ final class ReaderSession: ObservableObject {
         }
         localResourcePaths = nil
         deniedResourcePath = nil
-        resourcePermissionDirectory = nil
-        needsResourcePermission = false
+        resourcePermission = nil
         rendererReady = false
         mode = startingNewDocument ? "source" : "preview"
         sourceFocusRequested = startingNewDocument
@@ -565,10 +581,9 @@ final class ReaderSession: ObservableObject {
         finishAgentHistoryClear(confirmed: false)
         failedCloseToken = nil
         needsModelConfiguration = false
-        needsResourcePermission = false
+        resourcePermission = nil
         localResourcePaths = nil
         deniedResourcePath = nil
-        resourcePermissionDirectory = nil
         modelSettingsRequested = false
         agentOpen = false
         agentVisible = false
@@ -604,7 +619,6 @@ final class ReaderSession: ObservableObject {
 
     func reloadResources() {
         configureResources()
-        needsResourcePermission = false
         Task { _ = try? await bridge?.call("reloadResources") }
     }
 
@@ -616,13 +630,21 @@ final class ReaderSession: ObservableObject {
             return
         }
         guard let document else { return }
+        let access = ResourceAccess(documentURL: document.fileURL, roots: grantedRoots, token: documentToken)
         do {
-            let access = ResourceAccess(documentURL: document.fileURL, roots: grantedRoots, token: documentToken)
-            let file = try access.resolve(href)
+            var file = try access.resourceURL(href)
             guard MarkdownDocument.supportedFilenameExtensions.contains(file.pathExtension.lowercased()) else { return }
+            do {
+                file = try access.resolve(href)
+            } catch let error as CocoaError where error.code == .fileReadNoPermission {
+                guard let directory = access.directoryContaining(href) else { throw error }
+                resourcePermission = ResourcePermissionRequest(
+                    documentToken: documentToken, directory: directory, purpose: .document(link: href))
+                return
+            }
             await open(file)
         } catch {
-            errorMessage = String(localized: "Allow access to the containing folder to open this linked document.")
+            errorMessage = String(localized: "Unable to open this document: \(error.localizedDescription)")
         }
     }
 

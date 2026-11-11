@@ -11,6 +11,7 @@ final class ConversationPanel: UIView {
     let collapseButton = ConversationControlButton(
         symbol: "chevron.right", title: String(localized: "Collapse conversation"), identifier: "CollapseAgent")
     let sendButton = UIButton(type: .system)
+    private let titleLabel = UILabel()
     private let capsule = UIView()
     private let grabber = UIView()
     private let handle = UIView()
@@ -44,7 +45,7 @@ final class ConversationPanel: UIView {
         super.init(frame: .zero)
         isHidden = true
         accessibilityIdentifier = "ConversationPanel"
-        accessibilityLabel = String(localized: "AI conversation")
+        accessibilityLabel = String(localized: "AI Conversation")
         layer.cornerRadius = ReaderDesign.agentRadius
         layer.cornerCurve = .continuous
         clipsToBounds = false
@@ -60,7 +61,14 @@ final class ConversationPanel: UIView {
             glow.locations = [0, index == 0 ? 0.55 : 0.45]
             layer.addSublayer(glow)
         }
-        [webView, clearButton, collapseButton, grabber, capsule].forEach(addSubview)
+        [webView, clearButton, collapseButton, grabber, titleLabel, capsule].forEach(addSubview)
+        titleLabel.text = String(localized: "AI Conversation")
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textAlignment = .center
+        titleLabel.textColor = .secondaryLabel
+        titleLabel.accessibilityIdentifier = "ConversationTitle"
+        titleLabel.accessibilityTraits.insert(.header)
         grabber.isHidden = true
         grabber.addSubview(handle)
         capsule.addSubview(composer.view)
@@ -104,7 +112,8 @@ final class ConversationPanel: UIView {
         grabber.frame = CGRect(
             x: clearButton.frame.maxX, y: inset, width: max(0, collapseButton.frame.minX - clearButton.frame.maxX),
             height: hit)
-        handle.frame = CGRect(x: (grabber.bounds.width - 32) / 2, y: (hit - 4) / 2, width: 32, height: 4)
+        titleLabel.frame = grabber.frame.insetBy(dx: inset, dy: 0)
+        handle.frame = CGRect(x: (grabber.bounds.width - 32) / 2, y: 0, width: 32, height: 4)
         let margin = ReaderDesign.composerMargin
         let width = max(0, bounds.width - margin * 2)
         let inputWidth = max(1, width - hit - 6)

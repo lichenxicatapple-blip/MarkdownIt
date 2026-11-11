@@ -621,14 +621,14 @@ final class WebReaderTests: XCTestCase {
             bridge.detach()
             window.isHidden = true
         }
-        try await waitUntil { session.rendererReady && session.needsResourcePermission }
-        XCTAssertEqual(session.resourcePermissionDirectory?.path, images.path)
+        try await waitUntil { session.rendererReady && session.resourcePermission != nil }
+        XCTAssertEqual(session.resourcePermission?.directory.path, images.path)
         let firstGrant = await session.grant(images)
         XCTAssertTrue(firstGrant)
         session.reloadResources()
         try await waitUntil {
             let loaded = try await self.diagnostics(bridge)["localImages"] as? [[String: Any]] ?? []
-            return session.needsResourcePermission && session.resourcePermissionDirectory?.path == assets.path
+            return session.resourcePermission != nil && session.resourcePermission?.directory.path == assets.path
                 && loaded.contains {
                     ($0["path"] as? String)?.removingPercentEncoding == "images/同级.svg" && $0["loaded"] as? Bool == true
                 }
@@ -645,7 +645,7 @@ final class WebReaderTests: XCTestCase {
             let images = try await self.diagnostics(bridge)["localImages"] as? [[String: Any]] ?? []
             return images.count == 2 && images.allSatisfy { $0["loaded"] as? Bool == true }
         }
-        XCTAssertFalse(session.needsResourcePermission)
+        XCTAssertNil(session.resourcePermission)
         XCTAssertEqual(session.documentToken, token)
         XCTAssertEqual(session.document?.text, markdown)
         await session.closeDocument()
@@ -1238,7 +1238,7 @@ final class WebReaderTests: XCTestCase {
         XCTAssertGreaterThan(status["tables"] as? Int ?? 0, 0)
         XCTAssertGreaterThan((status["headings"] as? [String])?.count ?? 0, 25)
         XCTAssertEqual(status["overflow"] as? Bool, false)
-        XCTAssertFalse(session.needsResourcePermission)
+        XCTAssertNil(session.resourcePermission)
 
         _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 150])
         status = try await diagnostics(bridge)

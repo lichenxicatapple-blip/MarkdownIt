@@ -73,6 +73,135 @@ final class ResourceAccessTests: XCTestCase {
     }
 
     @MainActor
+    func testLocalDocumentLinkRequestsItsFolderWithoutLeavingCurrentDocument() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let notes = root.appendingPathComponent("notes", isDirectory: true)
+        let chapters = root.appendingPathComponent("Linked Chapters", isDirectory: true)
+        for folder in [notes, chapters] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = notes.appendingPathComponent("index.md")
+        try Data("# Index\n".utf8).write(to: file)
+        try Data("# Chapter\n".utf8).write(to: chapters.appendingPathComponent("chapter.md"))
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        await session.open(file)
+        let token = session.documentToken
+
+        await session.resolveLink("../Linked%20Chapters/chapter.md#section")
+
+        XCTAssertNotNil(session.resourcePermission, "A denied local document link must offer folder authorization")
+        XCTAssertEqual(session.resourcePermission?.directory.path, chapters.path)
+        XCTAssertNil(session.errorMessage, "Authorization must be actionable, not an error with only an OK button")
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertEqual(session.document?.fileURL, file)
+        await session.closeDocument()
+    }
+
+    @MainActor
+    func testLocalDocumentPermissionValidatesSelectionAndContinuesTheOriginalLink() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let notes = root.appendingPathComponent("notes", isDirectory: true)
+        let chapters = root.appendingPathComponent("chapters", isDirectory: true)
+        for folder in [notes, chapters] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let index = notes.appendingPathComponent("index.md")
+        let chapter = chapters.appendingPathComponent("one.md")
+        let next = chapters.appendingPathComponent("two.md")
+        for file in [index, chapter, next] { try Data("# \(file.lastPathComponent)\n".utf8).write(to: file) }
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        await session.open(index)
+        let token = session.documentToken
+        await session.resolveLink("../chapters/one.md")
+        let request = try XCTUnwrap(session.resourcePermission)
+        XCTAssertEqual(request.purpose, .document(link: "../chapters/one.md"))
+
+        // A late image failure must not replace an explicit document-open request.
+        session.localResourcesChanged(["images/figure.svg"], token: token)
+        session.resources.onPermissionDenied?(token, "images/figure.svg")
+        XCTAssertEqual(session.resourcePermission?.id, request.id)
+        let rejected = await session.finishResourcePermission(notes, requestID: request.id)
+        XCTAssertFalse(rejected)
+        XCTAssertEqual(session.resourcePermission?.id, request.id)
+        XCTAssertEqual(session.document?.fileURL, index)
+
+        let accepted = await session.finishResourcePermission(chapters, requestID: request.id)
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(session.document?.fileURL, chapter)
+        XCTAssertNil(session.resourcePermission)
+        XCTAssertNil(session.errorMessage)
+        XCTAssertTrue(session.recentDocuments.documents.contains { $0.folders.contains { $0.url == chapters } })
+        await session.resolveLink("two.md")
+        XCTAssertEqual(session.document?.fileURL, next, "An already authorized folder must not prompt again")
+        XCTAssertNil(session.resourcePermission)
+        await session.closeDocument()
+    }
+
+    @MainActor
+    func testCancelledAndOldDocumentPickerResultsCannotOpenTheLinkedDocument() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let index = root.appendingPathComponent("index.md")
+        let chapter = root.appendingPathComponent("chapter.md")
+        let other = root.appendingPathComponent("other.md")
+        for file in [index, chapter, other] { try Data("# \(file.lastPathComponent)\n".utf8).write(to: file) }
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        await session.open(index)
+        await session.resolveLink("chapter.md")
+        let cancelled = try XCTUnwrap(session.resourcePermission)
+        session.cancelResourcePermission()
+        let late = await session.finishResourcePermission(root, requestID: cancelled.id)
+        XCTAssertFalse(late)
+        XCTAssertEqual(session.document?.fileURL, index)
+        XCTAssertNil(session.resourcePermission)
+
+        await session.resolveLink("chapter.md")
+        let repeated = try XCTUnwrap(session.resourcePermission)
+        XCTAssertNotEqual(repeated.id, cancelled.id)
+        session.cancelResourcePermission(requestID: cancelled.id)
+        XCTAssertEqual(session.resourcePermission?.id, repeated.id, "An old picker cannot cancel the new request")
+        await session.open(other)
+        let stale = await session.finishResourcePermission(root, requestID: repeated.id)
+        XCTAssertFalse(stale)
+        XCTAssertEqual(session.document?.fileURL, other)
+        XCTAssertNil(session.resourcePermission)
+        await session.closeDocument()
+    }
+
+    @MainActor
+    func testNonMarkdownLinksDoNotRequestFolderPermission() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("index.md")
+        try Data("# Index\n".utf8).write(to: file)
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        await session.open(file)
+        for link in ["../images/figure.svg", "../notes/example.txt"] {
+            await session.resolveLink(link)
+            XCTAssertNil(session.resourcePermission)
+            XCTAssertNil(session.errorMessage)
+            XCTAssertEqual(session.document?.fileURL, file)
+        }
+        await session.closeDocument()
+    }
+
+    @MainActor
     func testPermissionRequestWaitsForAllDocumentPathsAndIgnoresAnOldDocument() async throws {
         let project = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
@@ -86,22 +215,23 @@ final class ResourceAccessTests: XCTestCase {
         await session.open(file)
         let token = session.documentToken
         session.resources.onPermissionDenied?(token, "images/本地图片.png")
-        XCTAssertFalse(
-            session.needsResourcePermission, "The inventory determines request order, not whichever image failed first")
+        XCTAssertNil(
+            session.resourcePermission,
+            "The inventory determines request order, not whichever image failed first")
         session.localResourcesChanged(["images/本地图片.png"], token: "old-document")
-        XCTAssertFalse(session.needsResourcePermission)
+        XCTAssertNil(session.resourcePermission)
         session.localResourcesChanged(["images/本地图片.png", "../assets/关系图.svg"], token: token)
-        XCTAssertTrue(session.needsResourcePermission)
-        XCTAssertEqual(session.resourcePermissionDirectory?.path, notes.appendingPathComponent("images").path)
-        session.needsResourcePermission = false
+        XCTAssertNotNil(session.resourcePermission)
+        XCTAssertEqual(session.resourcePermission?.directory.path, notes.appendingPathComponent("images").path)
+        session.cancelResourcePermission()
         session.localResourcesChanged(["images/本地图片.png"], token: token)
-        XCTAssertFalse(session.needsResourcePermission, "Cancel must not reopen the prompt on a later render")
+        XCTAssertNil(session.resourcePermission, "Cancel must not reopen the prompt on a later render")
         session.resources.onPermissionDenied?(token, "images/本地图片.png")
-        XCTAssertTrue(session.needsResourcePermission, "The inventory-first delivery order also works")
-        XCTAssertEqual(session.resourcePermissionDirectory?.path, notes.appendingPathComponent("images").path)
+        XCTAssertNotNil(session.resourcePermission, "The inventory-first delivery order also works")
+        XCTAssertEqual(session.resourcePermission?.directory.path, notes.appendingPathComponent("images").path)
         await session.closeDocument()
-        XCTAssertNil(session.resourcePermissionDirectory)
+        XCTAssertNil(session.resourcePermission?.directory)
         session.resources.onPermissionDenied?(token, "image.png")
-        XCTAssertFalse(session.needsResourcePermission)
+        XCTAssertNil(session.resourcePermission)
     }
 }

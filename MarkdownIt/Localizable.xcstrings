@@ -26,13 +26,13 @@
         }
       }
     },
-    "AI conversation" : {
+    "AI Conversation" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AI conversation"
+            "value" : "AI Conversation"
           }
         },
         "zh-Hans" : {
@@ -178,23 +178,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "允许联网搜索？"
-          }
-        }
-      }
-    },
-    "Allow access to the containing folder to open this linked document." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Allow access to the containing folder to open this linked document."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法打开链接的本地文档，请先授权它所在的文件夹。"
           }
         }
       }
@@ -1491,6 +1474,23 @@
         }
       }
     },
+    "Open Local Document" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Local Document"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开本地文档"
+          }
+        }
+      }
+    },
     "Open Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2536,6 +2536,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "撤销后的内容尚未保存。"
+          }
+        }
+      }
+    },
+    "This document is in the folder below. Please allow access." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This document is in the folder below. Please allow access."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文档位于以下文件夹，请允许访问。"
           }
         }
       }
