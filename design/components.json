@@ -306,7 +306,7 @@
         "Content surfaces share the parser, sanitizer and offline extensions.",
         "CJK-friendly emphasis rules apply to documents, quotes, user messages, streaming answers and restored history through the same parser; source text and escaped/code literals remain unchanged.",
         "Message and reference anchors are scoped to their own rendered content.",
-        "Code blocks share one copy control outside their horizontally scrolling content and fixed side insets; single-line and multiline code retain first-line alignment, copy plain text through the native clipboard, and exclude controls from extracted quotations."
+        "Code blocks share one floating copy control over a full-width horizontal viewport with fixed side insets. A compact round surface, derived from the icon and shared spacing, separates the control from code scrolling beneath it. Scrollable trailing space keeps line ends readable without reserving a separate control column. Single-line and multiline code retain first-line alignment, copy plain text through the native clipboard, and exclude controls from extracted quotations."
       ],
       "specification": "design/README.md#文档渲染范围"
     },

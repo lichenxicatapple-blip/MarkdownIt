@@ -72,7 +72,7 @@ xcodebuild -project MarkdownIt.xcodeproj -scheme MarkdownIt \
 
 `MarkdownIt` scheme 使用唯一的共享测试计划 [Full.xctestplan](MarkdownIt.xcodeproj/xcshareddata/xctestplans/Full.xctestplan)。本地、每次推送、PR 和手动 CI 均完整执行单元、集成和 UI 测试；新增用例由 XCTest 自动发现，不维护核心用例清单。
 
-在模拟器的键盘菜单中关闭实体键盘模拟，并确认点击输入框时显示完整软键盘；实体键盘按下述真机流程验证。自动化运行期间不要手动操作正在测试的模拟器或向其发送键盘快捷键；交互检查在测试结束后进行。
+在 Device Hub 中为每台测试设备关闭 `Device → Keyboard → Simulate Hardware Keyboard`，并确认点击输入框时显示完整软键盘。新连接的设备可能沿用 Settings 中的默认实体键盘模拟配置，应核对当前设备；工具栏的 Keyboard Capture 是另一项设置。实体键盘按下述真机流程验证。自动化运行期间不要手动操作正在测试的模拟器或向其发送键盘快捷键；交互检查在测试结束后进行。
 
 每条 UI 用例在收尾时终止被测 App；跨启动的持久化场景在同一用例内验证。
 

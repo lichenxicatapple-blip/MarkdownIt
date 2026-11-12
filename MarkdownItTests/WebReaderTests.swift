@@ -105,7 +105,7 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testCodeCopyKeepsSingleLinesCompactAndControlsOutsideHorizontalScroll() async throws {
+    func testCodeCopyFloatsOverFullWidthCodeAndKeepsLineEndsReadable() async throws {
         let code = "let title = \"你好，Markdown! 👋\"\n\tprint(title < \"&\")\n"
         let markdown =
             "# Code\n\nInline `code` stays inline.\n\n```sh\ngit status --short\n```\n\n```swift\n"
@@ -133,16 +133,30 @@ final class WebReaderTests: XCTestCase {
                 const gutters=[0,200,scroller.scrollWidth].map(offset=>{
                   scroller.scrollLeft=offset;
                   const edge=long.getBoundingClientRect(),viewport=scroller.getBoundingClientRect(),control=copy.getBoundingClientRect();
-                  return {leading:viewport.left-edge.left,trailing:control.left-viewport.right,
-                    inset:parseFloat(getComputedStyle(long).getPropertyValue('--mdv-code-inset')),controlShift:control.x-before};
+                  return {leading:viewport.left-edge.left,trailing:edge.right-viewport.right,
+                    inset:parseFloat(getComputedStyle(long).getPropertyValue('--mdv-code-inset')),
+                    viewportWidth:viewport.width,blockWidth:edge.width,controlShift:control.x-before};
                 });
+                const walker=document.createTreeWalker(scroller.querySelector('code'),NodeFilter.SHOW_TEXT);
+                let tail;
+                while(walker.nextNode()) if(walker.currentNode.textContent.trimEnd()) tail=walker.currentNode;
+                const end=tail.textContent.trimEnd().length,last=document.createRange();
+                last.setStart(tail,end-1);last.setEnd(tail,end);
+                const finalCharacter=last.getBoundingClientRect(),viewport=scroller.getBoundingClientRect();
+                const surface=getComputedStyle(copy,'::before'),surfaceInset=parseFloat(surface.left);
+                const coverLeft=copy.getBoundingClientRect().left+surfaceInset;
                 return {count:blocks.length,highlighted:!!blocks[1].querySelector('.hljs-keyword'),
                   singleHeight:single.getBoundingClientRect().height,
                   naturalHeight,
                   alignment:Math.abs((control.top+control.bottom)/2-(first.top+first.bottom)/2),
                   targetWidth:control.width,targetHeight:control.height,
                   scroll:scroller.scrollLeft,gutters,controlShift:copy.getBoundingClientRect().x-before,
-                  clearOfCode:copy.getBoundingClientRect().left>=scroller.getBoundingClientRect().right};
+                  overlaysCode:copy.getBoundingClientRect().left<viewport.right&&copy.parentElement===long,
+                  surfaceWidth:copy.getBoundingClientRect().width-2*surfaceInset,
+                  expectedSurfaceWidth:parseFloat(getComputedStyle(long).getPropertyValue('--mdv-code-copy-icon'))
+                    +2*parseFloat(getComputedStyle(long).getPropertyValue('--mdv-code-copy-inset')),
+                  lastCharacterVisible:finalCharacter.width>0&&finalCharacter.left>=viewport.left
+                    &&finalCharacter.right<=viewport.right&&finalCharacter.right<=coverLeft};
                 """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
         let value = try XCTUnwrap(geometry)
         XCTAssertEqual(value["count"] as? Int, 3)
@@ -155,13 +169,20 @@ final class WebReaderTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(value["targetHeight"] as? Double), 44)
         XCTAssertGreaterThan(try XCTUnwrap(value["scroll"] as? Double), 0)
         XCTAssertEqual(value["controlShift"] as? Double, 0)
-        XCTAssertEqual(value["clearOfCode"] as? Bool, true)
+        XCTAssertEqual(value["overlaysCode"] as? Bool, true)
+        XCTAssertEqual(
+            try XCTUnwrap(value["surfaceWidth"] as? Double),
+            try XCTUnwrap(value["expectedSurfaceWidth"] as? Double), accuracy: 0.01)
+        XCTAssertEqual(value["lastCharacterVisible"] as? Bool, true)
         let gutters = try XCTUnwrap(value["gutters"] as? [[String: Double]])
         XCTAssertEqual(gutters.count, 3)
         for gutter in gutters {
             let inset = try XCTUnwrap(gutter["inset"])
             XCTAssertEqual(try XCTUnwrap(gutter["leading"]), inset, accuracy: 0.01)
-            XCTAssertGreaterThanOrEqual(try XCTUnwrap(gutter["trailing"]), inset)
+            XCTAssertEqual(try XCTUnwrap(gutter["trailing"]), inset, accuracy: 0.01)
+            XCTAssertEqual(
+                try XCTUnwrap(gutter["viewportWidth"]), try XCTUnwrap(gutter["blockWidth"]) - 2 * inset,
+                accuracy: 0.01)
             XCTAssertEqual(gutter["controlShift"], 0)
         }
         _ = try await bridge.webView.evaluateJavaScript("document.querySelectorAll('.mdv-code-copy')[1].click()")
