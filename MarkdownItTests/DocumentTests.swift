@@ -3,6 +3,146 @@ import XCTest
 @testable import MarkdownIt
 
 final class DocumentTests: XCTestCase {
+    @MainActor
+    private func linkedDocuments(_ count: Int = 3) async throws -> (ReaderSession, [URL]) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let session = ReaderSession(
+            defaults: defaults, modelSettings: isolatedModelSettings(),
+            annotationStore: ReadingAnnotationStore(directory: root.appendingPathComponent("Annotations")))
+        addTeardownBlock { @MainActor in
+            await session.closeDocument()
+            defaults.removePersistentDomain(forName: suite)
+            try FileManager.default.removeItem(at: root)
+        }
+        let files = (0..<count).map { root.appendingPathComponent("chapter-\($0).md") }
+        for file in files { try Data("# \(file.lastPathComponent)\n".utf8).write(to: file) }
+        await session.grant(root)
+        await session.open(files[0])
+        return (session, files)
+    }
+
+    @MainActor
+    func testDocumentLinksReturnThroughEveryVisitBeyondTheRecentList() async throws {
+        let (session, files) = try await linkedDocuments(12)
+        XCTAssertFalse(session.canGoBack)
+        for index in 1..<files.count {
+            session.mode = index.isMultiple(of: 2) ? "preview" : "source"
+            await session.resolveLink(files[index].lastPathComponent)
+            XCTAssertEqual(session.document?.fileURL, files[index])
+            XCTAssertTrue(session.canGoBack)
+        }
+        XCTAssertEqual(session.recentDocuments.documents.count, 10)
+        XCTAssertFalse(session.recentDocuments.documents.contains { $0.identity == files[0].standardizedFileURL })
+        for index in (0..<(files.count - 1)).reversed() {
+            let token = session.documentToken
+            await session.goBack()
+            XCTAssertEqual(session.document?.fileURL, files[index])
+            XCTAssertNotEqual(session.documentToken, token, "Each reopened visit needs a fresh asynchronous identity")
+            XCTAssertEqual(session.mode, (index + 1).isMultiple(of: 2) ? "preview" : "source")
+            XCTAssertEqual(session.canGoBack, index > 0)
+        }
+        await session.goBack()
+        XCTAssertEqual(session.document?.fileURL, files[0])
+        XCTAssertNil(session.errorMessage)
+    }
+
+    @MainActor
+    func testFailedNavigationAndFailedReturnDoNotConsumeTheLinkPath() async throws {
+        let (session, files) = try await linkedDocuments()
+        await session.resolveLink(files[1].lastPathComponent)
+        let token = session.documentToken
+        await session.resolveLink("missing.md")
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertTrue(session.canGoBack)
+        XCTAssertNotNil(session.errorMessage)
+        session.errorMessage = nil
+        try FileManager.default.removeItem(at: files[0])
+        await session.goBack()
+        XCTAssertEqual(session.document?.fileURL, files[1])
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertTrue(session.canGoBack)
+        XCTAssertNotNil(session.errorMessage)
+        session.errorMessage = nil
+        try Data("# Restored file\n".utf8).write(to: files[0])
+        await session.goBack()
+        XCTAssertEqual(session.document?.fileURL, files[0])
+        XCTAssertEqual(session.document?.text, "# Restored file\n")
+        XCTAssertFalse(session.canGoBack)
+    }
+
+    @MainActor
+    func testCancelledLinkAuthorizationAndFailedSaveKeepTheCurrentVisit() async throws {
+        let (session, files) = try await linkedDocuments()
+        let outside = files[0].deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        let target = outside.appendingPathComponent("outside.md")
+        try Data("# Outside\n".utf8).write(to: target)
+        await session.resolveLink(files[1].lastPathComponent)
+        let token = session.documentToken
+        await session.resolveLink(target.absoluteString)
+        XCTAssertNotNil(session.resourcePermission)
+        session.cancelResourcePermission()
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertTrue(session.canGoBack)
+        let document = try XCTUnwrap(session.document)
+        session.sourceChanged("# Unsaved edits\n", token: token)
+        document.failNextWritesForTesting(1)
+        await session.goBack()
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertTrue(session.canGoBack)
+        XCTAssertEqual(session.document?.text, "# Unsaved edits\n")
+        await session.goBack()
+        XCTAssertEqual(session.document?.fileURL, files[0])
+        XCTAssertFalse(session.canGoBack)
+        XCTAssertEqual(try String(contentsOf: files[1], encoding: .utf8), "# Unsaved edits\n")
+    }
+
+    @MainActor
+    func testNewDocumentEntryAndCloseEndThePathWhileSelfLinksDoNotAddVisits() async throws {
+        let (session, files) = try await linkedDocuments()
+        let token = session.documentToken
+        await session.resolveLink(files[0].lastPathComponent)
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertFalse(session.canGoBack)
+        await session.resolveLink(files[1].lastPathComponent)
+        await session.resolveLink(files[1].lastPathComponent)
+        await session.goBack()
+        XCTAssertEqual(session.document?.fileURL, files[0])
+        XCTAssertFalse(session.canGoBack)
+        await session.resolveLink(files[1].lastPathComponent)
+        await session.open(files[2])
+        XCTAssertEqual(session.document?.fileURL, files[2])
+        XCTAssertFalse(session.canGoBack)
+        await session.resolveLink(files[0].lastPathComponent)
+        XCTAssertTrue(session.canGoBack)
+        await session.closeDocument()
+        XCTAssertNil(session.document)
+        XCTAssertFalse(session.canGoBack)
+        await session.open(files[0])
+        XCTAssertFalse(session.canGoBack)
+    }
+
+    @MainActor
+    func testReturningToAnEarlierVisitKeepsEditsFromALaterVisitToTheSameFile() async throws {
+        let (session, files) = try await linkedDocuments()
+        await session.resolveLink(files[1].lastPathComponent)
+        await session.resolveLink(files[0].lastPathComponent)
+        session.sourceChanged("# Updated on a later visit\n", token: session.documentToken)
+        await session.goBack()
+        XCTAssertEqual(session.document?.fileURL, files[1])
+        await session.goBack()
+        XCTAssertEqual(session.document?.fileURL, files[0])
+        XCTAssertEqual(session.document?.text, "# Updated on a later visit\n")
+        XCTAssertEqual(try String(contentsOf: files[0], encoding: .utf8), "# Updated on a later visit\n")
+        XCTAssertFalse(session.canGoBack)
+        XCTAssertFalse(session.recoveryConflict)
+    }
+
     func testNewDocumentSeedIsEmptyMarkdownAndRemovedWhenReleased() throws {
         var document: NewDocumentExport? = try NewDocumentExport(filename: "阅读笔记")
         let url = try XCTUnwrap(document?.fileURL)

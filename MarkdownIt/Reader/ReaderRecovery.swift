@@ -1,5 +1,13 @@
 import Foundation
 
+/// One visit in the link path. Conversations remain in their per-document store.
+struct ReaderNavigationEntry: Codable, Sendable {
+    let location: RecentDocument
+    let editor: SourceEditor.Recovery
+    let web: Data
+    let annotations: ReadingAnnotations
+}
+
 /// A checkpoint of the open document, not a second document or editing buffer.
 struct ReaderRecovery: Codable, Sendable {
     var version = 1
@@ -16,6 +24,7 @@ struct ReaderRecovery: Codable, Sendable {
     var annotations: ReadingAnnotations? = nil
     var annotationDraft: ReaderAnnotationHost.Recovery? = nil
     var conversationID: String? = nil
+    var navigation: [ReaderNavigationEntry]? = nil
 }
 
 /// Serial, atomic replacement keeps the previous checkpoint intact on write failure.

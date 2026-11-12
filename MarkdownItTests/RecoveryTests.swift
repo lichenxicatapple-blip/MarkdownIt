@@ -38,6 +38,80 @@ final class RecoveryTests: AgentReaderTestCase {
         return session
     }
 
+    func testLinkPathRestoresEachReadingPositionModeAndEditorHistoryAfterRelaunch() async throws {
+        let store = try store()
+        let text = (1...40).map { "## Section \($0)\n\n" + String(repeating: "Paragraph content.\n\n", count: 12) }
+            .joined()
+        let (session, bridge, first) = try await reader(text, store: store)
+        let root = first.deletingLastPathComponent()
+        let second = root.appendingPathComponent("second.md")
+        let third = root.appendingPathComponent("third.md")
+        try Data(text.utf8).write(to: second)
+        try Data("# Third document\n".utf8).write(to: third)
+        _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 230])
+        let captured = try await bridge.call("captureRecovery")
+        let before = try XCTUnwrap((captured as? [String: Any])?["anchor"] as? [String: Any])
+        await session.resolveLink(second.lastPathComponent)
+        bridge.update()
+        try await wait { session.rendererReady }
+        let editor = bridge.sourceEditor
+        let range = (text as NSString).range(of: "Paragraph content.")
+        let marked = await session.setAnnotation(
+            ranges: [.init(start: range.location, end: NSMaxRange(range))], underlined: true,
+            token: session.documentToken, sourceRevision: editor.history.revision)
+        XCTAssertTrue(marked)
+        XCTAssertFalse(session.annotations.visible.isEmpty)
+        try await sourceMode(bridge)
+        let replacement = NSMutableString(string: text)
+        replacement.replaceCharacters(in: range, with: "")
+        let editedText = replacement as String + "Saved second-document edit.\n"
+        XCTAssertTrue(editor.replace(expected: text, with: editedText, id: "second-edit"))
+        XCTAssertTrue(session.annotations.visible.isEmpty)
+        editor.restore(SourceReadingPosition(line: 100, y: 80))
+        editor.textView.selectedRange = NSRange(location: 22, length: 7)
+        let position = editor.capturePosition()
+        await session.resolveLink(third.lastPathComponent)
+        bridge.update()
+        try await wait { session.rendererReady }
+        await session.checkpointRecovery()
+        let loaded = try await store.load()
+        let saved = try XCTUnwrap(loaded)
+        XCTAssertEqual(saved.navigation?.count, 2)
+        for entry in saved.navigation ?? [] {
+            let web = try XCTUnwrap(try JSONSerialization.jsonObject(with: entry.web) as? [String: Any])
+            XCTAssertNil(web["conversation"], "Visits must not duplicate each document's AI history")
+            XCTAssertNil(web["frozenImages"])
+        }
+        bridge.detach()
+        _ = await session.document?.closeSavingChanges()
+        let next = await restored(ReaderRecoveryStore(directory: store.directory))
+        let (nextBridge, _) = try await mountReader(next)
+        XCTAssertEqual(next.document?.fileURL, third)
+        XCTAssertTrue(next.canGoBack)
+        await next.goBack()
+        try await wait { next.rendererReady && next.mode == "source" }
+        XCTAssertEqual(next.document?.fileURL, second)
+        XCTAssertEqual(nextBridge.sourceEditor.history.text, editedText)
+        XCTAssertTrue(next.annotations.visible.isEmpty)
+        XCTAssertTrue(nextBridge.sourceEditor.history.canUndo)
+        XCTAssertEqual(nextBridge.sourceEditor.textView.selectedRange, NSRange(location: 22, length: 7))
+        XCTAssertEqual(nextBridge.sourceEditor.capturePosition().line, position.line, accuracy: 0.15)
+        XCTAssertTrue(nextBridge.sourceEditor.history.move(forward: false))
+        XCTAssertEqual(nextBridge.sourceEditor.history.text, text)
+        XCTAssertEqual(next.annotations.visible.first?.ranges, [.init(start: range.location, end: NSMaxRange(range))])
+        await next.goBack()
+        try await wait { next.rendererReady && next.mode == "preview" }
+        XCTAssertEqual(next.document?.fileURL, first)
+        XCTAssertFalse(next.canGoBack)
+        let returned = try await nextBridge.call("captureRecovery")
+        let after = try XCTUnwrap((returned as? [String: Any])?["anchor"] as? [String: Any])
+        XCTAssertEqual(after["line"] as? Double ?? -1, before["line"] as? Double ?? -2, accuracy: 0.15)
+        XCTAssertEqual(after["y"] as? Double ?? -1, before["y"] as? Double ?? -2, accuracy: 1)
+        await next.closeDocument()
+        let ended = try await store.load()
+        XCTAssertNil(ended)
+    }
+
     func testForegroundCheckpointPreservesUnconfirmedAIComposition() async throws {
         let store = try store()
         let original = "# Reading\n\nA passage to discuss.\n"

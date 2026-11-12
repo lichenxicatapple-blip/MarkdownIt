@@ -13,9 +13,14 @@
     "join": "round",
     "color": "currentColor",
     "minimumHitTarget": 44,
-    "readerChrome": "Outline and document close use size.readerChromeIcon within size.readerChromeCanvas; the compact conversation header uses size.agentControlIcon. All retain natural SF Symbols metrics and 44pt hit targets."
+    "readerChrome": "Outline, previous document and document close use size.readerChromeIcon within size.readerChromeCanvas; the compact conversation header uses size.agentControlIcon. All retain natural SF Symbols metrics and 44pt hit targets."
   },
   "icons": [
+    {
+      "action": "previous-document",
+      "native": "chevron.backward",
+      "size": 18
+    },
     {
       "action": "outline",
       "native": "sidebar.left",

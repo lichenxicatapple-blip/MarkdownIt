@@ -7,6 +7,31 @@ import XCTest
 
 final class WebReaderTests: XCTestCase {
     @MainActor
+    func testDocumentChromeKeepsSeparateTargetsForLinkedVisitsAcrossLayouts() {
+        for width in [CGFloat(393), 834, 1194] {
+            for leading in [CGFloat(0), 248] where leading == 0 || width >= 834 {
+                for showsOutline in [false, true] {
+                    for agentOpen in [false, true] {
+                        let layout = ReaderChromeLayout(
+                            width: width, documentLeading: leading, showsOutline: showsOutline,
+                            hasPrevious: true, agentOpen: agentOpen)
+                        XCTAssertEqual(layout.back, ReaderDesign.chromeInset + leading)
+                        let targets = [layout.back, layout.close] + (showsOutline ? [layout.outline] : [])
+                        for index in targets.indices {
+                            for other in targets.indices where other > index {
+                                XCTAssertGreaterThanOrEqual(
+                                    abs(targets[index] - targets[other]),
+                                    ReaderDesign.hitTarget + ReaderDesign.floatingInset)
+                            }
+                        }
+                        XCTAssertTrue(targets.allSatisfy { $0 >= 0 && $0 + ReaderDesign.hitTarget <= width })
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
     private func waitUntil(
         timeout: TimeInterval = 35, message: @autoclosure () -> String = "Reader did not reach its expected state",
         file: StaticString = #filePath, line: UInt = #line,

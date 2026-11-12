@@ -17,6 +17,7 @@
         "ModelSettings",
         "ModelConfigurationPrompt",
         "DocumentClose",
+        "DocumentNavigation",
         "ModelDataConsentPrompt",
         "SearchDataConsentPrompt"
       ],
@@ -336,6 +337,22 @@
         "Configuration resumes the original AI entry only for the same document and never submits a question."
       ],
       "specification": "design/README.md#请求反馈"
+    },
+    {
+      "id": "DocumentNavigation",
+      "nativeOwners": [
+        "MarkdownIt/Reader/ReaderSession.swift",
+        "MarkdownIt/Reader/ReaderRecovery.swift",
+        "MarkdownIt/Reader/ReaderScreen.swift",
+        "MarkdownIt/Reader/ReaderFloatingControls.swift"
+      ],
+      "invariants": [
+        "Local Markdown links push visits only after a successful document handoff; Back pops one visit only after successful reopening, preserving the earlier reading mode and semantic position.",
+        "Visits retain their own reading state and share the existing per-document conversation store. Back never overwrites a newer file with an older saved visit.",
+        "The previous-document control appears only with a link path and shares document chrome metrics and glass. It follows the document column; the outline and Close controls keep separate targets.",
+        "Explicit successful closure or a new document entry clears the link path; process restoration retains it. Failed saves, failed opens and cancelled authorization leave it intact."
+      ],
+      "specification": "design/README.md#文档链接与返回"
     },
     {
       "id": "DocumentClose",

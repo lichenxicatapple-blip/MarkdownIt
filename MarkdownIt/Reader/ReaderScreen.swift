@@ -42,6 +42,10 @@ struct ReaderScreen: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let chrome = ReaderChromeLayout(
+                width: geometry.size.width, documentLeading: session.documentLeading,
+                showsOutline: showsOutlineControl, hasPrevious: session.canGoBack && !session.agentModalActive,
+                agentOpen: session.agentOpen)
             ZStack {
                 if session.restoringSession {
                     ProgressView().accessibilityLabel("Restoring reading session")
@@ -80,13 +84,31 @@ struct ReaderScreen: View {
                                 chromeIcon("sidebar.left")
                             }
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
-                            .padding(.leading, ReaderDesign.chromeInset).padding(.top, ReaderDesign.floatingInset)
+                            .offset(x: chrome.outline).padding(.top, ReaderDesign.floatingInset)
+                            .animation(chromeAnimation, value: chrome.outline)
                             .accessibilityLabel(
                                 session.outlineExpanded
                                     ? String(localized: "Hide contents") : String(localized: "Show contents")
                             )
                             .accessibilityIdentifier("OutlineToggle")
                             .disabled(!session.rendererReady)
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if session.canGoBack && !session.agentModalActive {
+                            Button {
+                                toolsExpanded = false
+                                Task { await session.goBack() }
+                            } label: {
+                                chromeIcon("chevron.backward")
+                            }
+                            .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
+                            .offset(x: chrome.back).padding(.top, ReaderDesign.floatingInset)
+                            .animation(chromeAnimation, value: chrome.back)
+                            .accessibilityLabel("Previous document")
+                            .accessibilityIdentifier("PreviousDocument")
+                            .disabled(!session.rendererReady)
+                            .transition(.opacity)
                         }
                     }
                     .overlay(alignment: .topLeading) {
@@ -100,7 +122,7 @@ struct ReaderScreen: View {
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
                             .modifier(
                                 ReaderDocumentCloseMotion(
-                                    destination: closeDocumentOffset(width: geometry.size.width),
+                                    destination: chrome.close,
                                     reduceMotion: reduceMotion)
                             )
                             .padding(.top, ReaderDesign.floatingInset)
@@ -122,7 +144,8 @@ struct ReaderScreen: View {
                             reduceMotion ? nil : .easeOut(duration: ReaderDesign.contentDuration),
                             value: session.agentVisible)
                     }
-                    .allowsHitTesting(!session.isClosingDocument)
+                    .animation(chromeAnimation, value: session.canGoBack)
+                    .allowsHitTesting(!session.isClosingDocument && !session.isOpeningDocument)
                     .accessibilityHidden(session.isClosingDocument)
                     .transition(.opacity)
                 }
@@ -389,14 +412,8 @@ struct ReaderScreen: View {
 
     private var showsOutlineControl: Bool { session.mode == "preview" && session.hasOutline }
 
-    private func closeDocumentOffset(width: CGFloat) -> CGFloat {
-        if session.agentOpen {
-            let outlineClearance =
-                showsOutlineControl
-                ? ReaderDesign.hitTarget + 2 * ReaderDesign.floatingInset : 0
-            return ReaderDesign.chromeInset + max(session.documentLeading, outlineClearance)
-        }
-        return max(ReaderDesign.chromeInset, width - ReaderDesign.hitTarget - ReaderDesign.chromeInset)
+    private var chromeAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: ReaderDesign.toolsDuration)
     }
 
     private func chromeIcon(_ name: String) -> some View {

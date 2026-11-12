@@ -57,7 +57,7 @@ HTML 实体可以表示符号：`&amp;` 对应 &amp;，`&lt;` 对应 &lt;，`&co
 
 普通网址可以直接写作 https://commonmark.org/ ，邮箱样例为 <reader@example.com>。样例不会自动发送邮件或访问链接，只有点击时才处理跳转。
 
-参考式链接把文字与目标分开：[查看 CommonMark 语法说明][commonmark]，以及另一处使用相同目标的[语法参考][commonmark]。目标定义在文档末尾，预览时不应显示定义行本身。
+参考式链接把文字与目标分开：[查看 CommonMark 语法说明][commonmark]，以及另一处使用相同目标的[语法参考][commonmark]。目标定义在文档末尾，预览时不应显示定义行本身。本地笔记也可以通过相对路径连接：[阅读笔记的整理方法](notes/reading-notes.md)。
 
 ## 3. 标题层级与目录
 

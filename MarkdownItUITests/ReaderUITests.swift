@@ -1308,6 +1308,57 @@ final class ReaderUITests: XCTestCase {
         XCTAssertFalse(app.buttons["CloseRecentDocuments"].exists)
     }
 
+    func testLinkedDocumentsReturnOneLevelAtATimeAndCloseTheWholePath() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
+            "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        let reader = app.webViews["ReaderWebView"]
+        XCTAssertTrue(reader.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        let back = app.buttons["PreviousDocument"]
+        XCTAssertFalse(back.exists)
+        let firstLink = reader.links["阅读笔记的整理方法"]
+        for _ in 0..<12 {
+            if firstLink.exists && firstLink.isHittable { break }
+            reader.swipeUp()
+        }
+        XCTAssertTrue(firstLink.isHittable)
+        firstLink.tap()
+        let second = reader.staticTexts["阅读笔记的整理方法"]
+        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        XCTAssertTrue(back.isHittable)
+        let outline = app.buttons["OutlineToggle"]
+        let close = app.buttons["CloseDocument"]
+        XCTAssertEqual(back.frame.midY, outline.frame.midY, accuracy: 0.5)
+        XCTAssertEqual(back.frame.size, outline.frame.size)
+        XCTAssertFalse(back.frame.intersects(outline.frame))
+        XCTAssertFalse(back.frame.intersects(close.frame))
+        record("linked-document-back-control")
+        let secondLink = reader.links["从摘录到自己的表达"]
+        XCTAssertTrue(secondLink.isHittable)
+        secondLink.tap()
+        let third = reader.staticTexts["从摘录到自己的表达"]
+        XCTAssertTrue(third.waitForExistence(timeout: 10))
+        back.tap()
+        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        XCTAssertTrue(back.isHittable)
+        back.tap()
+        XCTAssertTrue(firstLink.waitForExistence(timeout: 10))
+        XCTAssertTrue(firstLink.isHittable, "Returning should restore the original link's reading position")
+        XCTAssertFalse(back.exists)
+        firstLink.tap()
+        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        secondLink.tap()
+        XCTAssertTrue(third.waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(app.buttons["OpenDocument"].waitForExistence(timeout: 8))
+        XCTAssertFalse(back.exists)
+        XCTAssertFalse(reader.exists)
+    }
+
     func testCloseFromSourceReturnsHomeAndOpensAnotherDocumentPicker() {
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()

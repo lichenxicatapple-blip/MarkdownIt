@@ -10,6 +10,28 @@ enum ReaderChromeSymbols {
     }
 }
 
+/// All document chrome uses the document column's leading edge and one stride.
+struct ReaderChromeLayout {
+    let back: CGFloat
+    let outline: CGFloat
+    let close: CGFloat
+
+    init(width: CGFloat, documentLeading: CGFloat, showsOutline: Bool, hasPrevious: Bool, agentOpen: Bool) {
+        let inset = ReaderDesign.chromeInset
+        let stride = ReaderDesign.hitTarget + ReaderDesign.floatingInset
+        back = inset + documentLeading
+        outline = inset + (hasPrevious && documentLeading == 0 ? stride : 0)
+        if agentOpen, hasPrevious {
+            close = max(back + stride, showsOutline ? outline + stride : 0)
+        } else if agentOpen {
+            let clearance = showsOutline ? ReaderDesign.hitTarget + 2 * ReaderDesign.floatingInset : 0
+            close = inset + max(documentLeading, clearance)
+        } else {
+            close = max(inset, width - ReaderDesign.hitTarget - inset)
+        }
+    }
+}
+
 /// A short wind-up, a leaning dash and a soft landing, retargeted from the current pose.
 struct ReaderDocumentCloseMotion: ViewModifier {
     var destination: CGFloat

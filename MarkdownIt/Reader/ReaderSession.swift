@@ -29,6 +29,8 @@ final class ReaderSession: ObservableObject {
     private var checkpointTask: Task<Void, Never>?
     private var checkpointRequested = false
     private var backgroundCheckpoint = false
+    @Published private var navigationHistory: [ReaderNavigationEntry] = []
+    var canGoBack: Bool { !navigationHistory.isEmpty }
 
     @Published private(set) var documentToken = UUID().uuidString.lowercased()
     @Published var mode = "preview"
@@ -81,11 +83,16 @@ final class ReaderSession: ObservableObject {
     private let modelKey: (@MainActor () -> String)?
     private let modelSettings: ModelSettingsStore
     private var savedAPIKey = ""
-    private var opening = false
+    @Published private(set) var isOpeningDocument = false
     private var failedCloseToken: String?
     private var pendingAgentEntry: (id: String, token: String)?
     private var pendingDataSharing: (id: String, token: String, service: URL)?
     private let defaults: UserDefaults
+
+    private enum DocumentNavigation {
+        case replace, followLink
+        case back(ReaderNavigationEntry)
+    }
 
     init(
         defaults: UserDefaults = .standard, modelClient: ModelClient = ModelClient(),
@@ -253,18 +260,19 @@ final class ReaderSession: ObservableObject {
 
     private func openDocument(
         replacing recentID: UUID? = nil, startingNewDocument: Bool = false,
+        navigation: DocumentNavigation = .replace,
         resolve: () async throws -> RecentDocumentLocation
     ) async throws -> Bool {
-        guard !opening, !recoveryConflict, !isClosingDocument, failedCloseToken == nil,
+        guard !isOpeningDocument, !recoveryConflict, !isClosingDocument, failedCloseToken == nil,
             bridge?.annotationHost.hasUnsavedChanges != true
         else { return false }
-        opening = true
+        isOpeningDocument = true
         var incomingScope: URL?
         var incomingFolderScopes: [URL] = []
         var restoredFolders: [URL] = []
         var installed = false
         defer {
-            opening = false
+            isOpeningDocument = false
             if !installed {
                 incomingScope?.stopAccessingSecurityScopedResource()
                 for folder in incomingFolderScopes { folder.stopAccessingSecurityScopedResource() }
@@ -278,7 +286,17 @@ final class ReaderSession: ObservableObject {
                 .fileReadUnknown,
                 userInfo: [NSLocalizedDescriptionKey: String(localized: "Only Markdown documents are supported.")])
         }
-        if document?.fileURL.standardizedFileURL == url.standardizedFileURL { return true }
+        if document?.fileURL.standardizedFileURL == url.standardizedFileURL {
+            if case .replace = navigation {
+                navigationHistory.removeAll()
+                requestCheckpoint()
+            }
+            return true
+        }
+        if case .back(let entry) = navigation {
+            let validator = SourceHistory()
+            try validator.restore(entry.editor.history)
+        }
         for folder in location.folders {
             if grantedRoots.contains(folder) {
                 restoredFolders.append(folder)
@@ -313,6 +331,17 @@ final class ReaderSession: ObservableObject {
         guard await preserveConversation() else {
             _ = await next.closeSavingChanges()
             return false
+        }
+        let previousVisit: ReaderNavigationEntry?
+        do {
+            if case .followLink = navigation {
+                previousVisit = try captureNavigationEntry()
+            } else {
+                previousVisit = nil
+            }
+        } catch {
+            _ = await next.closeSavingChanges()
+            throw error
         }
         if let document, !(await document.closeSavingChanges()) {
             _ = await next.closeSavingChanges()
@@ -382,9 +411,19 @@ final class ReaderSession: ObservableObject {
         document = next
         configureResources()
         pendingRecovery = nil
-        if !startingNewDocument, !restoringSession, let recoveryLocation,
-            let saved = try await recoveryStore?.load(location: recoveryLocation)
+        switch navigation {
+        case .replace: navigationHistory.removeAll()
+        case .followLink:
+            if let previousVisit { navigationHistory.append(previousVisit) }
+        case .back: navigationHistory.removeLast()
+        }
+        if case .back(let entry) = navigation {
+            try installNavigationEntry(entry)
+        } else if !startingNewDocument, !restoringSession, let recoveryLocation,
+            var saved = try await recoveryStore?.load(location: recoveryLocation)
         {
+            // An explicitly opened file joins this path, not a stale saved path.
+            saved.navigation = navigationHistory
             let validator = SourceHistory()
             try validator.restore(saved.editor.history)
             pendingRecovery = saved
@@ -396,6 +435,54 @@ final class ReaderSession: ObservableObject {
         }
         requestCheckpoint()
         return true
+    }
+
+    func goBack() async {
+        guard let entry = navigationHistory.last else { return }
+        do {
+            _ = try await openDocument(replacing: entry.location.id, navigation: .back(entry)) {
+                try await self.recentDocuments.resolve(entry.location)
+            }
+        } catch {
+            errorMessage = String(localized: "Unable to open this document: \(error.localizedDescription)")
+        }
+    }
+
+    private func captureNavigationEntry() throws -> ReaderNavigationEntry? {
+        guard let document, let location = recoveryLocation else { return nil }
+        var web: [String: Any] = [:]
+        if let recoveryWeb { web = try JSONSerialization.jsonObject(with: recoveryWeb) as? [String: Any] ?? [:] }
+        // A visit stores reading state, never a second AI history or image cache.
+        for key in ["conversation", "frozenImages", "composerEpoch"] { web.removeValue(forKey: key) }
+        web["mode"] = mode
+        web["outline"] = outlineExpanded
+        return ReaderNavigationEntry(
+            location: recentDocuments.documents.first(where: { $0.id == location.id }) ?? location,
+            editor: editorRecovery(for: document), web: try JSONSerialization.data(withJSONObject: web),
+            annotations: annotations)
+    }
+
+    private func installNavigationEntry(_ entry: ReaderNavigationEntry) throws {
+        guard let document else { return }
+        let editor: SourceEditor.Recovery
+        if entry.editor.history.text == document.text {
+            editor = entry.editor
+            annotations = loadedAnnotations ?? annotations
+            annotations.restoreHistory(from: entry.annotations)
+        } else {
+            // A saved visit must not overwrite a newer file, including a later
+            // visit to the same path. Reuse its position with the current text.
+            let history = SourceHistory()
+            history.reset(document.text)
+            var selection = entry.editor.selection
+            let length = document.text.utf16.count
+            let start = max(0, min(selection.range.location, length))
+            selection.range = NSRange(location: start, length: max(0, min(selection.range.length, length - start)))
+            editor = SourceEditor.Recovery(
+                history: history.snapshot(), selection: selection, position: entry.editor.position, focused: false)
+        }
+        loadedAnnotations = nil
+        try installReadingState(editor: editor, web: entry.web)
     }
 
     func annotationsEdited(_ edit: SourceHistory.Edit, historyIDs: Set<String>) {
@@ -534,7 +621,7 @@ final class ReaderSession: ObservableObject {
     }
 
     func closeDocument(discardChanges: Bool = false) async {
-        guard !opening, !isClosingDocument, let document else { return }
+        guard !isOpeningDocument, !isClosingDocument, let document else { return }
         guard bridge?.annotationHost.hasUnsavedChanges != true else { return }
         guard !discardChanges || failedCloseToken == documentToken else { return }
         isClosingDocument = true
@@ -602,6 +689,7 @@ final class ReaderSession: ObservableObject {
         documentScope = nil
         annotations = ReadingAnnotations()
         annotationPath = nil
+        navigationHistory.removeAll()
         self.document = nil
         bridge = nil
     }
@@ -642,7 +730,9 @@ final class ReaderSession: ObservableObject {
                     documentToken: documentToken, directory: directory, purpose: .document(link: href))
                 return
             }
-            await open(file)
+            _ = try await openDocument(navigation: .followLink) {
+                RecentDocumentLocation(file: file, folders: await self.recentDocuments.folders(for: file))
+            }
         } catch {
             errorMessage = String(localized: "Unable to open this document: \(error.localizedDescription)")
         }
@@ -1025,23 +1115,28 @@ extension ReaderSession {
         }
         recoverySequence = record.sequence
         documentToken = record.token
-        restoredEditor = record.editor
         restoredAnnotation = record.annotationDraft
-        recoveryWeb = record.web
-        if let conversationWeb,
-            let retained = try JSONSerialization.jsonObject(with: conversationWeb) as? [String: Any]
-        {
-            var web: [String: Any] = [:]
-            if let data = record.web { web = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:] }
-            web.merge(retained) { _, retained in retained }
-            recoveryWeb = try JSONSerialization.data(withJSONObject: web)
-        }
+        navigationHistory = record.navigation ?? []
         if document.text != record.editor.history.text {
             document.text = record.editor.history.text
             document.updateChangeCount(.done)
             scheduleAutosave()
         }
-        if let data = record.web,
+        try installReadingState(editor: record.editor, web: record.web)
+    }
+
+    private func installReadingState(editor: SourceEditor.Recovery, web data: Data?) throws {
+        restoredEditor = editor
+        recoveryWeb = data
+        if let conversationWeb,
+            let retained = try JSONSerialization.jsonObject(with: conversationWeb) as? [String: Any]
+        {
+            var web: [String: Any] = [:]
+            if let data { web = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:] }
+            web.merge(retained) { _, retained in retained }
+            recoveryWeb = try JSONSerialization.data(withJSONObject: web)
+        }
+        if let data,
             let web = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         {
             mode = web["mode"] as? String == "source" ? "source" : "preview"
@@ -1114,18 +1209,7 @@ extension ReaderSession {
         guard await preserveConversation(includeWeb: includeWeb) else { return }
         guard token == documentToken, !isClosingDocument, pendingRecovery == nil else { return }
         guard let recoveryStore else { return }
-        let editor: SourceEditor.Recovery
-        if let bridge, bridge.sourceEditor.history.text == document.text {
-            editor = bridge.sourceEditor.checkpoint()
-        } else if let restoredEditor {
-            editor = restoredEditor
-        } else {
-            let history = SourceHistory()
-            history.reset(document.text)
-            editor = SourceEditor.Recovery(
-                history: history.snapshot(), selection: SourceSelection(range: NSRange(location: 0, length: 0)),
-                position: SourceReadingPosition(line: 0, atStart: true), focused: false)
-        }
+        let editor = editorRecovery(for: document)
         restoredEditor = editor
         let composer = rendererReady ? bridge?.composer.checkpoint() : restoredComposer
         restoredComposer = composer
@@ -1143,12 +1227,27 @@ extension ReaderSession {
             savedRevision: document.persistedRevision, editor: editor,
             composer: composer, web: recoveryWeb,
             images: agentImages.checkpoint(), tools: agentDocuments.recovery(), transport: agentTransport.recovery(),
-            annotations: annotationSnapshot, annotationDraft: annotationDraft, conversationID: conversationID)
+            annotations: annotationSnapshot, annotationDraft: annotationDraft, conversationID: conversationID,
+            navigation: navigationHistory)
         do { try await recoveryStore.save(record) } catch {
             if token == documentToken {
                 errorMessage = String(
                     localized: "Unable to preserve the reading session: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func editorRecovery(for document: MarkdownDocument) -> SourceEditor.Recovery {
+        if let bridge, bridge.sourceEditor.history.text == document.text {
+            return bridge.sourceEditor.checkpoint()
+        } else if let restoredEditor {
+            return restoredEditor
+        } else {
+            let history = SourceHistory()
+            history.reset(document.text)
+            return SourceEditor.Recovery(
+                history: history.snapshot(), selection: SourceSelection(range: NSRange(location: 0, length: 0)),
+                position: SourceReadingPosition(line: 0, atStart: true), focused: false)
         }
     }
 
