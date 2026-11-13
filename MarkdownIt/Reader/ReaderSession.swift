@@ -39,6 +39,7 @@ final class ReaderSession: ObservableObject {
     @Published var outlineExpanded = false
     @Published var hasOutline = false
     @Published var rendererReady = false
+    @Published var findActive = false
     @Published var errorMessage: String?
     @Published private(set) var resourcePermission: ResourcePermissionRequest?
     @Published var agentOpen = false
@@ -348,6 +349,7 @@ final class ReaderSession: ObservableObject {
             errorMessage = String(localized: "The document could not be saved. Your changes have been kept.")
             return false
         }
+        bridge?.documentFind.dismiss()
         let previousToken = documentToken
         if document != nil { await endRecovery(token: previousToken) }
         recoveryWeb = nil
@@ -650,6 +652,7 @@ final class ReaderSession: ObservableObject {
             closeSaveFailed = true
             return
         }
+        bridge?.documentFind.dismiss()
         await endRecovery(token: documentToken)
         recoveryWeb = nil
         conversationWeb = nil
@@ -699,6 +702,10 @@ final class ReaderSession: ObservableObject {
             await flushChanges()
             _ = try? await bridge?.call("toggleMode")
         }
+    }
+
+    func findInDocument() {
+        Task { await bridge?.findInDocument() }
     }
 
     func toggleOutline() {

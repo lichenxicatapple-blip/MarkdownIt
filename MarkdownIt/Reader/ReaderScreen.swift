@@ -132,17 +132,19 @@ struct ReaderScreen: View {
                     }
                     .overlay(alignment: .bottomTrailing) {
                         ZStack {
-                            if !session.agentVisible {
+                            if !session.agentVisible && !session.findActive {
                                 ReaderFloatingControls(expanded: toolsExpanded) { floatingActions }
                                     .ignoresSafeArea(.all, edges: .bottom)
                                     .transition(.opacity)
                             }
                         }
-                        .allowsHitTesting(!session.agentVisible)
-                        .accessibilityHidden(session.agentVisible)
+                        .allowsHitTesting(!session.agentVisible && !session.findActive)
+                        .accessibilityHidden(session.agentVisible || session.findActive)
                         .animation(
                             reduceMotion ? nil : .easeOut(duration: ReaderDesign.contentDuration),
-                            value: session.agentVisible)
+                            value: session.agentVisible
+                        )
+                        .animation(toolsAnimation, value: session.findActive)
                     }
                     .animation(chromeAnimation, value: session.canGoBack)
                     .allowsHitTesting(!session.isClosingDocument && !session.isOpeningDocument)
@@ -165,6 +167,9 @@ struct ReaderScreen: View {
                 } else {
                     focusedAction = .tools
                 }
+            }
+            .onChange(of: session.findActive) { _, active in
+                if active { toolsExpanded = false } else { focusedAction = .tools }
             }
             .onChange(of: session.modelSettingsRequested) { _, requested in
                 if requested {
@@ -455,6 +460,15 @@ struct ReaderScreen: View {
                     .accessibilityLabel("Redo").accessibilityIdentifier("SourceRedo")
                     .modifier(ReaderToolVisibility(expanded: toolsExpanded))
                 }
+                Button {
+                    session.findInDocument()
+                    toolsExpanded = false
+                } label: {
+                    actionIcon("magnifyingglass", compact: compact)
+                }
+                .modifier(ReaderGlassControl())
+                .accessibilityLabel("Find in Document").accessibilityIdentifier("DocumentFind")
+                .modifier(ReaderToolVisibility(expanded: toolsExpanded))
                 Button {
                     session.toggleAgent()
                     toolsExpanded = false

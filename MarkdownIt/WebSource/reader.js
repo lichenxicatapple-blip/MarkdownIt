@@ -115,7 +115,7 @@
       if (displayedMode !== 'preview' || !pinnedAnchor || positionFrame) return;
       positionFrame = requestAnimationFrame(() => {
         positionFrame = 0;
-        if (pinnedAnchor) restoreReadingPosition(pinnedAnchor);
+        if (!documentFind.restoreCurrent() && pinnedAnchor) restoreReadingPosition(pinnedAnchor);
       });
     });
     positionObserver.observe(reader);
@@ -737,7 +737,7 @@
       if (panelLayout && Math.abs(app.clientWidth - panelLayout.viewportWidth) < .5) return;
       pinnedAnchor = displayedMode === 'preview' ? pinnedAnchor || layoutReadingAnchor || captureReadingPosition() : null;
       render();
-      if (pinnedAnchor) restoreReadingPosition(pinnedAnchor);
+      if (!documentFind.restoreCurrent() && pinnedAnchor) restoreReadingPosition(pinnedAnchor);
     });
     panelSizeObserver.observe(app);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { documentReady = enhanceDocument(); });

@@ -7,6 +7,105 @@ import XCTest
 
 final class WebReaderTests: XCTestCase {
     @MainActor
+    func testDocumentFindScopesPreviewAndUsesNativeReadOnlyNavigatorForBothModes() async throws {
+        let markdown =
+            "# Needle\n\nNeedle **needle** `needle`\n\n<div hidden>hidden needle</div>\n\n```swift\nlet value = 1\n```\n"
+        let (session, bridge, root) = try await navigationReader(markdown: markdown)
+        await bridge.findInDocument()
+        try await waitUntil { session.findActive }
+        let preview = try XCTUnwrap(bridge.documentFind.interaction.activeFindSession)
+        XCTAssertFalse(preview.supportsReplacement)
+        preview.performSearch(query: "needle", options: nil)
+        try await waitUntil { preview.resultCount == 4 }
+        // Direct session searches report results; navigation chooses a result.
+        // The real search field performs that step itself (covered by the UI test).
+        bridge.documentFind.interaction.findNext()
+        try await waitUntil { preview.highlightedResultIndex != NSNotFound }
+        let first = preview.highlightedResultIndex
+        bridge.documentFind.interaction.findNext()
+        try await waitUntil { preview.highlightedResultIndex == (first + 1) % 4 }
+        bridge.documentFind.interaction.findPrevious()
+        try await waitUntil { preview.highlightedResultIndex == first }
+        try await waitUntil {
+            try await bridge.webView.evaluateJavaScript("CSS.highlights.get('mdv-find-current').size") as? Int == 1
+        }
+        preview.performSearch(query: "**", options: nil)
+        try await waitUntil { preview.resultCount == 0 }
+        preview.performSearch(query: "needle", options: nil)
+        try await waitUntil { preview.resultCount == 4 }
+        preview.performSearch(query: "hidden", options: nil)
+        try await waitUntil { preview.resultCount == 0 }
+        _ = try await bridge.call("toggleMode")
+        try await waitForMode("source", bridge: bridge)
+        XCTAssertFalse(session.findActive)
+        let viewport = try XCTUnwrap(bridge.webView.superview as? ReaderViewport)
+        let command = try XCTUnwrap(viewport.keyCommands?.first { $0.input == "f" })
+        XCTAssertEqual(command.modifierFlags, .command)
+        bridge.sourceEditor.textView.becomeFirstResponder()
+        let action = try XCTUnwrap(command.action)
+        XCTAssertTrue(UIApplication.shared.sendAction(action, to: nil, from: command, for: nil))
+        try await waitUntil { session.findActive }
+        let source = try XCTUnwrap(bridge.documentFind.interaction.activeFindSession)
+        XCTAssertFalse(source.supportsReplacement)
+        source.performSearch(query: "**", options: UITextSearchOptions())
+        try await waitUntil(
+            message: "Source find returned \(source.resultCount) matches for the raw Markdown delimiters"
+        ) { source.resultCount == 2 }
+        XCTAssertEqual(bridge.sourceEditor.history.text, markdown)
+        XCTAssertFalse(bridge.sourceEditor.history.canUndo)
+        let other = root.appendingPathComponent("other.md")
+        try Data("# Other document".utf8).write(to: other)
+        await session.open(other)
+        bridge.update()
+        try await waitUntil { session.rendererReady && !session.findActive }
+        XCTAssertEqual(source.resultCount, 0)
+    }
+
+    @MainActor
+    func testPreviewFindMapsUnicodeInlineFormattingAndExcludesControls() async throws {
+        let (_, bridge, _) = try await navigationReader(
+            markdown: "# 标题\n\n汉字 **跨格式** 查找 👩🏽‍💻 café\n\n```swift\nprint(\"内容\")\n```\n\n```\n"
+                + String(repeating: "long_path/", count: 100) + "find_target\n```\n")
+        let captured = try await bridge.call("findCapture")
+        let snapshot = try XCTUnwrap(captured as? [String: Any])
+        let text = try XCTUnwrap(snapshot["text"] as? String)
+        XCTAssertEqual(text.components(separatedBy: "标题").count - 1, 1, "The outline must not be searched")
+        XCTAssertTrue(text.contains("汉字 跨格式 查找 👩🏽‍💻 café"))
+        XCTAssertFalse(text.contains("Copy"))
+        let range = (text as NSString).range(of: "跨格式 查找 👩🏽‍💻")
+        XCTAssertNotEqual(range.location, NSNotFound)
+        let payload: [String: Any] = [
+            "id": try XCTUnwrap(snapshot["id"]), "start": range.location, "length": range.length, "style": 2,
+        ]
+        _ = try await bridge.call("findDecorate", arguments: ["payload": ["id": payload["id"]!, "ranges": [payload]]])
+        let highlighted =
+            try await bridge.webView.evaluateJavaScript(
+                "[...CSS.highlights.get('mdv-find-current')].map(range=>range.toString())") as? [String]
+        XCTAssertEqual(highlighted, ["跨格式 查找 👩🏽‍💻"])
+        _ = try await bridge.call("findClear")
+        _ = try await bridge.call("findDecorate", arguments: ["payload": ["id": payload["id"]!, "ranges": [payload]]])
+        let count = try await bridge.webView.evaluateJavaScript("CSS.highlights.get('mdv-find-current').size") as? Int
+        XCTAssertEqual(count, 0, "Results from an invalidated snapshot cannot decorate the new article")
+        let nextCapture = try await bridge.call("findCapture")
+        let next = try XCTUnwrap(nextCapture as? [String: Any])
+        let nextText = try XCTUnwrap(next["text"] as? String)
+        let target = (nextText as NSString).range(of: "find_target")
+        XCTAssertNotEqual(target.location, NSNotFound)
+        let targetPayload: [String: Any] = [
+            "id": try XCTUnwrap(next["id"]), "start": target.location, "length": target.length, "style": 2,
+        ]
+        _ = try await bridge.call(
+            "findDecorate", arguments: ["payload": ["id": targetPayload["id"]!, "ranges": [targetPayload]]])
+        _ = try await bridge.call("findReveal", arguments: ["payload": targetPayload])
+        let revealed =
+            try await bridge.webView.evaluateJavaScript(
+                """
+                (()=>{const range=[...CSS.highlights.get('mdv-find-current')][0], rect=range.getBoundingClientRect(), scroller=range.startContainer.parentElement.closest('pre'), box=scroller.getBoundingClientRect(); return scroller.scrollLeft>0 && rect.left>=box.left && rect.right<=box.right;})()
+                """) as? Bool
+        XCTAssertEqual(revealed, true, "Find reveals matches inside a horizontally scrolled code block")
+    }
+
+    @MainActor
     func testDocumentChromeKeepsSeparateTargetsForLinkedVisitsAcrossLayouts() {
         for width in [CGFloat(393), 834, 1194] {
             for leading in [CGFloat(0), 248] where leading == 0 || width >= 834 {

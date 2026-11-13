@@ -424,6 +424,7 @@ def generate(destination):
         )
     )
     shutil.copy2(SOURCE / "rich-text.js", package / "rich-text.js")
+    shutil.copy2(SOURCE / "document-find.js", package / "document-find.js")
     localization = replace_once(
         (SOURCE / "localization.js").read_text(),
         "/* localization-data */ {}",

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F1AD00000000000000000001 /* ReaderFindController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AD00000000000000000002 /* ReaderFindController.swift */; };
 		5DF282AE84374C4AA5EBE5AA /* ReaderWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B316C769FB84FB880DB527F /* ReaderWorkspace.swift */; };
 		CBBD2CBA957842B9A4F80ED4 /* ConversationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431F7E7B4739420E82915A17 /* ConversationPanel.swift */; };
 		FA11AA220000000000000005 /* ResourceFolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11AA220000000000000006 /* ResourceFolderPicker.swift */; };
@@ -120,6 +121,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		F1AD00000000000000000002 /* ReaderFindController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderFindController.swift; sourceTree = "<group>"; };
 		1B316C769FB84FB880DB527F /* ReaderWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderWorkspace.swift; sourceTree = "<group>"; };
 		431F7E7B4739420E82915A17 /* ConversationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationPanel.swift; sourceTree = "<group>"; };
 		FA11AA220000000000000006 /* ResourceFolderPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceFolderPicker.swift; sourceTree = "<group>"; };
@@ -265,6 +267,7 @@
 				A36B00000000000000000007 /* ReaderAlert.swift */,
 				BCC6FCC3E932E595BF99515F /* ReaderDesign.swift */,
 				DC56C4439C3D456595CB76A2 /* ReaderFloatingControls.swift */,
+				F1AD00000000000000000002 /* ReaderFindController.swift */,
 				892B2E41ACAB9300E154E72318 /* ReaderImageMenu.swift */,
 				FDA62040CEE3AD5B798B01EE /* ReaderScreen.swift */,
 				FA11AA220000000000000002 /* ReaderRecovery.swift */,
@@ -648,6 +651,7 @@
 				E1C71AC48370ED14C06F3263 /* ReadingAnnotations.swift in Sources */,
 				CA95A8C0C79564B6A35BE925 /* ReadingAnnotationStore.swift in Sources */,
 				A36B00000000000000000008 /* ReaderAlert.swift in Sources */,
+				F1AD00000000000000000001 /* ReaderFindController.swift in Sources */,
 				892B2E41ACAB9300E254E72318 /* ReaderImageMenu.swift in Sources */,
 				54E723182B2E41ACAB9300E2 /* AgentImages.swift in Sources */,
 				5FC1C9565ED0426EBD748D70 /* WebSearchAuthorization.swift in Sources */,

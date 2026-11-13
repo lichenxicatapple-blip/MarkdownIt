@@ -1,6 +1,7 @@
     let nativeToken = '';
     let nativeRevision = 0;
     let nativeDocumentName = ''; 
+    const documentFind = window.MarkdownItFind.create(reader);
     function postNative(message) { window.webkit?.messageHandlers.reader.postMessage(message); }
     const annotations = new window.MarkdownItAnnotations({reader,
       context: () => ({token:nativeToken,revision:nativeRevision,enabled:displayedMode==='preview'&&!app.dataset.modeTransition}),
@@ -91,8 +92,13 @@
     app.addEventListener('toggle', scheduleRecovery, true);
     window.MarkdownIt = {
       captureRecovery,
+      findCapture() { return documentFind.capture(); },
+      findDecorate(payload) { documentFind.decorate(payload); },
+      findReveal(payload) { documentFind.reveal(payload); },
+      findClear(payload) { documentFind.clear(payload); },
 
       async openDocument(document) {
+        documentFind.clear();
         recovering = true;
         delete app.dataset.ready;
         dismissImageMenu();
@@ -205,7 +211,7 @@
         app.dataset.agentLayout=value.sheet?'sheet':'side'; app.dataset.outlineLayout=value.overlay?'overlay':'side';
         app.dataset.panelsCoexist=String(value.coexist); app.classList.toggle('mdv-agent-open',value.agent);
         reader.inert=value.modal; outline.inert=value.modal;
-        render(); if(changedColumns && pinnedAnchor)restoreReadingPosition(pinnedAnchor);
+        render(); if(!documentFind.restoreCurrent() && changedColumns && pinnedAnchor)restoreReadingPosition(pinnedAnchor);
       },
       reloadResources() {
         reader.querySelectorAll('img[src^="jm-resource:"]').forEach(image => { image.src = `jm-resource://${nativeToken}/image?path=${encodeURIComponent(image.dataset.sourcePath)}&revision=${Date.now()}`; });

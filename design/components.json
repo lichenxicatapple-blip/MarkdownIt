@@ -19,7 +19,8 @@
         "DocumentClose",
         "DocumentNavigation",
         "ModelDataConsentPrompt",
-        "SearchDataConsentPrompt"
+        "SearchDataConsentPrompt",
+        "DocumentFind"
       ],
       "invariants": [
         "One native screen coordinates the document surface and shared reading controls."
@@ -132,9 +133,9 @@
         "MarkdownIt/Reader/ReaderFloatingControls.swift"
       ],
       "invariants": [
-        "Both document modes reuse the same AI, mode-switch and More controls; source history actions join this group.",
+        "Both document modes reuse the same Find, AI, mode-switch and More controls; source history actions join this group.",
         "All window widths retain one trailing disclosure; source focus and window resizing preserve its expanded state.",
-        "The bottom group is absent while the AI panel is visible, including its closing transition; it returns collapsed afterward. Its keyboard-positioning host is removed with the group.",
+        "The bottom group and its keyboard-positioning host are absent while the AI panel or system find navigator is visible; the group returns collapsed afterward.",
         "Expansion keeps the disclosure anchored and action slots stable; actions travel left and return along the same path while the chevron rotates continuously, including rapid reversals.",
         "Collapsed actions neither receive touches nor appear in the accessibility tree, and their vacant slots pass document input through.",
         "More shares SwiftUI symbol rendering and motion with adjacent actions; its transparent native button owns menu interaction only.",
@@ -542,6 +543,22 @@
         "One native consent prompt shows the service and actual query or webpage URL before its first request. Remembered permission includes its data-sharing scope; a pending decision belongs to the active document and request."
       ],
       "specification": "design/README.md#联网搜索"
+    },
+    {
+      "id": "DocumentFind",
+      "nativeOwners": [
+        "MarkdownIt/Reader/ReaderFindController.swift",
+        "MarkdownIt/Reader/ReaderViewport.swift"
+      ],
+      "webOwners": [
+        "MarkdownIt/WebSource/document-find.js"
+      ],
+      "invariants": [
+        "One system find navigator serves the current document, entered through the expanded floating actions or Command-F.",
+        "Preview searches rendered article text; source searches the working Markdown buffer. Search excludes outline, conversation and UI controls.",
+        "Find is read-only and transient. Mode and document changes end it; CSS highlights preserve selection, layout and annotations."
+      ],
+      "specification": "design/README.md#文内查找"
     }
   ]
 }

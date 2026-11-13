@@ -27,6 +27,15 @@ final class ReaderViewport: UIView {
     private var previousAgent = false
     private var previousPanelFrame = CGRect.zero
 
+    override var keyCommands: [UIKeyCommand]? {
+        let find = UIKeyCommand(input: "f", modifierFlags: .command, action: #selector(findDocument(_:)))
+        find.discoverabilityTitle = String(localized: "Find in Document")
+        find.wantsPriorityOverSystemBehavior = true
+        return (super.keyCommands ?? []) + [find]
+    }
+
+    @objc private func findDocument(_ sender: UIKeyCommand) { webView.findDocument?() }
+
     init(webView: ReaderWKWebView) {
         self.webView = webView
         super.init(frame: .zero)

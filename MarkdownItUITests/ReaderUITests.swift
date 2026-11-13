@@ -296,6 +296,78 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(toggle.isHittable)
     }
 
+    private func assertFindHighlightIsPainted(
+        _ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let image = try XCTUnwrap(element.screenshot().image.cgImage, file: file, line: line)
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        try pixels.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(
+                CGContext(
+                    data: bytes.baseAddress, width: image.width, height: image.height,
+                    bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+                file: file, line: line)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        let yellow = stride(from: 0, to: pixels.count, by: 4).filter { index in
+            pixels[index] > 180 && pixels[index + 1] > 130 && pixels[index + 2] < 100
+        }.count
+        XCTAssertGreaterThan(
+            yellow, 8, "The current match must be painted inside the visible document", file: file, line: line)
+    }
+
+    func testDocumentFindUsesSystemNavigatorAndRestoresReadingControls() throws {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        for source in [false, true] {
+            if source {
+                app.terminate()
+                app.launch()
+                showTools(app)
+                app.buttons["ModeToggle"].tap()
+                XCTAssertTrue(app.textViews["SourceEditor"].waitForExistence(timeout: 10))
+            }
+            showTools(app)
+            app.buttons["DocumentFind"].tap()
+            let field = app.searchFields["find.searchField"]
+            XCTAssertTrue(field.waitForExistence(timeout: 10))
+            XCTAssertFalse(app.buttons["ToolsToggle"].exists)
+            field.tap()
+            field.typeText("读者")
+            waitForVisibleSoftwareKeyboard(in: app)
+            XCTAssertEqual(field.value as? String, "读者")
+            try assertFindHighlightIsPainted(source ? app.textViews["SourceEditor"] : app.webViews.firstMatch)
+            record(source ? "iphone-source-find" : "iphone-preview-find")
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                rotate(to: .landscapeLeft, in: app, viewport: field)
+                try assertFindHighlightIsPainted(source ? app.textViews["SourceEditor"] : app.webViews.firstMatch)
+                record(source ? "ipad-source-find-landscape" : "ipad-preview-find-landscape")
+            }
+            let next = app.buttons["find.nextButton"]
+            let previous = app.buttons["find.previousButton"]
+            let count = app.staticTexts["find.resultLabel"]
+            XCTAssertTrue(next.isEnabled)
+            let initialCount = count.label
+            next.tap()
+            XCTAssertNotEqual(count.label, initialCount)
+            previous.tap()
+            XCTAssertEqual(count.label, initialCount)
+            app.buttons["find.doneButton"].tap()
+            XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons["DocumentFind"].exists)
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                rotate(to: .portrait, in: app)
+            }
+        }
+    }
+
     func testNativeSourceFillsViewportAndPreservesExpandedControlsDuringInput() {
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()

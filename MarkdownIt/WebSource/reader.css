@@ -131,3 +131,6 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 
 
 #mdv-reading-concept .mdv-app[data-compact-window="true"] .mdv-article { padding-inline:22px; padding-bottom:24px; }
+
+::highlight(mdv-find-found) { background-color: color-mix(in srgb, Mark 35%, transparent); }
+::highlight(mdv-find-current) { background-color: Mark; color: MarkText; }

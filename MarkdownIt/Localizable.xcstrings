@@ -1,6 +1,13 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Find in Document" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Find in Document" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "文内查找" } }
+      }
+    },
     "Previous document" : {
       "extractionState" : "manual",
       "localizations" : {

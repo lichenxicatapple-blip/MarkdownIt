@@ -11,6 +11,7 @@ final class ReaderWKWebView: WKWebView {
     var hasAnnotationSelection = false
     weak var sourceView: SourceTextView?
     weak var annotationView: UITextView?
+    var findDocument: (() -> Void)?
     var inputBottomInset: CGFloat = 0 {
         didSet { if inputBottomInset != oldValue { inputBottomInsetDidChange?() } }
     }
@@ -73,6 +74,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
     private var actionMenu: ReaderActionMenu!
     private var pencil: ReaderPencilInteraction!
     private(set) var annotationHost: ReaderAnnotationHost!
+    private(set) var documentFind: ReaderFindController!
     let sourceEditor = SourceEditor()
     private var sourceToken = ""
     private var projectedRevision = -1
@@ -104,6 +106,14 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         webView = ReaderWKWebView(frame: .zero, configuration: configuration)
         conversationWebView = WKWebView(frame: .zero, configuration: Self.configuration(for: session))
         super.init()
+        documentFind = ReaderFindController(
+            view: webView, source: sourceEditor.textView,
+            preview: { [weak self] method, payload in try await self?.rawCall(method, payload: payload) },
+            onVisibility: { [weak session] active in
+                guard let session, session.findActive != active else { return }
+                session.findActive = active
+            })
+        webView.findDocument = { [weak self] in Task { await self?.findInDocument() } }
         Self.lifecycleLog.notice("reader.created bridge=\(self.diagnosticID, privacy: .public)")
         if let document = session.document {
             sourceToken = session.documentToken
@@ -239,6 +249,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
     }
 
     func call(_ method: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        if ["toggleMode", "toggleAgent", "askSelection", "askImage"].contains(method) { documentFind.dismiss() }
         if method == "toggleMode" {
             Self.lifecycleLog.notice(
                 "reader.mode_switch bridge=\(self.diagnosticID, privacy: .public) document=\(self.session.documentToken, privacy: .public)"
@@ -347,6 +358,21 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
             arguments: ["method": method, "payload": payload ?? NSNull()], in: nil, contentWorld: .page)
     }
 
+    func findInDocument() async {
+        guard ready, session.rendererReady, !session.isClosingDocument, !session.isOpeningDocument,
+            !annotationHost.hasUnsavedChanges
+        else { return }
+        let token = session.documentToken
+        do {
+            try await synchronizeProjection()
+            if webView.workspace.agent { _ = try await call("closeAgent") }
+            guard token == session.documentToken, !detached, !session.isClosingDocument else { return }
+            imageMenu.dismiss()
+            annotationHost.dismiss()
+            documentFind.present(source: session.mode == "source")
+        } catch { session.errorMessage = error.localizedDescription }
+    }
+
     private func projectLayout(_ value: [String: Any]) {
         guard ready else { return }
         pendingLayout = value
@@ -390,6 +416,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
     private func sourceDidChange(id: String?, status: String?) {
         guard sourceToken == session.documentToken else { return }
         session.sourceChanged(sourceEditor.history.text, token: sourceToken)
+        documentFind.sourceChanged()
         session.sourceHistoryChanged(
             canUndo: sourceEditor.history.canUndo, canRedo: sourceEditor.history.canRedo, token: sourceToken)
         if let id, let status {
@@ -455,6 +482,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         guard ready else { return }
         updateTheme()
         guard let document = session.document, loadedToken != session.documentToken else { return }
+        documentFind.dismiss()
         imageMenu.dismiss()
         annotationHost.dismiss(force: true, animated: false)
         loadedToken = session.documentToken
@@ -677,6 +705,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
                 frame: webView.convert(frame, to: host),
                 visible: body["visible"] as? Bool == true, opacity: body["opacity"] as? Double ?? 1,
                 interactive: body["interactive"] as? Bool == true)
+            documentFind.viewportChanged()
         case "sourceRestore":
             guard body["token"] as? String == sourceToken, let anchor = body["anchor"] as? [String: Any] else { return }
             sourceEditor.restore(SourceReadingPosition(anchor))
@@ -812,6 +841,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
 
     func detach() {
         guard !detached else { return }
+        documentFind.dismiss()
+        webView.findDocument = nil
         detached = true
         ready = false
         // Resigning native input can synchronously lay out the keyboard guides.
