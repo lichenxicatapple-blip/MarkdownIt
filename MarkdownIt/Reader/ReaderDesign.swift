@@ -21,6 +21,8 @@ enum ReaderDesign {
     static let sourceHorizontalInset: CGFloat = 24
     static let sourceTopInset: CGFloat = 76
     static let sourceBottomInset: CGFloat = 84
+    static let findWidth: CGFloat = 440
+    static let findInset: CGFloat = 4
     static let hitTarget: CGFloat = 44
     static let floatingIcon: CGFloat = 20
     static let compactFloatingIcon: CGFloat = 18

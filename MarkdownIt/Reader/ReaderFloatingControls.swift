@@ -32,6 +32,21 @@ struct ReaderChromeLayout {
     }
 }
 
+/// Search temporarily owns the header. Remove native glass controls as well as
+/// their accessibility elements; session-owned navigation state stays intact.
+struct ReaderChromeVisibility: ViewModifier {
+    var hidden: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        Group {
+            if !hidden { content.transition(.opacity) }
+        }
+        .allowsHitTesting(!hidden)
+        .accessibilityHidden(hidden)
+        .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.contentDuration), value: hidden)
+    }
+}
+
 /// A short wind-up, a leaning dash and a soft landing, retargeted from the current pose.
 struct ReaderDocumentCloseMotion: ViewModifier {
     var destination: CGFloat

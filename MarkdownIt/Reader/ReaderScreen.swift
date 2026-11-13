@@ -91,6 +91,7 @@ struct ReaderScreen: View {
                                     ? String(localized: "Hide contents") : String(localized: "Show contents")
                             )
                             .accessibilityIdentifier("OutlineToggle")
+                            .modifier(ReaderChromeVisibility(hidden: session.findActive))
                             .disabled(!session.rendererReady)
                         }
                     }
@@ -107,6 +108,7 @@ struct ReaderScreen: View {
                             .animation(chromeAnimation, value: chrome.back)
                             .accessibilityLabel("Previous document")
                             .accessibilityIdentifier("PreviousDocument")
+                            .modifier(ReaderChromeVisibility(hidden: session.findActive))
                             .disabled(!session.rendererReady)
                             .transition(.opacity)
                         }
@@ -128,6 +130,7 @@ struct ReaderScreen: View {
                             .padding(.top, ReaderDesign.floatingInset)
                             .accessibilityLabel("Close document")
                             .accessibilityIdentifier("CloseDocument")
+                            .modifier(ReaderChromeVisibility(hidden: session.findActive))
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {

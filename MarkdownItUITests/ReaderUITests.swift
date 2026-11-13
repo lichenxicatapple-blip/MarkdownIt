@@ -317,7 +317,13 @@ final class ReaderUITests: XCTestCase {
             yellow, 8, "The current match must be painted inside the visible document", file: file, line: line)
     }
 
-    func testDocumentFindUsesSystemNavigatorAndRestoresReadingControls() throws {
+    private func nextFindResult(_ app: XCUIApplication) {
+        let next = app.buttons["DocumentFindNext"]
+        XCTAssertTrue(next.isEnabled)
+        next.tap()
+    }
+
+    func testDocumentFindFloatsAboveContentAndRestoresReadingControls() throws {
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [
@@ -335,7 +341,7 @@ final class ReaderUITests: XCTestCase {
             }
             showTools(app)
             app.buttons["DocumentFind"].tap()
-            let field = app.searchFields["find.searchField"]
+            let field = app.textFields["DocumentFindField"]
             XCTAssertTrue(field.waitForExistence(timeout: 10))
             XCTAssertFalse(app.buttons["ToolsToggle"].exists)
             field.tap()
@@ -343,28 +349,82 @@ final class ReaderUITests: XCTestCase {
             waitForVisibleSoftwareKeyboard(in: app)
             XCTAssertEqual(field.value as? String, "读者")
             try assertFindHighlightIsPainted(source ? app.textViews["SourceEditor"] : app.webViews.firstMatch)
+            let bar = app.otherElements["DocumentFindBar"]
+            XCTAssertTrue(bar.exists)
+            XCTAssertFalse(app.buttons["CloseDocument"].exists)
+            XCTAssertFalse(app.buttons["OutlineToggle"].exists)
+            XCTAssertFalse(app.buttons["PreviousDocument"].exists)
+            let beforeScroll = bar.frame
+            let body = source ? app.textViews["SourceEditor"] : app.webViews.firstMatch
+            body.swipeUp(velocity: .slow)
+            XCTAssertEqual(bar.frame.minY, beforeScroll.minY, accuracy: 1)
+            XCTAssertEqual(bar.frame.maxX, beforeScroll.maxX, accuracy: 1)
+            nextFindResult(app)
+            try assertFindHighlightIsPainted(body)
             record(source ? "iphone-source-find" : "iphone-preview-find")
             if UIDevice.current.userInterfaceIdiom == .pad {
                 rotate(to: .landscapeLeft, in: app, viewport: field)
                 try assertFindHighlightIsPainted(source ? app.textViews["SourceEditor"] : app.webViews.firstMatch)
                 record(source ? "ipad-source-find-landscape" : "ipad-preview-find-landscape")
             }
-            let next = app.buttons["find.nextButton"]
-            let previous = app.buttons["find.previousButton"]
-            let count = app.staticTexts["find.resultLabel"]
+            let next = app.buttons["DocumentFindNext"]
+            let previous = app.buttons["DocumentFindPrevious"]
+            let count = app.staticTexts["DocumentFindCount"]
             XCTAssertTrue(next.isEnabled)
-            let initialCount = count.label
+            let initialCount = count.value as? String
+            XCTAssertNotNil(initialCount)
             next.tap()
-            XCTAssertNotEqual(count.label, initialCount)
+            XCTAssertNotEqual(count.value as? String, initialCount)
             previous.tap()
-            XCTAssertEqual(count.label, initialCount)
-            app.buttons["find.doneButton"].tap()
+            XCTAssertEqual(count.value as? String, initialCount)
+            app.buttons["DocumentFindClose"].tap()
             XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["CloseDocument"].waitForExistence(timeout: 5))
+            if !source { XCTAssertTrue(app.buttons["OutlineToggle"].exists) }
             XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons["DocumentFind"].exists)
             if UIDevice.current.userInterfaceIdiom == .pad {
                 rotate(to: .portrait, in: app)
             }
+        }
+    }
+
+    func testDocumentFindRevealsDocumentEndWithSoftwareKeyboardAndAfterDismissal() throws {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        for source in [false, true] {
+            if source {
+                showTools(app)
+                app.buttons["ModeToggle"].tap()
+                XCTAssertTrue(app.textViews["SourceEditor"].waitForExistence(timeout: 10))
+            }
+            showTools(app)
+            app.buttons["DocumentFind"].tap()
+            let field = app.textFields["DocumentFindField"]
+            XCTAssertTrue(field.waitForExistence(timeout: 10))
+            field.typeText(source ? "CommonMark specification" : "通用资源解析")
+            waitForVisibleSoftwareKeyboard(in: app)
+            let body = source ? app.textViews["SourceEditor"] : app.webViews.firstMatch
+            try assertFindHighlightIsPainted(body)
+            XCTAssertFalse(app.otherElements["DocumentFindBar"].frame.intersects(app.keyboards.firstMatch.frame))
+            record(source ? "source-find-document-end" : "preview-find-document-end")
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                app.keyboards.buttons["Hide keyboard"].tap()
+                XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
+                XCTAssertTrue(field.exists)
+                try assertFindHighlightIsPainted(body)
+                rotate(to: .landscapeLeft, in: app, viewport: field)
+                try assertFindHighlightIsPainted(body)
+                record(source ? "source-find-keyboard-minimized" : "preview-find-keyboard-minimized")
+            }
+            app.buttons["DocumentFindClose"].tap()
+            XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+            if UIDevice.current.userInterfaceIdiom == .pad { rotate(to: .portrait, in: app) }
         }
     }
 

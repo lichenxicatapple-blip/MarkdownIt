@@ -47,6 +47,7 @@ final class ReaderViewport: UIView {
         scrim.isHidden = true
         addSubview(scrim)
         if let panel = webView.conversationPanel { addSubview(panel) }
+        if let findBar = webView.findBar { addSubview(findBar) }
         scrim.addAction(
             UIAction { [weak webView] _ in webView?.workspace.request("agent", open: false) }, for: .touchUpInside)
         webView.workspace.onChange = { [weak self] in self?.setNeedsLayout() }
@@ -106,6 +107,12 @@ final class ReaderViewport: UIView {
     private func layoutWorkspace() {
         let workspace = webView.workspace
         let layout = workspace.resolve(width: bounds.width)
+        if let findBar = webView.findBar, !findBar.isHidden {
+            let frame = Self.findFrame(
+                in: bounds, documentLeading: layout.documentLeading, height: findBar.preferredHeight)
+            findBar.bounds.size = frame.size
+            findBar.center = CGPoint(x: frame.midX, y: frame.midY)
+        }
         let changed = previousLayout != layout || previousBounds != bounds
         let panel = webView.conversationPanel
         let opening = workspace.agent && (!previousAgent || panel?.isHidden == true)
@@ -184,6 +191,13 @@ final class ReaderViewport: UIView {
                 delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut],
                 animations: updates, completion: finish)
         }
+    }
+
+    static func findFrame(in bounds: CGRect, documentLeading: CGFloat, height: CGFloat) -> CGRect {
+        let inset = ReaderDesign.floatingInset
+        let available = max(0, bounds.width - documentLeading - 2 * inset)
+        let width = min(ReaderDesign.findWidth, available)
+        return CGRect(x: bounds.maxX - inset - width, y: bounds.minY + inset, width: width, height: height)
     }
 
     @objc private func inputWillChange(_ notification: Notification) {

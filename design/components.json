@@ -135,7 +135,7 @@
       "invariants": [
         "Both document modes reuse the same Find, AI, mode-switch and More controls; source history actions join this group.",
         "All window widths retain one trailing disclosure; source focus and window resizing preserve its expanded state.",
-        "The bottom group and its keyboard-positioning host are absent while the AI panel or system find navigator is visible; the group returns collapsed afterward.",
+        "The bottom group and its keyboard-positioning host are absent while the AI panel or floating find bar is visible; the group returns collapsed afterward.",
         "Expansion keeps the disclosure anchored and action slots stable; actions travel left and return along the same path while the chevron rotates continuously, including rapid reversals.",
         "Collapsed actions neither receive touches nor appear in the accessibility tree, and their vacant slots pass document input through.",
         "More shares SwiftUI symbol rendering and motion with adjacent actions; its transparent native button owns menu interaction only.",
@@ -548,13 +548,16 @@
       "id": "DocumentFind",
       "nativeOwners": [
         "MarkdownIt/Reader/ReaderFindController.swift",
-        "MarkdownIt/Reader/ReaderViewport.swift"
+        "MarkdownIt/Reader/ReaderFindBar.swift",
+        "MarkdownIt/Reader/ReaderViewport.swift",
+        "MarkdownIt/Reader/ReaderScreen.swift",
+        "MarkdownIt/Reader/ReaderFloatingControls.swift"
       ],
       "webOwners": [
         "MarkdownIt/WebSource/document-find.js"
       ],
       "invariants": [
-        "One system find navigator serves the current document, entered through the expanded floating actions or Command-F.",
+        "One native floating find bar serves the current document, entered through the expanded floating actions or Command-F. The viewport owns its position; no full-width background strip or keyboard accessory is added. Document header actions fade out of interaction and accessibility while finding and return unchanged afterward.",
         "Preview searches rendered article text; source searches the working Markdown buffer. Search excludes outline, conversation and UI controls.",
         "Find is read-only and transient. Mode and document changes end it; CSS highlights preserve selection, layout and annotations."
       ],

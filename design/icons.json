@@ -166,6 +166,18 @@
       "native": "checkmark",
       "web": "check",
       "sizeToken": "size.codeCopyIcon"
+    },
+    {
+      "action": "find-previous",
+      "native": "chevron.up"
+    },
+    {
+      "action": "find-next",
+      "native": "chevron.down"
+    },
+    {
+      "action": "close-find",
+      "native": "xmark"
     }
   ],
   "status": "Native SF Symbol mapping and web icon identifiers.",

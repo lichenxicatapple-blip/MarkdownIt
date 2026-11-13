@@ -7,34 +7,33 @@ import XCTest
 
 final class WebReaderTests: XCTestCase {
     @MainActor
-    func testDocumentFindScopesPreviewAndUsesNativeReadOnlyNavigatorForBothModes() async throws {
+    func testDocumentFindScopesPreviewAndSharesNavigationForBothModes() async throws {
         let markdown =
             "# Needle\n\nNeedle **needle** `needle`\n\n<div hidden>hidden needle</div>\n\n```swift\nlet value = 1\n```\n"
         let (session, bridge, root) = try await navigationReader(markdown: markdown)
         await bridge.findInDocument()
         try await waitUntil { session.findActive }
-        let preview = try XCTUnwrap(bridge.documentFind.interaction.activeFindSession)
-        XCTAssertFalse(preview.supportsReplacement)
-        preview.performSearch(query: "needle", options: nil)
-        try await waitUntil { preview.resultCount == 4 }
-        // Direct session searches report results; navigation chooses a result.
-        // The real search field performs that step itself (covered by the UI test).
-        bridge.documentFind.interaction.findNext()
-        try await waitUntil { preview.highlightedResultIndex != NSNotFound }
-        let first = preview.highlightedResultIndex
-        bridge.documentFind.interaction.findNext()
-        try await waitUntil { preview.highlightedResultIndex == (first + 1) % 4 }
-        bridge.documentFind.interaction.findPrevious()
-        try await waitUntil { preview.highlightedResultIndex == first }
+        let find = bridge.documentFind!
+        find.search("needle")
+        try await waitUntil { find.resultCount == 4 }
+        XCTAssertEqual(find.currentIndex, 0)
+        find.move(forward: true)
+        XCTAssertEqual(find.currentIndex, 1)
+        find.move(forward: false)
+        XCTAssertEqual(find.currentIndex, 0)
+        find.move(forward: false)
+        XCTAssertEqual(find.currentIndex, 3, "Previous wraps around to the last match")
+        find.move(forward: true)
+        XCTAssertEqual(find.currentIndex, 0)
         try await waitUntil {
             try await bridge.webView.evaluateJavaScript("CSS.highlights.get('mdv-find-current').size") as? Int == 1
         }
-        preview.performSearch(query: "**", options: nil)
-        try await waitUntil { preview.resultCount == 0 }
-        preview.performSearch(query: "needle", options: nil)
-        try await waitUntil { preview.resultCount == 4 }
-        preview.performSearch(query: "hidden", options: nil)
-        try await waitUntil { preview.resultCount == 0 }
+        find.search("**")
+        try await waitUntil { find.resultCount == 0 }
+        find.search("needle")
+        try await waitUntil { find.resultCount == 4 }
+        find.search("hidden")
+        try await waitUntil { find.resultCount == 0 }
         _ = try await bridge.call("toggleMode")
         try await waitForMode("source", bridge: bridge)
         XCTAssertFalse(session.findActive)
@@ -45,12 +44,10 @@ final class WebReaderTests: XCTestCase {
         let action = try XCTUnwrap(command.action)
         XCTAssertTrue(UIApplication.shared.sendAction(action, to: nil, from: command, for: nil))
         try await waitUntil { session.findActive }
-        let source = try XCTUnwrap(bridge.documentFind.interaction.activeFindSession)
-        XCTAssertFalse(source.supportsReplacement)
-        source.performSearch(query: "**", options: UITextSearchOptions())
+        find.search("**")
         try await waitUntil(
-            message: "Source find returned \(source.resultCount) matches for the raw Markdown delimiters"
-        ) { source.resultCount == 2 }
+            message: "Source find returned \(find.resultCount) matches for the raw Markdown delimiters"
+        ) { find.resultCount == 2 }
         XCTAssertEqual(bridge.sourceEditor.history.text, markdown)
         XCTAssertFalse(bridge.sourceEditor.history.canUndo)
         let other = root.appendingPathComponent("other.md")
@@ -58,7 +55,115 @@ final class WebReaderTests: XCTestCase {
         await session.open(other)
         bridge.update()
         try await waitUntil { session.rendererReady && !session.findActive }
-        XCTAssertEqual(source.resultCount, 0)
+        XCTAssertEqual(find.resultCount, 0)
+        XCTAssertTrue(find.bar.isHidden || !find.bar.isUserInteractionEnabled)
+    }
+
+    @MainActor
+    func testFindMatchingAndCompositionPreserveUnicodeAndCommittedQuery() {
+        let text = "Café café Cafe CAFE 👩🏽‍💻 汉字 needle needles pineNeedle"
+        XCTAssertEqual(ReaderFindController.matches(in: text, query: "cafe").count, 4)
+        XCTAssertEqual(ReaderFindController.matches(in: text, query: "👩🏽‍💻").count, 1)
+        XCTAssertEqual(ReaderFindController.matches(in: text, query: "汉字").count, 1)
+        var options = ReaderFindController.Options()
+        options.matchCase = true
+        options.ignoreDiacritics = false
+        XCTAssertEqual(ReaderFindController.matches(in: text, query: "Café", options: options).count, 1)
+        options.matchCase = false
+        options.wordMatchMethod = .startsWith
+        XCTAssertEqual(ReaderFindController.matches(in: text, query: "needle", options: options).count, 2)
+        options.wordMatchMethod = .fullWord
+        XCTAssertEqual(ReaderFindController.matches(in: text, query: "needle", options: options).count, 1)
+        let bar = ReaderFindBar()
+        var queries: [String] = []
+        bar.onQuery = { queries.append($0) }
+        bar.field.setMarkedText("pin", selectedRange: NSRange(location: 3, length: 0))
+        bar.field.sendActions(for: .editingChanged)
+        XCTAssertTrue(queries.isEmpty, "IME candidates cannot commit a find query")
+        bar.field.setMarkedText("拼音", selectedRange: NSRange(location: 2, length: 0))
+        bar.field.sendActions(for: .editingChanged)
+        XCTAssertTrue(queries.isEmpty)
+        bar.field.unmarkText()
+        XCTAssertEqual(queries, ["拼音"])
+    }
+
+    @MainActor
+    func testFindDiscardsLatePreviewResultsAndClearsOnDismissal() async throws {
+        var captureCount = 0
+        var first: CheckedContinuation<[String: Any], Never>?
+        let find = ReaderFindController(
+            source: UITextView(),
+            preview: { method, _ in
+                guard method == "findCapture" else { return nil }
+                captureCount += 1
+                if captureCount == 1 {
+                    return await withCheckedContinuation { first = $0 }
+                }
+                return ["id": 2, "text": "second second"]
+            }, onVisibility: { _ in }, onError: { XCTFail($0.localizedDescription) })
+        find.present(source: false)
+        find.search("first")
+        try await waitUntil { first != nil }
+        find.search("second")
+        try await waitUntil { find.resultCount == 2 }
+        first?.resume(returning: ["id": 1, "text": "first"])
+        first = nil
+        // A round trip through the main actor lets the cancelled capture return.
+        await Task.yield()
+        XCTAssertEqual(find.query, "second")
+        XCTAssertEqual(find.resultCount, 2)
+        find.dismiss()
+        XCTAssertEqual(find.resultCount, 0)
+        XCTAssertNil(find.currentIndex)
+        find.present(source: false)
+        XCTAssertEqual(find.query, "")
+        find.dismiss()
+    }
+
+    @MainActor
+    func testFindBarUsesDocumentHeaderAcrossWidths() {
+        for width in [CGFloat(320), 393, 600, 834, 1194] {
+            for leading in [CGFloat(0), 248] where width - leading >= 320 {
+                let frame = ReaderViewport.findFrame(
+                    in: CGRect(x: 0, y: 0, width: width, height: 700),
+                    documentLeading: leading, height: 52)
+                XCTAssertGreaterThanOrEqual(frame.minX, leading + ReaderDesign.floatingInset)
+                XCTAssertLessThanOrEqual(frame.maxX, width - ReaderDesign.floatingInset)
+                XCTAssertEqual(frame.minY, ReaderDesign.floatingInset)
+                XCTAssertLessThanOrEqual(
+                    frame.maxY, ReaderDesign.sourceTopInset,
+                    "The find bar uses the existing header clearance")
+            }
+        }
+    }
+
+    @MainActor
+    func testFindKeepsDocumentAtNativeKeyboardBoundaryWithoutAnAccessoryRow() async throws {
+        let (session, bridge, _) = try await navigationReader(markdown: "# Document\n\nNeedle\n")
+        let viewport = try XCTUnwrap(bridge.webView.superview as? ReaderViewport)
+        let container = try XCTUnwrap(viewport.superview as? ReaderContainer)
+        let window = try XCTUnwrap(container.window)
+        for source in [false, true] {
+            if source {
+                _ = try await bridge.call("toggleMode")
+                try await waitForMode("source", bridge: bridge)
+            }
+            await bridge.findInDocument()
+            try await waitUntil {
+                bridge.documentFind.bar.field.isFirstResponder && container.keyboardLayoutGuide.layoutFrame.height > 0
+            }
+            let content: UIView = source ? bridge.sourceEditor.textView : bridge.webView
+            try await waitUntil {
+                let bottom = content.convert(content.bounds, to: window).maxY
+                let keyboard = container.convert(container.keyboardLayoutGuide.layoutFrame.origin, to: window).y
+                return abs(bottom - keyboard) < 1
+            }
+            XCTAssertNil(bridge.documentFind.bar.field.inputAccessoryView)
+            let frame = bridge.documentFind.bar.convert(bridge.documentFind.bar.bounds, to: window)
+            XCTAssertLessThan(frame.maxY, content.convert(content.bounds, to: window).maxY)
+            bridge.documentFind.dismiss()
+            try await waitUntil { !session.findActive && container.keyboardLayoutGuide.layoutFrame.height == 0 }
+        }
     }
 
     @MainActor

@@ -50,6 +50,8 @@ def reader_design(spec):
         "sourceHorizontalInset": "space.sourceHorizontalInset",
         "sourceTopInset": "space.sourceTopInset",
         "sourceBottomInset": "space.sourceBottomInset",
+        "findWidth": "size.findWidth",
+        "findInset": "space.findInset",
         "hitTarget": "size.hitTarget",
         "floatingIcon": "size.floatingIcon",
         "compactFloatingIcon": "size.compactFloatingIcon",

@@ -89,7 +89,7 @@ flowchart LR
 
 `ReaderViewport` 承载正文 WebView、原生源码编辑器与完整的原生 AI 面板。`ReaderWorkspace` 统一决定正文、目录与 AI 面板的空间分配、互斥及侧边／底部呈现；Web 只接收布局结果，不维护另一份断点或宽度策略。正文和 AI 使用独立的 WebView，共用 `rich-text.js` 的 Markdown 解析、清理、数学与图表实现。正文的滚动和边界回弹只作用于正文，不参与 AI 控件定位。
 
-`ReaderFindController` 通过公开的 `UIFindInteraction` 和 `UITextSearchingFindSession` 管理当前文档查找。源码使用当前工作文本，预览从正文生成带 UTF-16 节点偏移的临时 DOM 快照；两者共用 Foundation 字符串比较后把结果交给同一系统查找栏。源码高亮使用 TextKit 2 的临时呈现属性，预览使用 CSS Highlights。目录和界面控件不进入快照，CSS Highlights 不修改文档节点。快照身份及原生请求代次隔离迟到结果；关闭、模式切换、文档切换和桥接释放时清理。查找只读，不进入工作文本或撤销历史。
+`ReaderFindController` 统一持有当前查找词、选项、结果与活动索引，通过 `ReaderFindBar` 的原生 `UISearchTextField` 和按钮接收操作。`ReaderViewport` 按正文列的可用空间定位悬浮栏，顶部文档操作共用 `ReaderChromeVisibility` 暂时隐藏，查找栏不加入键盘附属区域，正文滚动不参与其定位。源码使用当前工作文本，预览从正文生成带 UTF-16 节点偏移的临时 DOM 快照；两者共用 Foundation 字符串比较和前后导航状态。组词期间不提交查找；确认输入后取消旧任务并更新，快速输入及切换通过请求代次隔离迟到结果。源码高亮使用 TextKit 2 的临时呈现属性，预览使用 CSS Highlights。目录和界面控件不进入快照，CSS Highlights 不修改文档节点。快照身份及原生请求代次隔离迟到结果；关闭、模式切换、文档切换和桥接释放时清理。查找只读，不进入工作文本或撤销历史。
 
 代码块操作由共享富文本渲染器在清理正文之后生成；复制仅将代码文字经带文档身份校验的桥接交给原生剪贴板。复制按钮由外层代码块定位，悬浮在完整宽度的横向滚动区域上方；末尾余量放在可滚动内容内，不为按钮保留独立列。抽取选段时移除操作控件和布局包装，引用快照与模型上下文只保留文档内容。
 

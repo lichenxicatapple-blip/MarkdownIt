@@ -1,150 +1,159 @@
 import UIKit
 
-/// One read-only system find navigator. Foundation searches either the working
-/// buffer or article-only DOM text; TextKit and CSS render temporary highlights.
+/// Owns one transient find session. The bar, matching and result navigation are
+/// shared; TextKit and CSS only project highlights into their respective views.
 @MainActor
-final class ReaderFindController: NSObject, UIFindInteractionDelegate, @MainActor UITextSearching {
-    private final class Position: UITextPosition {
-        let offset: Int
-        init(_ offset: Int) { self.offset = offset }
+final class ReaderFindController {
+    struct Options: Equatable {
+        enum WordMatch: CaseIterable { case contains, startsWith, fullWord }
+        var matchCase = false
+        var ignoreDiacritics = true
+        var wordMatchMethod = WordMatch.contains
+        var comparison: String.CompareOptions {
+            (matchCase ? [] : String.CompareOptions.caseInsensitive)
+                .union(ignoreDiacritics ? .diacriticInsensitive : [])
+        }
     }
 
-    private final class Range: UITextRange {
-        let value: NSRange
-        init(_ value: NSRange) { self.value = value }
-        override var start: UITextPosition { Position(value.location) }
-        override var end: UITextPosition { Position(NSMaxRange(value)) }
-        override var isEmpty: Bool { value.length == 0 }
-    }
-
-    typealias DocumentIdentifier = String?
-
+    private enum HighlightStyle: Int { case none, found, current }
+    let bar = ReaderFindBar()
     private let source: UITextView
     private let preview: (String, [String: Any]?) async throws -> Any?
     private let onVisibility: (Bool) -> Void
-    private(set) lazy var interaction = UIFindInteraction(sessionDelegate: self)
+    private let onError: (Error) -> Void
+    private(set) var active = false
+    private(set) var query = ""
+    private(set) var options = Options()
+    private(set) var ranges: [NSRange] = []
+    private(set) var currentIndex: Int?
+    var resultCount: Int { ranges.count }
     private var usingSource = false
     private var generation = 0
     private var snapshotID: Int?
     private var searchTask: Task<Void, Never>?
     private var decorationTask: Task<Void, Never>?
     private var decorations: [[String: Int]] = []
-    private var active = false
-    private var currentRange: Range?
-    private weak var currentSession: UIFindSession?
-    private var sourceRanges: [NSRange: UITextSearchFoundTextStyle] = [:]
-    private var aggregator: UITextSearchAggregator<DocumentIdentifier>?
+    private var pendingReveal: NSRange?
+    private var sourceRanges: [NSRange: HighlightStyle] = [:]
 
     init(
-        view: UIView, source: UITextView,
-        preview: @escaping (String, [String: Any]?) async throws -> Any?,
-        onVisibility: @escaping (Bool) -> Void
+        source: UITextView, preview: @escaping (String, [String: Any]?) async throws -> Any?,
+        onVisibility: @escaping (Bool) -> Void, onError: @escaping (Error) -> Void
     ) {
         self.source = source
         self.preview = preview
         self.onVisibility = onVisibility
-        super.init()
-        view.addInteraction(interaction)
+        self.onError = onError
+        bar.onQuery = { [weak self] in self?.search($0) }
+        bar.onNext = { [weak self] in self?.move(forward: true) }
+        bar.onPrevious = { [weak self] in self?.move(forward: false) }
+        bar.onClose = { [weak self] in self?.dismiss() }
+        bar.onOptions = { [weak self] options in
+            guard let self else { return }
+            self.options = options
+            self.search(self.query)
+        }
     }
 
     func present(source: Bool) {
-        guard !active else { return }
+        guard !active else {
+            bar.focus()
+            return
+        }
         usingSource = source
+        active = true
         if source {
             self.source.textLayoutManager?.renderingAttributesValidator = { [weak self] _, fragment in
                 self?.validateSourceHighlights(fragment)
             }
         }
-        interaction.searchText = nil
-        interaction.presentFindNavigator(showingReplace: false)
-    }
-
-    func dismiss() {
-        active = false
-        interaction.activeFindSession?.invalidateFoundResults()
-        interaction.dismissFindNavigator()
-        source.textLayoutManager?.renderingAttributesValidator = nil
-        clearAllDecoratedFoundText()
-        currentSession = nil
-        aggregator = nil
-        onVisibility(false)
-    }
-
-    func findInteraction(_ interaction: UIFindInteraction, sessionFor view: UIView) -> UIFindSession? {
-        return UITextSearchingFindSession(searchableObject: self)
-    }
-
-    func findInteraction(_ interaction: UIFindInteraction, didBegin session: UIFindSession) {
-        currentSession = session
-        active = true
+        query = ""
+        bar.field.text = ""
+        bar.setVisible(true)
+        updateBar()
+        bar.superview?.setNeedsLayout()
+        bar.focus()
         onVisibility(true)
     }
 
-    func findInteraction(_ interaction: UIFindInteraction, didEnd session: UIFindSession) {
-        guard currentSession === session else { return }
+    func dismiss() {
+        guard active else { return }
         active = false
-        session.invalidateFoundResults()
-        currentSession = nil
+        bar.blur()
+        bar.setVisible(false)
+        clearHighlights()
+        query = ""
+        ranges.removeAll()
+        currentIndex = nil
         source.textLayoutManager?.renderingAttributesValidator = nil
-        clearAllDecoratedFoundText()
-        active = false
-        aggregator = nil
         onVisibility(false)
     }
 
-    var selectedTextRange: UITextRange? { usingSource ? Range(source.selectedRange) : nil }
-    var supportsTextReplacement: Bool { false }
-
-    func compare(
-        _ foundRange: UITextRange, toRange: UITextRange, document: DocumentIdentifier?
-    ) -> ComparisonResult {
-        guard let first = foundRange as? Range, let last = toRange as? Range else { return .orderedSame }
-        return first.value.location < last.value.location
-            ? .orderedAscending
-            : first.value.location == last.value.location ? .orderedSame : .orderedDescending
-    }
-
-    func performTextSearch(
-        queryString: String, options: UITextSearchOptions,
-        resultAggregator aggregator: UITextSearchAggregator<DocumentIdentifier>
-    ) {
-        guard active else {
-            aggregator.finishedSearching()
-            return
-        }
-        self.aggregator = aggregator
-        generation += 1
+    func search(_ query: String) {
+        guard active else { return }
+        let anchor = self.query == query ? currentIndex.map { ranges[$0].location } : nil
+        clearHighlights()
+        self.query = query
+        ranges = []
+        currentIndex = nil
+        updateBar(searching: !query.isEmpty)
+        guard !query.isEmpty else { return }
         let request = generation
         if usingSource {
-            for range in Self.matches(in: source.text ?? "", query: queryString, options: options) {
-                aggregator.foundRange(Range(range), searchString: queryString, document: nil)
-            }
-            aggregator.finishedSearching()
-            return
-        }
-        searchTask?.cancel()
-        searchTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let snapshot = try await self.preview("findCapture", nil) as? [String: Any]
-                guard let id = snapshot?["id"] as? Int, let text = snapshot?["text"] as? String else { return }
-                guard !Task.isCancelled, self.active, self.generation == request else {
-                    _ = try? await self.preview("findClear", ["id": id])
-                    return
+            install(Self.matches(in: source.text ?? "", query: query, options: options), anchor: anchor)
+        } else {
+            searchTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let snapshot = try await self.preview("findCapture", nil) as? [String: Any]
+                    guard let id = snapshot?["id"] as? Int, let text = snapshot?["text"] as? String else {
+                        throw CocoaError(.coderReadCorrupt)
+                    }
+                    guard !Task.isCancelled, self.active, self.generation == request else {
+                        _ = try? await self.preview("findClear", ["id": id])
+                        return
+                    }
+                    self.snapshotID = id
+                    self.install(Self.matches(in: text, query: query, options: self.options), anchor: anchor)
+                } catch {
+                    guard !Task.isCancelled, self.active, self.generation == request else { return }
+                    self.updateBar()
+                    self.onError(error)
                 }
-                self.snapshotID = id
-                for range in Self.matches(in: text, query: queryString, options: options) {
-                    aggregator.foundRange(Range(range), searchString: queryString, document: nil)
-                }
-                aggregator.finishedSearching()
-            } catch {
-                guard !Task.isCancelled, self.generation == request else { return }
-                aggregator.finishedSearching()
             }
         }
     }
 
-    static func matches(in text: String, query: String, options: UITextSearchOptions) -> [NSRange] {
+    private func install(_ ranges: [NSRange], anchor: Int?) {
+        self.ranges = ranges
+        currentIndex =
+            ranges.isEmpty
+            ? nil
+            : (anchor.flatMap { location in
+                ranges.firstIndex { $0.location >= location }
+            } ?? 0)
+        for (index, range) in ranges.enumerated() {
+            decorate(range, style: index == currentIndex ? .current : .found)
+        }
+        if let currentIndex { reveal(ranges[currentIndex]) }
+        updateBar()
+    }
+
+    func move(forward: Bool) {
+        guard active, !ranges.isEmpty, let currentIndex else { return }
+        let next = (currentIndex + (forward ? 1 : ranges.count - 1)) % ranges.count
+        decorate(ranges[currentIndex], style: .found)
+        self.currentIndex = next
+        decorate(ranges[next], style: .current)
+        reveal(ranges[next])
+        updateBar()
+    }
+
+    private func updateBar(searching: Bool = false) {
+        bar.update(query: query, index: currentIndex, count: ranges.count, searching: searching, options: options)
+    }
+
+    static func matches(in text: String, query: String, options: Options = Options()) -> [NSRange] {
         guard !query.isEmpty else { return [] }
         let string = text as NSString
         var starts = Set<Int>()
@@ -161,7 +170,7 @@ final class ReaderFindController: NSObject, UIFindInteractionDelegate, @MainActo
         var result: [NSRange] = []
         while cursor < string.length {
             let range = string.range(
-                of: query, options: options.stringCompareOptions.subtracting(.backwards),
+                of: query, options: options.comparison,
                 range: NSRange(location: cursor, length: string.length - cursor))
             guard range.location != NSNotFound, range.length > 0 else { break }
             if options.wordMatchMethod == .contains
@@ -175,56 +184,64 @@ final class ReaderFindController: NSObject, UIFindInteractionDelegate, @MainActo
         return result
     }
 
-    func decorate(
-        foundTextRange range: UITextRange, document: DocumentIdentifier?,
-        usingStyle style: UITextSearchFoundTextStyle
-    ) {
-        guard let range = range as? Range else { return }
-        if style == .highlighted {
-            currentRange = range
-        } else if currentRange?.value == range.value {
-            currentRange = nil
-        }
+    private func decorate(_ range: NSRange, style: HighlightStyle) {
         if usingSource {
-            decorateSource(range.value, style: style)
-            return
-        }
-        guard let id = snapshotID else { return }
-        decorations.append(["start": range.value.location, "length": range.value.length, "style": style.rawValue])
-        guard decorationTask == nil else { return }
-        decorationTask = Task { [weak self] in
-            await Task.yield()
-            guard let self, !Task.isCancelled, self.snapshotID == id else { return }
-            let ranges = self.decorations
-            self.decorations.removeAll()
-            self.decorationTask = nil
-            _ = try? await self.preview("findDecorate", ["id": id, "ranges": ranges])
+            decorateSource(range, style: style)
+        } else {
+            decorations.append(["start": range.location, "length": range.length, "style": style.rawValue])
+            scheduleDecoration()
         }
     }
 
-    func clearAllDecoratedFoundText() {
+    private func scheduleDecoration() {
+        guard decorationTask == nil, let id = snapshotID else { return }
+        let request = generation
+        decorationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.generation == request { self.decorationTask = nil } }
+            do {
+                while !Task.isCancelled, self.active, self.generation == request {
+                    let updates = self.decorations
+                    self.decorations.removeAll()
+                    if !updates.isEmpty {
+                        _ = try await self.preview("findDecorate", ["id": id, "ranges": updates])
+                    }
+                    guard !Task.isCancelled, self.active, self.generation == request else { return }
+                    if !self.decorations.isEmpty { continue }
+                    if let range = self.pendingReveal {
+                        self.pendingReveal = nil
+                        _ = try await self.preview(
+                            "findReveal", ["id": id, "start": range.location, "length": range.length])
+                    }
+                    if self.decorations.isEmpty && self.pendingReveal == nil { return }
+                }
+            } catch {
+                guard !Task.isCancelled, self.active, self.generation == request else { return }
+                self.onError(error)
+            }
+        }
+    }
+
+    private func clearHighlights() {
         generation += 1
         searchTask?.cancel()
         searchTask = nil
         decorationTask?.cancel()
         decorationTask = nil
         decorations.removeAll()
-        currentRange = nil
+        pendingReveal = nil
         let previousSnapshot = snapshotID
         snapshotID = nil
-        if usingSource {
-            for range in sourceRanges.keys { decorateSource(range, style: .normal) }
-            sourceRanges.removeAll()
-        } else if let previousSnapshot {
+        for range in Array(sourceRanges.keys) { decorateSource(range, style: .none) }
+        if let previousSnapshot {
             Task { _ = try? await preview("findClear", ["id": previousSnapshot]) }
         }
     }
 
-    func scrollRangeToVisible(_ range: UITextRange, inDocument document: DocumentIdentifier?) {
-        guard let range = range as? Range else { return }
+    private func reveal(_ range: NSRange) {
         if usingSource {
-            guard let start = source.position(from: source.beginningOfDocument, offset: range.value.location),
-                let end = source.position(from: start, offset: range.value.length),
+            guard let start = source.position(from: source.beginningOfDocument, offset: range.location),
+                let end = source.position(from: start, offset: range.length),
                 let selection = source.textRange(from: start, to: end)
             else { return }
             let rect = source.firstRect(for: selection)
@@ -232,34 +249,32 @@ final class ReaderFindController: NSObject, UIFindInteractionDelegate, @MainActo
             source.setContentOffset(
                 CGPoint(x: source.contentOffset.x, y: min(bottom, max(0, rect.midY - source.bounds.height / 2))),
                 animated: false)
-            return
-        }
-        guard let id = snapshotID else { return }
-        Task {
-            _ = try? await preview(
-                "findReveal", ["id": id, "start": range.value.location, "length": range.value.length])
+        } else {
+            pendingReveal = range
+            scheduleDecoration()
         }
     }
-    private func decorateSource(_ range: NSRange, style: UITextSearchFoundTextStyle) {
-        if style == .normal { sourceRanges.removeValue(forKey: range) } else { sourceRanges[range] = style }
+
+    private func decorateSource(_ range: NSRange, style: HighlightStyle) {
+        if style == .none { sourceRanges.removeValue(forKey: range) } else { sourceRanges[range] = style }
         renderSource(range, style: style)
     }
 
-    private func renderSource(_ range: NSRange, style: UITextSearchFoundTextStyle) {
+    private func renderSource(_ range: NSRange, style: HighlightStyle) {
         guard NSMaxRange(range) <= (source.text as NSString?)?.length ?? 0,
             let layout = source.textLayoutManager, let content = layout.textContentManager,
             let start = content.location(content.documentRange.location, offsetBy: range.location),
             let end = content.location(start, offsetBy: range.length)
         else { return }
         guard let textRange = NSTextRange(location: start, end: end) else { return }
-        if style == .normal {
+        if style == .none {
             layout.removeRenderingAttribute(.backgroundColor, for: textRange)
             layout.removeRenderingAttribute(.foregroundColor, for: textRange)
         } else {
             layout.addRenderingAttribute(
-                .backgroundColor, value: UIColor.systemYellow.withAlphaComponent(style == .highlighted ? 1 : 0.35),
+                .backgroundColor, value: UIColor.systemYellow.withAlphaComponent(style == .current ? 1 : 0.35),
                 for: textRange)
-            if style == .highlighted {
+            if style == .current {
                 layout.addRenderingAttribute(.foregroundColor, value: UIColor.black, for: textRange)
             } else {
                 layout.removeRenderingAttribute(.foregroundColor, for: textRange)
@@ -280,13 +295,12 @@ final class ReaderFindController: NSObject, UIFindInteractionDelegate, @MainActo
     }
 
     func viewportChanged() {
-        guard active, usingSource, let currentRange else { return }
-        scrollRangeToVisible(currentRange, inDocument: nil)
+        guard active, usingSource, let currentIndex else { return }
+        reveal(ranges[currentIndex])
     }
 
     func sourceChanged() {
         guard active, usingSource else { return }
-        aggregator?.invalidate()
+        search(query)
     }
-
 }

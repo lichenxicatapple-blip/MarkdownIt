@@ -12,6 +12,7 @@ final class ReaderWKWebView: WKWebView {
     weak var sourceView: SourceTextView?
     weak var annotationView: UITextView?
     var findDocument: (() -> Void)?
+    var findBar: ReaderFindBar?
     var inputBottomInset: CGFloat = 0 {
         didSet { if inputBottomInset != oldValue { inputBottomInsetDidChange?() } }
     }
@@ -107,12 +108,13 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         conversationWebView = WKWebView(frame: .zero, configuration: Self.configuration(for: session))
         super.init()
         documentFind = ReaderFindController(
-            view: webView, source: sourceEditor.textView,
+            source: sourceEditor.textView,
             preview: { [weak self] method, payload in try await self?.rawCall(method, payload: payload) },
             onVisibility: { [weak session] active in
                 guard let session, session.findActive != active else { return }
                 session.findActive = active
-            })
+            }, onError: { [weak session] error in session?.errorMessage = error.localizedDescription })
+        webView.findBar = documentFind.bar
         webView.findDocument = { [weak self] in Task { await self?.findInDocument() } }
         Self.lifecycleLog.notice("reader.created bridge=\(self.diagnosticID, privacy: .public)")
         if let document = session.document {
@@ -843,6 +845,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
         guard !detached else { return }
         documentFind.dismiss()
         webView.findDocument = nil
+        webView.findBar = nil
         detached = true
         ready = false
         // Resigning native input can synchronously lay out the keyboard guides.
