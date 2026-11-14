@@ -24,6 +24,7 @@ struct CatalogModel: Decodable, Equatable, Identifiable, Sendable {
         case maxOutputLength = "max_output_length"
         case maxTokens = "max_tokens"
         case modelInfo = "model_info"
+        case topProvider = "top_provider"
     }
 
     init(
@@ -44,8 +45,9 @@ struct CatalogModel: Decodable, Equatable, Identifiable, Sendable {
             try values.decodeIfPresent(String.self, forKey: .name)
             ?? values.decodeIfPresent(String.self, forKey: .displayName)
         let nested = try? values.nestedContainer(keyedBy: CodingKeys.self, forKey: .modelInfo)
+        let provider = try? values.nestedContainer(keyedBy: CodingKeys.self, forKey: .topProvider)
         func positive(_ keys: CodingKeys...) -> Int? {
-            for container in [nested, values].compactMap({ $0 }) {
+            for container in [provider, nested, values].compactMap({ $0 }) {
                 for key in keys {
                     if let value = try? container.decode(Int.self, forKey: key), value > 0 { return value }
                 }

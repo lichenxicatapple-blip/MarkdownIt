@@ -44,12 +44,12 @@ enum AgentContextBuilder {
         let request: String
         let documentID: String?
         let reference: Reference?
+        let previousAssistant: AssistantState?
         let background: Background?
         let searchResults: [WebSearchResult]?
         let webPages: [WebPageExcerpt]?
     }
-    private struct AssistantTurn: Encodable {
-        let answer: String
+    private struct AssistantState: Encodable {
         let status: String
         let sourceChanges: [AgentSourceChange]
     }
@@ -129,15 +129,14 @@ enum AgentContextBuilder {
                 currentImageIDs: (current?.images ?? []).map(\.id))
         let memory = try summary.map { ChatMessage(role: "user", content: try encode(["conversationSummary": $0])) }
         return [systemMessage(for: snapshot, appLanguage: appLanguage)] + (memory.map { [$0] } ?? [])
-            + (try history.enumerated().map { index, turn in
+            + (try history.enumerated().compactMap { index, turn -> ChatMessage? in
                 if turn.role == "assistant" {
-                    return try ChatMessage(
-                        role: turn.role,
-                        content: encode(
-                            AssistantTurn(
-                                answer: turn.markdown, status: turn.status ?? "complete",
-                                sourceChanges: turn.changes ?? [])))
+                    // Assistant content is an example of an answer, not a storage record.
+                    // Keep execution state in the following user context instead.
+                    guard !turn.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                    return ChatMessage(role: turn.role, content: turn.markdown)
                 }
+                let previous = index > 0 && history[index - 1].role == "assistant" ? history[index - 1] : nil
                 let reference = turn.attachment.map { value in
                     let sourceEdit = value.mode == "source"
                     let content = sourceEdit ? value.text : value.markdown
@@ -157,6 +156,9 @@ enum AgentContextBuilder {
                         UserTurn(
                             request: turn.markdown,
                             documentID: documentIDs[index], reference: reference,
+                            previousAssistant: previous.map {
+                                AssistantState(status: $0.status ?? "complete", sourceChanges: $0.changes ?? [])
+                            },
                             background: index == history.count - 1 ? background : nil,
                             searchResults: snapshot.searchResults?[index], webPages: snapshot.webPages?[index])))
             })

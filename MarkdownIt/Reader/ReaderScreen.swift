@@ -263,7 +263,10 @@ struct ReaderScreen: View {
         .background {
             ReaderAlert(
                 isPresented: $session.needsModelConfiguration,
-                title: String(localized: "AI Model Not Configured"),
+                title: session.configuration.requiresResponsesConfirmation
+                    ? String(localized: "Confirm AI Connection") : String(localized: "AI Model Not Configured"),
+                message: session.configuration.requiresResponsesConfirmation
+                    ? String(localized: "Only Responses is supported. Confirm the connection settings.") : nil,
                 actions: [
                     .init(id: "cancel", title: String(localized: "Cancel"), style: .cancel) {
                         session.finishAgentConfiguration(saved: false)

@@ -750,7 +750,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.alerts["AI Model Not Configured"].waitForExistence(timeout: 5))
         app.alerts.buttons["Open Settings"].tap()
         XCTAssertTrue(app.navigationBars["Model Settings"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["API Type"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["ModelAPIProtocol"].exists)
         app.buttons["ModelPicker"].tap()
         XCTAssertTrue(app.buttons["CustomModelEntry"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["CustomModelEntry"].label, "Custom…")
@@ -2347,7 +2347,8 @@ final class ReaderUITests: XCTestCase {
         record("agent-reopened-history")
     }
 
-    func testClearConversationConfirmsAndPreservesDraft() {
+    func testClearConversationConfirmsAndPreservesDraft() throws {
+        try useComponentSynchronization()
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
         app.launchArguments = [

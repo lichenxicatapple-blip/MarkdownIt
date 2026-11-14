@@ -78,7 +78,7 @@ struct ModelDiagnostics: Sendable {
     ) -> Request {
         let request = Request(context: context ?? Context(runID: UUID().uuidString.lowercased()), diagnostics: self)
         request.emit("request.start") {
-            $0.api = configuration.apiProtocol.rawValue
+            $0.api = "responses"
             $0.service = Self.identifier(endpoint.host, redacting: key)
             $0.model = Self.identifier(configuration.model, redacting: key)
             $0.requestBytes = requestBytes

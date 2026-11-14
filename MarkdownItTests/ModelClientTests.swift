@@ -222,24 +222,33 @@ private actor PendingCatalogLoads {
 }
 
 final class ModelClientTests: XCTestCase {
+    func testStoredChatConnectionNeverSilentlySendsAResponsesRequest() async throws {
+        ModelURLProtocol.fixture.configure(body: "")
+        let configuration = ModelConfiguration(
+            baseURL: "https://example.test/v1", model: "chosen", storedProtocol: "chatCompletions")
+        do {
+            try await client().stream(configuration: configuration, key: "test-only-key", messages: []) { _ in }
+            XCTFail("An old protocol requires explicit user confirmation")
+        } catch ModelConfigurationError.responsesConfirmationRequired {}
+        XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 0)
+    }
+
     func testModelRequestsDoNotRedirectToAnotherServicePath() async throws {
-        for api in ModelAPIProtocol.allCases {
-            let server = try RedirectFixtureServer(status: 307)
-            defer { server.stop() }
-            let baseURL = try await server.start()
-            do {
-                _ = try await ModelClient().stream(
-                    configuration: ModelConfiguration(baseURL: baseURL, model: "test", apiProtocol: api),
-                    key: "test-only-key", messages: [ChatMessage(role: "user", content: "Private document")]
-                ) { _ in XCTFail("A redirect must not produce an answer") }
-                XCTFail("The configured endpoint must report its redirect")
-            } catch ModelError.service(let status, _) {
-                XCTAssertEqual(status, 307)
-            } catch {
-                XCTFail("Expected the original redirect response, received \(error)")
-            }
-            XCTAssertEqual(server.paths(), ["/v1/" + api.path], "Do not forward the document to another path")
+        let modelServer = try RedirectFixtureServer(status: 307)
+        defer { modelServer.stop() }
+        let modelBaseURL = try await modelServer.start()
+        do {
+            _ = try await ModelClient().stream(
+                configuration: ModelConfiguration(baseURL: modelBaseURL, model: "test"),
+                key: "test-only-key", messages: [ChatMessage(role: "user", content: "Private document")]
+            ) { _ in XCTFail("A redirect must not produce an answer") }
+            XCTFail("The configured endpoint must report its redirect")
+        } catch let error as ModelServiceFailure {
+            XCTAssertEqual(error.httpStatus, 307)
+        } catch {
+            XCTFail("Expected the original redirect response, received \(error)")
         }
+        XCTAssertEqual(modelServer.paths(), ["/v1/responses"], "Do not forward the document to another path")
 
         let server = try RedirectFixtureServer(status: 302)
         defer { server.stop() }
@@ -387,7 +396,10 @@ final class ModelClientTests: XCTestCase {
                 messages: [ChatMessage(role: "user", content: "PRIVATE_QUESTION PRIVATE_DOCUMENT")],
                 maxOutputTokens: 2048, context: .init(runID: "run-429"), onText: { _ in })
             XCTFail("The original rate limit must still be reported")
-        } catch ModelError.rateLimited(let delay) { XCTAssertEqual(delay, 12) }
+        } catch let error as ModelServiceFailure {
+            guard case .rateLimited(let delay) = error.reason else { return XCTFail("Expected rate limiting") }
+            XCTAssertEqual(delay, 12)
+        }
         let events = recorder.events()
         XCTAssertEqual(
             events.map(\.name), ["request.start", "request.response", "request.remote_error", "request.end"])
@@ -414,13 +426,13 @@ final class ModelClientTests: XCTestCase {
         ModelURLProtocol.fixture.configure(
             mime: "application/json",
             body:
-                #"{"choices":[{"message":{"content":"PRIVATE_ANSWER"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#
+                #"{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"PRIVATE_ANSWER"}]}],"usage":{"input_tokens":12,"output_tokens":3}}"#
         )
         let model = client(diagnostics: ModelDiagnostics(record: recorder.append))
         for purpose in [ModelDiagnostics.Purpose.answer, .summary] {
             _ = try await model.stream(
                 configuration: ModelConfiguration(
-                    baseURL: "https://example.test/v1", model: "fixture-model", apiProtocol: .chatCompletions),
+                    baseURL: "https://example.test/v1", model: "fixture-model"),
                 key: "private-diagnostic-key", messages: [ChatMessage(role: "user", content: "PRIVATE_QUESTION")],
                 context: .init(runID: "one-run", purpose: purpose), onText: { _ in })
         }
@@ -493,131 +505,57 @@ final class ModelClientTests: XCTestCase {
         XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 0)
     }
 
-    func testChatToolIdentitySurvivesEmptyAndNullContinuationFields() async throws {
-        // Atlas/Qwen actual stream: only the first chunk identifies the call.
-        ModelURLProtocol.fixture.configure(
-            body: """
-                data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_read_17","type":"function","function":{"name":"read_document","arguments":""}}]}}]}
-
-                data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"arguments":"{}"}}]}}]}
-
-                data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"type":null,"function":{"arguments":""}}]}}]}
-
-                data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
-
-                """)
-        let configuration = ModelConfiguration(
-            baseURL: "https://example.test/v1", model: "x", apiProtocol: .chatCompletions)
-        let turn = try await client().stream(
-            configuration: configuration, key: "test-only-key", messages: [],
-            tools: AgentDocumentTools.definitions
-        ) { _ in }
-        XCTAssertEqual(turn.calls, [.init(id: "call_read_17", name: "read_document", arguments: "{}")])
-        let replay = try ModelWireFormat.object(
-            ModelToolWire.requestBody(
-                configuration, messages: [], tools: AgentDocumentTools.definitions,
-                exchanges: [.init(turn: turn, outputs: [.init(id: "call_read_17", content: "read result")])]))
-        let messages = try XCTUnwrap(replay["messages"] as? [[String: Any]])
-        XCTAssertEqual(messages.last?["tool_call_id"] as? String, "call_read_17")
-        let calls = messages.first?["tool_calls"] as? [[String: Any]]
-        XCTAssertEqual(calls?.first?["id"] as? String, "call_read_17")
-        XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 1)
-    }
-
-    func testToolArgumentsAndOpaqueReasoningSurviveBothWireProtocols() async throws {
+    func testToolArgumentsAndOpaqueReasoningSurviveToolContinuations() async throws {
         let arguments = #"{"revision":"version-1","edits":[{"before":"原文","after":"新文"}]}"#
         func frame(_ value: [String: Any]) throws -> String {
             "data: " + String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self) + "\n\n"
         }
-        for api in ModelAPIProtocol.allCases {
-            var events: [[String: Any]]
-            if api == .responses {
-                let reasoning: [String: Any] = [
-                    "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "opaque-signature",
-                ]
-                let call: [String: Any] = [
-                    "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "edit_document",
-                    "arguments": arguments,
-                ]
-                events = [
-                    ["type": "response.output_item.added", "output_index": 0, "item": reasoning],
-                    [
-                        "type": "response.output_item.added", "output_index": 1,
-                        "item": call.merging(["arguments": ""], uniquingKeysWith: { _, b in b }),
-                    ],
-                    [
-                        "type": "response.function_call_arguments.delta", "output_index": 1,
-                        "delta": String(arguments.prefix(25)),
-                    ],
-                    [
-                        "type": "response.function_call_arguments.delta", "output_index": 1,
-                        "delta": String(arguments.dropFirst(25)),
-                    ],
-                    ["type": "response.completed", "response": ["status": "completed", "output": [reasoning, call]]],
-                ]
-            } else {
-                events = [
-                    [
-                        "choices": [
-                            [
-                                "delta": [
-                                    "reasoning_content": "opaque-reasoning",
-                                    "tool_calls": [
-                                        [
-                                            "index": 0, "id": "call_1", "type": "function",
-                                            "extra_content": ["provider": ["signature": "opaque-signature"]],
-                                            "function": [
-                                                "name": "edit_document", "arguments": String(arguments.prefix(25)),
-                                            ],
-                                        ]
-                                    ],
-                                ]
-                            ]
-                        ]
-                    ],
-                    [
-                        "choices": [
-                            [
-                                "delta": [
-                                    "tool_calls": [
-                                        ["index": 0, "function": ["arguments": String(arguments.dropFirst(25))]]
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ],
-                    ["choices": [["delta": [:], "finish_reason": "tool_calls"]]],
-                ]
-            }
-            ModelURLProtocol.fixture.configure(body: try events.map(frame).joined())
-            let config = ModelConfiguration(baseURL: "https://example.test/v1", model: "tool-model", apiProtocol: api)
-            let turn = try await client().stream(
-                configuration: config, key: "fixture-key", messages: [.init(role: "user", content: "修改原文")],
-                tools: AgentDocumentTools.definitions
-            ) { _ in XCTFail("Tool arguments and reasoning are not visible answer text") }
-            XCTAssertEqual(turn.calls, [.init(id: "call_1", name: "edit_document", arguments: arguments)])
-            let replay = try ModelToolWire.requestBody(
-                config, messages: [.init(role: "user", content: "修改原文")],
-                tools: AgentDocumentTools.definitions,
-                exchanges: [.init(turn: turn, outputs: [.init(id: "call_1", content: #"{"status":"saved"}"#)])])
-            let body = try ModelWireFormat.object(replay)
-            XCTAssertEqual(body["parallel_tool_calls"] as? Bool, false)
-            let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
-            let function = api == .responses ? tools[1] : try XCTUnwrap(tools[1]["function"] as? [String: Any])
-            XCTAssertEqual(function["strict"] as? Bool, true)
-            XCTAssertEqual(function["name"] as? String, "edit_document")
-            let history = try XCTUnwrap(body[api == .responses ? "input" : "messages"] as? [[String: Any]])
-            if api == .responses {
-                XCTAssertEqual(history[1]["encrypted_content"] as? String, "opaque-signature")
-                XCTAssertEqual(history.last?["call_id"] as? String, "call_1")
-                XCTAssertEqual(body["store"] as? Bool, false)
-                XCTAssertNil(body["previous_response_id"])
-            } else {
-                XCTAssertEqual(history[1]["reasoning_content"] as? String, "opaque-reasoning")
-                XCTAssertTrue(String(decoding: replay, as: UTF8.self).contains("opaque-signature"))
-                XCTAssertEqual(history.last?["tool_call_id"] as? String, "call_1")
-            }
-        }
+        var events: [[String: Any]]
+        let reasoning: [String: Any] = [
+            "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "opaque-signature",
+        ]
+        let call: [String: Any] = [
+            "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "edit_document",
+            "arguments": arguments,
+        ]
+        events = [
+            ["type": "response.output_item.added", "output_index": 0, "item": reasoning],
+            [
+                "type": "response.output_item.added", "output_index": 1,
+                "item": call.merging(["arguments": ""], uniquingKeysWith: { _, b in b }),
+            ],
+            [
+                "type": "response.function_call_arguments.delta", "output_index": 1,
+                "delta": String(arguments.prefix(25)),
+            ],
+            [
+                "type": "response.function_call_arguments.delta", "output_index": 1,
+                "delta": String(arguments.dropFirst(25)),
+            ],
+            ["type": "response.completed", "response": ["status": "completed", "output": [reasoning, call]]],
+        ]
+        ModelURLProtocol.fixture.configure(body: try events.map(frame).joined())
+        let config = ModelConfiguration(baseURL: "https://example.test/v1", model: "tool-model")
+        let turn = try await client().stream(
+            configuration: config, key: "fixture-key", messages: [.init(role: "user", content: "修改原文")],
+            tools: AgentDocumentTools.definitions
+        ) { _ in XCTFail("Tool arguments and reasoning are not visible answer text") }
+        XCTAssertEqual(turn.calls, [.init(id: "call_1", name: "edit_document", arguments: arguments)])
+        let replay = try ModelToolWire.requestBody(
+            config, messages: [.init(role: "user", content: "修改原文")],
+            tools: AgentDocumentTools.definitions,
+            exchanges: [.init(turn: turn, outputs: [.init(id: "call_1", content: #"{"status":"saved"}"#)])])
+        let body = try ModelWireFormat.object(replay)
+        XCTAssertEqual(body["parallel_tool_calls"] as? Bool, false)
+        let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+        let function = tools[1]
+        XCTAssertEqual(function["strict"] as? Bool, true)
+        XCTAssertEqual(function["name"] as? String, "edit_document")
+        let history = try XCTUnwrap(body["input"] as? [[String: Any]])
+        XCTAssertEqual(history[1]["encrypted_content"] as? String, "opaque-signature")
+        XCTAssertEqual(history.last?["call_id"] as? String, "call_1")
+        XCTAssertEqual(body["store"] as? Bool, false)
+        XCTAssertNil(body["previous_response_id"])
     }
 
     func testResponsesCompletedOutputOverridesPartialToolEvents() async throws {
@@ -638,31 +576,22 @@ final class ModelClientTests: XCTestCase {
     }
 
     func testIncompleteToolStreamNeverReturnsAnExecutableCall() async throws {
-        let streams: [(ModelAPIProtocol, String)] = [
-            (
-                .responses,
-                #"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"one","name":"read_document","arguments":"{}"}}"#
-                    + "\n\n"
-            ),
-            (
-                .chatCompletions,
-                #"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"one","type":"function","function":{"name":"read_document","arguments":"{}"}}]},"finish_reason":"length"}]}"#
-                    + "\n\n"
-            ),
-        ]
-        for (api, body) in streams {
+        let call =
+            #"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"one","name":"read_document","arguments":"{}"}}"#
+            + "\n\n"
+        let incomplete = #"data: {"type":"response.incomplete","response":{"status":"incomplete"}}"# + "\n\n"
+        for body in [call, call + incomplete] {
             ModelURLProtocol.fixture.configure(body: body)
             do {
                 _ = try await client().stream(
-                    configuration: .init(baseURL: "https://example.test/v1", model: "fixture", apiProtocol: api),
+                    configuration: .init(baseURL: "https://example.test/v1", model: "fixture"),
                     key: "fixture-key", messages: [], tools: AgentDocumentTools.definitions
                 ) { _ in }
                 XCTFail("An incomplete model turn must not expose its tools for execution")
-            } catch let error as ModelError {
-                switch (api, error) {
-                case (.responses, .interrupted), (.chatCompletions, .incomplete): break
-                default: XCTFail("Unexpected failure type: \(error)")
-                }
+            } catch ModelError.interrupted {
+                XCTAssertEqual(body, call)
+            } catch ModelError.incomplete {
+                XCTAssertEqual(body, call + incomplete)
             }
             XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 1)
         }
@@ -690,20 +619,19 @@ final class ModelClientTests: XCTestCase {
             "/v1/responses")
         XCTAssertEqual(
             try ModelConfiguration(
-                baseURL: "https://example.test/compatible-mode/v1/responses", model: "x", apiProtocol: .chatCompletions
+                baseURL: "https://example.test/compatible-mode/v1/responses", model: "x"
             ).endpoint().path,
-            "/compatible-mode/v1/chat/completions")
+            "/compatible-mode/v1/responses")
         XCTAssertEqual(
             try ModelConfiguration(
-                baseURL: "https://example.test/v1/", model: "chosen-model", apiProtocol: .chatCompletions
+                baseURL: "https://example.test/v1/", model: "chosen-model"
             ).endpoint()
-                .absoluteString, "https://example.test/v1/chat/completions")
+                .absoluteString, "https://example.test/v1/responses")
         XCTAssertEqual(
             try ModelConfiguration(
-                baseURL: "https://example.test/v1/chat/completions", model: "chosen-model",
-                apiProtocol: .chatCompletions
+                baseURL: "https://example.test/v1/chat/completions", model: "chosen-model"
             )
-            .endpoint().path, "/v1/chat/completions")
+            .endpoint().path, "/v1/responses")
         XCTAssertThrowsError(try ModelConfiguration(baseURL: "file:///secret", model: "x").endpoint())
         XCTAssertThrowsError(try ModelConfiguration(baseURL: "https://key@example.test", model: "x").endpoint())
         XCTAssertThrowsError(try ModelConfiguration(baseURL: "https://example.test?api_key=x", model: "x").endpoint())
@@ -795,11 +723,81 @@ final class ModelClientTests: XCTestCase {
                     messages: []
                 ) { _ in }
                 XCTFail("Expected a service error")
-            } catch ModelError.rateLimited(let delay) { XCTAssertEqual(delay, 12) } catch ModelError.service(
-                let code, _)
-            { XCTAssertEqual(code, status) }
+            } catch let error as ModelServiceFailure {
+                XCTAssertEqual(error.httpStatus, status)
+                if case .rateLimited(let delay) = error.reason { XCTAssertEqual(delay, 12) }
+            }
             XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 1)
             XCTAssertEqual(ModelURLProtocol.fixture.request()?.url?.path, "/v1/responses")
+        }
+    }
+
+    func testProviderRejectionsKeepHTTPDetailsAndRedactTheCredentialBeforeReachingTheUI() async throws {
+        for status in [400, 401, 403, 404, 422, 429, 503] {
+            ModelURLProtocol.fixture.configure(
+                status: status, mime: "application/json",
+                body: #"{"code":400,"msg":"bad request: test-only-key"}"#)
+            do {
+                try await client().stream(
+                    configuration: .init(baseURL: "https://example.test/v1", model: "fixture"), key: "test-only-key",
+                    messages: [ChatMessage(role: "user", content: "Question")]
+                ) { _ in }
+                XCTFail("A rejected request cannot succeed")
+            } catch {
+                let failure = AgentFailure(error)
+                XCTAssertEqual(failure.kind, status == 401 ? "authentication" : status == 429 ? "rateLimit" : "service")
+                let message = try XCTUnwrap(failure.message)
+                XCTAssertTrue(message.contains(String(status)))
+                XCTAssertTrue(message.contains("bad request"))
+                XCTAssertFalse(message.contains("test-only-key"))
+                let restored = try JSONDecoder().decode(AgentFailure.self, from: JSONEncoder().encode(failure))
+                XCTAssertEqual(restored, failure)
+            }
+            XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 1)
+            XCTAssertEqual(ModelURLProtocol.fixture.request()?.url?.path, "/v1/responses")
+        }
+        XCTAssertNil(AgentFailure(ModelError.configuration).message)
+        let legacy = try JSONDecoder().decode(AgentFailure.self, from: Data(#"{"kind":"configuration"}"#.utf8))
+        XCTAssertNil(legacy.message)
+    }
+
+    func testStreamAndJSONProviderFailuresPreserveTheirExplanationAndInteractionCategory() async throws {
+        let errors: [(body: String, mime: String, kind: String)] = [
+            (
+                #"{"status":"failed","error":{"code":"context_length_exceeded","message":"Provider explanation. test-only-key"}}"#,
+                "application/json", "contextLimit"
+            ),
+            (
+                #"data: {"type":"response.failed","response":{"status":"failed","error":{"code":"rate_limit_exceeded","message":"Provider explanation. test-only-key"}}}"#
+                    + "\n\n",
+                "text/event-stream", "rateLimit"
+            ),
+            (
+                #"data: {"type":"error","code":429,"message":"Provider explanation. test-only-key"}"# + "\n\n",
+                "text/event-stream", "rateLimit"
+            ),
+            (
+                #"data: {"error":{"code":"invalid_api_key","message":"Provider explanation. test-only-key"}}"# + "\n\n",
+                "text/event-stream", "authentication"
+            ),
+        ]
+        for item in errors {
+            ModelURLProtocol.fixture.configure(mime: item.mime, body: item.body)
+            do {
+                try await client().stream(
+                    configuration: .init(baseURL: "https://example.test/v1", model: "fixture"),
+                    key: "test-only-key", messages: []
+                ) { _ in }
+                XCTFail("A provider failure must remain a failed request")
+            } catch {
+                let failure = AgentFailure(error)
+                XCTAssertEqual(failure.kind, item.kind)
+                let message = try XCTUnwrap(failure.message)
+                XCTAssertTrue(message.contains("Provider explanation."))
+                XCTAssertFalse(message.contains("test-only-key"))
+                XCTAssertFalse(message.contains("HTTP 200"), "An SSE error is not an HTTP failure")
+            }
+            XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 1)
         }
     }
 
@@ -825,7 +823,9 @@ final class ModelClientTests: XCTestCase {
                 configuration: .init(baseURL: "https://example.test/v1", model: "x"), key: "test-only-key", messages: []
             ) { _ in }
             XCTFail("Expected an explicit context limit error")
-        } catch ModelError.contextLimit {}
+        } catch let error as ModelServiceFailure {
+            guard case .contextLimit = error.reason else { return XCTFail("Expected a context limit") }
+        }
         XCTAssertEqual(ModelURLProtocol.fixture.requestCount(), 1)
         ModelURLProtocol.fixture.configure(
             status: 400, body: #"{"code":400,"msg":"maximum context exceeded","data":null}"#)
@@ -834,34 +834,36 @@ final class ModelClientTests: XCTestCase {
                 configuration: .init(baseURL: "https://example.test/v1", model: "x"), key: "test-only-key", messages: []
             ) { _ in }
             XCTFail("Atlas code/msg must preserve an explicit context-window failure")
-        } catch ModelError.contextLimit {}
+        } catch let error as ModelServiceFailure {
+            guard case .contextLimit = error.reason else { return XCTFail("Expected a context limit") }
+        }
         ModelURLProtocol.fixture.configure(status: 413, body: #"{"code":413,"msg":"Request body exceeds 50 MB"}"#)
         do {
             try await client().stream(
                 configuration: .init(baseURL: "https://example.test/v1", model: "x"), key: "test-only-key", messages: []
             ) { _ in }
             XCTFail("Payload size is not a model token-window error")
-        } catch ModelError.requestTooLarge {}
+        } catch let error as ModelServiceFailure {
+            guard case .requestTooLarge = error.reason else { return XCTFail("Expected a request size limit") }
+        }
     }
 
     func testStreamingHandlesRoleUsageAndFragmentedUnicode() async throws {
         ModelURLProtocol.fixture.configure(
             body: """
-                data: {"choices":[{"delta":{"role":"assistant","content":""}}]}
+                data: {"type":"response.created","response":{"status":"in_progress"}}
 
-                data: {"choices":[{"delta":{"content":"中文"}}]}
+                data: {"type":"response.output_text.delta","delta":"中文"}
 
-                data: {"choices":[{"delta":{"content":"回答"}}]}
+                data: {"type":"response.output_text.delta","delta":"回答"}
 
-                data: {"choices":[],"usage":{"total_tokens":4}}
-
-                data: [DONE]
+                data: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":4}}}
 
                 """)
         let collector = AnswerCollector()
         try await client().stream(
             configuration: .init(
-                baseURL: "https://example.test/v1", model: "chosen-model", apiProtocol: .chatCompletions),
+                baseURL: "https://example.test/v1", model: "chosen-model"),
             key: "test-only-key", messages: [.init(role: "user", content: "解释所选文字")]
         ) { await collector.append($0) }
         let answer = await collector.text
@@ -877,11 +879,14 @@ final class ModelClientTests: XCTestCase {
 
     func testJSONFallbackAndRedactedServiceErrors() async throws {
         ModelURLProtocol.fixture.configure(
-            mime: "application/json", body: #"{"choices":[{"message":{"content":"完整回答"}}]}"#)
+            mime: "application/json",
+            body:
+                #"{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"完整回答"}]}]}"#
+        )
         let collector = AnswerCollector()
         try await client().stream(
             configuration: .init(
-                baseURL: "https://example.test/v1", model: "chosen-model", apiProtocol: .chatCompletions),
+                baseURL: "https://example.test/v1", model: "chosen-model"),
             key: "test-only-key",
             messages: []
         ) { await collector.append($0) }
@@ -892,7 +897,7 @@ final class ModelClientTests: XCTestCase {
         do {
             try await client().stream(
                 configuration: .init(
-                    baseURL: "https://example.test/v1", model: "chosen-model", apiProtocol: .chatCompletions),
+                    baseURL: "https://example.test/v1", model: "chosen-model"),
                 key: "test-only-key",
                 messages: []
             ) { _ in }
@@ -903,51 +908,39 @@ final class ModelClientTests: XCTestCase {
         }
     }
 
-    func testOutputBudgetAndUsageAreConsistentAcrossProtocolsAndResponseFormats() async throws {
-        for api in ModelAPIProtocol.allCases {
-            let root: [String: Any] =
-                api == .responses
-                ? [
-                    "status": "completed",
-                    "output": [["type": "message", "content": [["type": "output_text", "text": "OK"]]]],
-                    "usage": ["input_tokens": 123, "output_tokens": 7],
-                ]
-                : [
-                    "choices": [["message": ["content": "OK"], "finish_reason": "stop"]],
-                    "usage": ["prompt_tokens": 123, "completion_tokens": 7],
-                ]
-            for streaming in [false, true] {
-                var payload = root
-                if streaming {
-                    if api == .responses {
-                        payload = ["type": "response.completed", "response": root]
-                    } else {
-                        payload["choices"] = [["delta": ["content": "OK"], "finish_reason": "stop"]]
-                    }
-                }
-                let data = try JSONSerialization.data(withJSONObject: payload)
-                let body =
-                    streaming
-                    ? "data: " + String(decoding: data, as: UTF8.self) + "\n\n"
-                    : String(decoding: data, as: UTF8.self)
-                for tools in [[], [AgentDocumentTools.definitions[0]]] {
-                    ModelURLProtocol.fixture.configure(
-                        mime: streaming ? "text/event-stream" : "application/json", body: body)
-                    let turn = try await client().stream(
-                        configuration: .init(
-                            baseURL: "https://example.test/v1", model: "chosen-model", apiProtocol: api),
-                        key: "test-only-key", messages: [.init(role: "user", content: "Hello")],
-                        tools: tools, maxOutputTokens: 6144
-                    ) { _ in }
-                    XCTAssertEqual(turn.text, "OK")
-                    XCTAssertEqual(turn.usage?.inputTokens, 123)
-                    XCTAssertEqual(turn.usage?.outputTokens, 7)
-                    let request = try XCTUnwrap(ModelURLProtocol.fixture.request()?.httpBody)
-                    let object = try ModelWireFormat.object(request)
-                    XCTAssertEqual(
-                        object[api == .responses ? "max_output_tokens" : "max_completion_tokens"] as? Int, 6144)
-                    if api == .responses { XCTAssertEqual(object["store"] as? Bool, false) }
-                }
+    func testOutputBudgetAndUsageAreConsistentAcrossResponseFormats() async throws {
+        let root: [String: Any] = [
+            "status": "completed",
+            "output": [["type": "message", "content": [["type": "output_text", "text": "OK"]]]],
+            "usage": ["input_tokens": 123, "output_tokens": 7],
+        ]
+        for streaming in [false, true] {
+            var payload = root
+            if streaming {
+                payload = ["type": "response.completed", "response": root]
+            }
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            let body =
+                streaming
+                ? "data: " + String(decoding: data, as: UTF8.self) + "\n\n"
+                : String(decoding: data, as: UTF8.self)
+            for tools in [[], [AgentDocumentTools.definitions[0]]] {
+                ModelURLProtocol.fixture.configure(
+                    mime: streaming ? "text/event-stream" : "application/json", body: body)
+                let turn = try await client().stream(
+                    configuration: .init(
+                        baseURL: "https://example.test/v1", model: "chosen-model"),
+                    key: "test-only-key", messages: [.init(role: "user", content: "Hello")],
+                    tools: tools, maxOutputTokens: 6144
+                ) { _ in }
+                XCTAssertEqual(turn.text, "OK")
+                XCTAssertEqual(turn.usage?.inputTokens, 123)
+                XCTAssertEqual(turn.usage?.outputTokens, 7)
+                let request = try XCTUnwrap(ModelURLProtocol.fixture.request()?.httpBody)
+                let object = try ModelWireFormat.object(request)
+                XCTAssertEqual(
+                    object["max_output_tokens"] as? Int, 6144)
+                XCTAssertEqual(object["store"] as? Bool, false)
             }
         }
     }
@@ -975,6 +968,16 @@ final class ModelClientTests: XCTestCase {
         XCTAssertEqual(
             models[3].capabilities, .init(contextWindow: 1_000_000, maxInputTokens: 983_616, maxOutputTokens: 65_536))
         XCTAssertEqual(models[4].capabilities, .init())
+    }
+
+    func testOpenRouterCatalogUsesTheServedProvidersContextAndOutputLimits() throws {
+        let json =
+            #"[{"id":"served","context_length":1048576,"top_provider":{"context_length":262144,"max_completion_tokens":65536}},{"id":"partial","context_length":1000000,"top_provider":{"context_length":null,"max_completion_tokens":128000}},{"id":"unknown","context_length":null,"top_provider":{"max_completion_tokens":null}},{"id":"invalid","context_length":32000,"top_provider":{"context_length":true,"max_completion_tokens":-1}}]"#
+        let models = try JSONDecoder().decode([CatalogModel].self, from: Data(json.utf8))
+        XCTAssertEqual(models[0].capabilities, .init(contextWindow: 262_144, maxOutputTokens: 65_536))
+        XCTAssertEqual(models[1].capabilities, .init(contextWindow: 1_000_000, maxOutputTokens: 128_000))
+        XCTAssertEqual(models[2].capabilities, .init())
+        XCTAssertEqual(models[3].capabilities, .init(contextWindow: 32_000))
     }
 
     func testBundledCatalogMatchesTheExactServiceAndModelWithoutGuessingFromNames() throws {
@@ -1023,32 +1026,27 @@ final class ModelClientTests: XCTestCase {
         XCTAssertEqual(ModelURLProtocol.fixture.request()?.url?.query, "after_id=first")
     }
 
-    func testUnknownOutputLimitsAreOmittedAndKnownChatLimitsUseTheProvidersField() throws {
-        for api in ModelAPIProtocol.allCases {
-            for tools in [[], [AgentDocumentTools.definitions[0]]] {
-                for base in [
-                    "https://example.test/v1", "https://api.deepseek.com",
-                    "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                ] {
-                    let configuration = ModelConfiguration(baseURL: base, model: "fixture", apiProtocol: api)
-                    func body(_ limit: Int?) throws -> [String: Any] {
-                        let data =
-                            try tools.isEmpty
-                            ? ModelWireFormat.requestBody(configuration, messages: [], maxOutputTokens: limit)
-                            : ModelToolWire.requestBody(
-                                configuration, messages: [], tools: tools, exchanges: [], maxOutputTokens: limit)
-                        return try ModelWireFormat.object(data)
-                    }
-                    let unknown = try body(nil)
-                    for key in ["max_tokens", "max_output_tokens", "max_completion_tokens"] {
-                        XCTAssertNil(unknown[key])
-                    }
-                    let known = try body(131_072)
-                    let field =
-                        api == .responses
-                        ? "max_output_tokens" : base.contains("example.test") ? "max_completion_tokens" : "max_tokens"
-                    XCTAssertEqual(known[field] as? Int, 131_072)
+    func testUnknownOutputLimitsAreOmittedAndKnownLimitsUseResponsesOutputField() throws {
+        for tools in [[], [AgentDocumentTools.definitions[0]]] {
+            for base in [
+                "https://example.test/v1", "https://api.deepseek.com",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            ] {
+                let configuration = ModelConfiguration(baseURL: base, model: "fixture")
+                func body(_ limit: Int?) throws -> [String: Any] {
+                    let data =
+                        try tools.isEmpty
+                        ? ModelWireFormat.requestBody(configuration, messages: [], maxOutputTokens: limit)
+                        : ModelToolWire.requestBody(
+                            configuration, messages: [], tools: tools, exchanges: [], maxOutputTokens: limit)
+                    return try ModelWireFormat.object(data)
                 }
+                let unknown = try body(nil)
+                for key in ["max_tokens", "max_output_tokens", "max_completion_tokens"] {
+                    XCTAssertNil(unknown[key])
+                }
+                let known = try body(131_072)
+                XCTAssertEqual(known["max_output_tokens"] as? Int, 131_072)
             }
         }
     }

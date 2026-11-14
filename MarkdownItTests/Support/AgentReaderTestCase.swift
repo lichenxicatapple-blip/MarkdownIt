@@ -52,7 +52,7 @@ class AgentReaderTestCase: XCTestCase {
     }
 
     func makeReader(
-        _ text: String, api: ModelAPIProtocol = .chatCompletions,
+        _ text: String,
         baseURL: String, model: String,
         modelClient: ModelClient, modelKey: @escaping @MainActor () -> String,
         dataSharingAllowed: Bool = true, recoveryStore: ReaderRecoveryStore? = nil,
@@ -71,7 +71,6 @@ class AgentReaderTestCase: XCTestCase {
         addTeardownBlock { defaults.removePersistentDomain(forName: defaultsName) }
         defaults.set(baseURL, forKey: "model.baseURL")
         defaults.set(model, forKey: "model.id")
-        defaults.set(api.rawValue, forKey: "model.apiProtocol")
         let session = ReaderSession(
             defaults: defaults,
             modelClient: modelClient,

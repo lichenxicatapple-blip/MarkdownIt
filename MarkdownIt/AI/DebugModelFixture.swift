@@ -55,20 +55,16 @@
             }
             do {
                 let body = try ModelWireFormat.object(Self.body(request))
-                let responses = request.url?.path.hasSuffix("/responses") == true
-                let input = (body[responses ? "input" : "messages"] as? [[String: Any]]) ?? []
+                let input = (body["input"] as? [[String: Any]]) ?? []
                 let raw = input.last(where: { $0["role"] as? String == "user" })?["content"] as? String ?? "{}"
                 let context = try ModelWireFormat.object(Data(raw.utf8))
                 let question = context["request"] as? String ?? ""
-                let outputs = input.filter {
-                    $0["type"] as? String == "function_call_output" || $0["role"] as? String == "tool"
-                }
+                let outputs = input.filter { $0["type"] as? String == "function_call_output" }
                 var text = ""
                 var call: [String: Any]?
                 if question.contains("SEARCH_PUBLIC_REFERENCE") {
                     let canSearch = (body["tools"] as? [[String: Any]] ?? []).contains { tool in
-                        let definition = responses ? tool : tool["function"] as? [String: Any] ?? [:]
-                        return definition["name"] as? String == "web_search"
+                        tool["name"] as? String == "web_search"
                     }
                     if !outputs.isEmpty {
                         let textOutput = String(describing: outputs.last!)
@@ -78,16 +74,10 @@
                             : "See the [Markdown reference](https://commonmark.org/help/) for the original explanation."
                     } else if canSearch {
                         let arguments = #"{"query":"Markdown reference","language":"en"}"#
-                        call =
-                            responses
-                            ? [
-                                "type": "function_call", "id": "fc_ui_search", "call_id": "call_ui_search",
-                                "name": "web_search", "arguments": arguments,
-                            ]
-                            : [
-                                "id": "call_ui_search", "type": "function",
-                                "function": ["name": "web_search", "arguments": arguments],
-                            ]
+                        call = [
+                            "type": "function_call", "id": "fc_ui_search", "call_id": "call_ui_search",
+                            "name": "web_search", "arguments": arguments,
+                        ]
                     } else {
                         text = "Web search is not enabled. You can configure it in Model Settings."
                     }
@@ -95,8 +85,7 @@
                     text = "已修改这句话，其余内容保持原样。"
                 } else if question.contains("修改") || question.contains("改成") {
                     let canEdit = (body["tools"] as? [[String: Any]] ?? []).contains { tool in
-                        let definition = responses ? tool : tool["function"] as? [String: Any] ?? [:]
-                        return definition["name"] as? String == "edit_document"
+                        tool["name"] as? String == "edit_document"
                     }
                     if !canEdit {
                         text = "请切换到源码模式后再修改。"
@@ -114,38 +103,24 @@
                         ]
                         let encoded = String(
                             decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
-                        call =
-                            responses
-                            ? [
-                                "type": "function_call", "id": "fc_ui_edit", "call_id": "call_ui_edit",
-                                "name": "edit_document", "arguments": encoded,
-                            ]
-                            : [
-                                "id": "call_ui_edit", "type": "function",
-                                "function": ["name": "edit_document", "arguments": encoded],
-                            ]
+                        call = [
+                            "type": "function_call", "id": "fc_ui_edit", "call_id": "call_ui_edit",
+                            "name": "edit_document", "arguments": encoded,
+                        ]
                     }
                 } else {
                     text =
                         "这份文档演示了 **Markdown 的结构与排版**。\n\n标题组织内容，列表表达层次，代码、表格和图表补充说明。预览与源码来自同一份文本。\n\n| 内容 | 阅读方式 |\n| --- | --- |\n| 标题 | 通过目录导航 |\n| 代码与公式 | 保留原有格式 |"
                 }
                 let payload: [String: Any]
-                if responses {
-                    let output =
-                        call.map { [$0] } ?? [
-                            [
-                                "type": "message", "role": "assistant",
-                                "content": [["type": "output_text", "text": text]],
-                            ]
+                let output =
+                    call.map { [$0] } ?? [
+                        [
+                            "type": "message", "role": "assistant",
+                            "content": [["type": "output_text", "text": text]],
                         ]
-                    payload = ["status": "completed", "output": output]
-                } else {
-                    let message: [String: Any] =
-                        call.map { ["role": "assistant", "content": "", "tool_calls": [$0]] } ?? [
-                            "role": "assistant", "content": text,
-                        ]
-                    payload = ["choices": [["message": message, "finish_reason": call == nil ? "stop" : "tool_calls"]]]
-                }
+                    ]
+                payload = ["status": "completed", "output": output]
                 let data = try JSONSerialization.data(withJSONObject: payload)
                 let response = HTTPURLResponse(
                     url: request.url!, statusCode: 200, httpVersion: nil,

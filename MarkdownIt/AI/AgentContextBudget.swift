@@ -51,11 +51,10 @@ struct AgentContextBudget: Sendable {
                 let response = exchange.turn.responseItems.reduce(0) {
                     $0 + textTokens(String(decoding: $1, as: UTF8.self))
                 }
-                let chat = exchange.turn.chatAssistant.map { textTokens(String(decoding: $0, as: UTF8.self)) } ?? 0
                 let plain =
                     textTokens(exchange.turn.text)
                     + exchange.turn.calls.reduce(0) { $0 + textTokens($1.name + $1.arguments) + 16 }
-                return count + max(response, chat, plain)
+                return count + max(response, plain)
                     + exchange.outputs.reduce(0) {
                         $0 + textTokens($1.content) + $1.images.count * 4096 + 16
                     }

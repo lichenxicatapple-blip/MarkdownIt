@@ -15,7 +15,7 @@ final class UIInteractionSynchronization {
 
     init() throws {
         let selector = NSSelectorFromString("waitForQuiescenceIncludingAnimationsIdle:isPreEvent:")
-        let processClass = try XCTUnwrap(
+        let processClass: AnyClass = try XCTUnwrap(
             NSClassFromString("XCUIApplicationProcess"), "Xcode's UI synchronization class changed")
         method = try XCTUnwrap(
             class_getInstanceMethod(processClass, selector), "Xcode's UI synchronization method changed")

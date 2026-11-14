@@ -48,17 +48,24 @@ struct AgentSnapshot: Codable, Sendable, Equatable {
 struct AgentFailure: Codable, Sendable, Equatable {
     let kind: String
     let retryAfterSeconds: TimeInterval?
+    let message: String?
 
     init(_ error: any Error) {
-        retryAfterSeconds = if case ModelError.rateLimited(let seconds) = error { seconds } else { nil }
+        let reason: any Error = (error as? ModelServiceFailure)?.reason ?? error
+        retryAfterSeconds = if case ModelError.rateLimited(let seconds) = reason { seconds } else { nil }
+        message =
+            if error is ModelServiceFailure {
+                error.localizedDescription
+            } else if case ModelError.service = error {
+                error.localizedDescription
+            } else if let error = error as? ModelConfigurationError { error.localizedDescription } else { nil }
         kind =
-            switch error {
-            case ModelError.configuration: "configuration"
+            switch reason {
+            case ModelError.configuration, is ModelConfigurationError: "configuration"
             case ModelError.missingKey: "authentication"
             case ModelError.sharingPermission: "permission"
             case ModelError.rateLimited: "rateLimit"
-            case ModelError.service(let status, _) where [401, 403].contains(status): "authentication"
-            case ModelError.service(let status, _) where [400, 404, 422].contains(status): "configuration"
+            case ModelError.service(let status, _) where status == 401: "authentication"
             case ModelError.invalidResponse: "response"
             case ModelError.interrupted: "network"
             case ModelError.incomplete: "incomplete"
@@ -235,7 +242,7 @@ final class AgentModelTransport {
         encoder.outputFormatting = .sortedKeys
         let scope = AgentDocumentTools.revision(
             (conversationID ?? token) + ":" + configuration.baseURL + ":" + configuration.model + ":"
-                + configuration.apiProtocol.rawValue + ":" + AgentDocumentTools.revision(key)
+                + "responses" + ":" + AgentDocumentTools.revision(key)
                 + (toolScope.isEmpty ? "" : ":" + toolScope))
         let requestKey =
             scope + ":"

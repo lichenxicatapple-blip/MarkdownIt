@@ -10,7 +10,6 @@ struct ModelSettingsView: View {
     @State private var customModel = false
     @FocusState private var customModelFocused: Bool
     @State private var key = ""
-    @State private var apiProtocol: ModelAPIProtocol = .responses
     @State private var search = WebSearchSettings()
     @State private var confirmingReset = false
     @State private var errorMessage: String?
@@ -20,7 +19,6 @@ struct ModelSettingsView: View {
         self.onSaved = onSaved
         _baseURL = State(initialValue: session.configuration.baseURL)
         _model = State(initialValue: session.configuration.model)
-        _apiProtocol = State(initialValue: session.configuration.apiProtocol)
         _key = State(initialValue: session.apiKey)
         _search = State(initialValue: session.searchSettings)
         _errorMessage = State(initialValue: session.modelSettingsError)
@@ -30,12 +28,6 @@ struct ModelSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("API Type", selection: $apiProtocol) {
-                        ForEach(ModelAPIProtocol.allCases, id: \.self) { api in
-                            Text(api.title).tag(api)
-                        }
-                    }
-                    .accessibilityIdentifier("ModelAPIProtocol")
                     // No API-token content type exists. AutoFill also inspects
                     // adjacent fields, so all connection inputs use code semantics.
                     VStack(alignment: .leading, spacing: 8) {
@@ -74,6 +66,12 @@ struct ModelSettingsView: View {
                                 .focused($customModelFocused)
                                 .accessibilityLabel("Model ID").accessibilityIdentifier("ModelID")
                         }
+                    }
+                }
+                if session.configuration.requiresResponsesConfirmation {
+                    Section {
+                        Text("Only Responses is supported. Confirm the connection settings.")
+                            .foregroundStyle(.secondary)
                     }
                 }
                 searchSection
@@ -165,7 +163,7 @@ struct ModelSettingsView: View {
     private var draftConfiguration: ModelConfiguration {
         ModelConfiguration(
             baseURL: baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-            model: model.trimmingCharacters(in: .whitespacesAndNewlines), apiProtocol: apiProtocol)
+            model: model.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func saveSettings() {
@@ -190,7 +188,6 @@ struct ModelSettingsView: View {
             baseURL = ""
             model = ""
             key = ""
-            apiProtocol = .responses
             search = WebSearchSettings()
             customModel = false
             customModelFocused = false

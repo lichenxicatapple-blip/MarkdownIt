@@ -337,7 +337,7 @@
       network: t("Unable to connect to the service"),
       timeout: t("Request timed out"),
       authentication: t("Authentication failed. Check your API key"),
-      configuration: t("Check the service URL, API type, and model"),
+      configuration: t("Check the service URL and model"),
       rateLimit: t("Too many requests"),
       service: t("Service temporarily unavailable"),
       response: t("Unable to read the response"),
@@ -362,7 +362,7 @@
       message.element.dataset.state = 'failed';
       message.element.removeAttribute('aria-busy');
       const partial = message.surface.hasChildNodes();
-      const reason = partial ? t("Response interrupted") : failureMessages[failure.kind] || t("Request failed");
+      const reason = failure.message || (partial ? t("Response interrupted") : failureMessages[failure.kind] || t("Request failed"));
       const status = createNode('div', 'mdv-request-status');
       status.dataset.component = 'RequestStatus';
       status.setAttribute('role', 'group');

@@ -34,7 +34,7 @@ struct ModelSettingsStore: Sendable {
         let configuration = ModelConfiguration(
             baseURL: defaults.string(forKey: "model.baseURL") ?? "",
             model: defaults.string(forKey: "model.id") ?? "",
-            apiProtocol: ModelAPIProtocol(rawValue: defaults.string(forKey: "model.apiProtocol") ?? "") ?? .responses)
+            storedProtocol: defaults.string(forKey: "model.apiProtocol"))
         let settings = SavedModelSettings(
             configuration: configuration, apiKey: key.map { String(decoding: $0, as: UTF8.self) } ?? "")
         if key != nil || Self.legacyKeys.contains(where: { defaults.object(forKey: $0) != nil }) {

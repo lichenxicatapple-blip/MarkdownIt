@@ -4,7 +4,7 @@ import XCTest
 @testable import MarkdownIt
 
 final class CredentialTests: XCTestCase {
-    func testSendingPermissionPersistsForTheServiceAcrossModelsAndProtocols() throws {
+    func testSendingPermissionPersistsForTheServiceAcrossModels() throws {
         let name = "dev.catli.MarkdownIt.consent-testing." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
@@ -21,7 +21,7 @@ final class CredentialTests: XCTestCase {
             "https://api.example.test/v1", "https://api.example.test/v1/responses",
             "https://api.example.test/v1/chat/completions/", "https://api.example.test/v1/models",
         ] {
-            let configuration = ModelConfiguration(baseURL: base, model: "another", apiProtocol: .chatCompletions)
+            let configuration = ModelConfiguration(baseURL: base, model: "another")
             XCTAssertTrue(try restored.allows(ModelDataConsent.service(for: configuration)))
         }
         let stored = try XCTUnwrap(defaults.persistentDomain(forName: name))
@@ -91,7 +91,7 @@ final class CredentialTests: XCTestCase {
         let defaults = try temporaryDefaults()
         let settings = SavedModelSettings(
             configuration: .init(
-                baseURL: "https://example.test/v1", model: "chosen-model", apiProtocol: .chatCompletions),
+                baseURL: "https://example.test/v1", model: "chosen-model"),
             apiKey: "keychain-test-only")
         let session = ReaderSession(defaults: defaults, modelSettings: store)
         XCTAssertFalse(session.isModelConfigured)
@@ -133,7 +133,7 @@ final class CredentialTests: XCTestCase {
         try seed(Data("legacy-test-only-key".utf8), account: "api-key", store: store)
         let expected = SavedModelSettings(
             configuration: .init(
-                baseURL: "https://legacy.example.test/v1", model: "legacy-model", apiProtocol: .chatCompletions),
+                baseURL: "https://legacy.example.test/v1", model: "legacy-model", storedProtocol: "chatCompletions"),
             apiKey: "legacy-test-only-key")
         XCTAssertEqual(try store.load(migrating: defaults), expected)
         assertItemMissing(account: "api-key", store: store)
@@ -147,6 +147,34 @@ final class CredentialTests: XCTestCase {
         XCTAssertEqual(try store.load(migrating: defaults), expected)
         assertItemMissing(account: "api-key", store: store)
         XCTAssertNil(defaults.object(forKey: "model.baseURL"))
+    }
+
+    @MainActor
+    func testStoredChatConnectionKeepsCredentialsUntilResponsesIsExplicitlyConfirmed() throws {
+        let store = isolatedModelSettings()
+        let defaults = try temporaryDefaults()
+        let old = Data(
+            #"{"configuration":{"baseURL":"https://example.test/v1","model":"chosen","apiProtocol":"chatCompletions"},"apiKey":"retained-test-only"}"#
+                .utf8)
+        try seed(old, account: "connection", store: store)
+        let session = ReaderSession(defaults: defaults, modelSettings: store)
+        XCTAssertEqual(session.apiKey, "retained-test-only")
+        XCTAssertTrue(session.configuration.requiresResponsesConfirmation)
+        XCTAssertFalse(session.isModelConfigured)
+        XCTAssertThrowsError(try session.configuration.endpoint()) {
+            XCTAssertEqual($0 as? ModelConfigurationError, .responsesConfirmationRequired)
+        }
+        session.requestAgentEntry(id: "old-connection", token: session.documentToken)
+        XCTAssertTrue(session.needsModelConfiguration)
+        session.finishAgentConfiguration(saved: false)
+        XCTAssertTrue(try store.load(migrating: defaults).configuration.requiresResponsesConfirmation)
+        try session.saveConfiguration(
+            .init(baseURL: session.configuration.baseURL, model: session.configuration.model), key: session.apiKey)
+        let restored = ReaderSession(defaults: try temporaryDefaults(), modelSettings: store)
+        XCTAssertTrue(restored.isModelConfigured)
+        XCTAssertFalse(restored.configuration.requiresResponsesConfirmation)
+        XCTAssertEqual(restored.apiKey, "retained-test-only")
+        XCTAssertEqual(try restored.configuration.endpoint().path, "/v1/responses")
     }
 
     func testResetClearsCurrentAndLegacyItemsWithoutAffectingOtherServices() throws {

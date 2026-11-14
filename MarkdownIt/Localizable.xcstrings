@@ -1,6 +1,86 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Check the service URL and model" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check the service URL and model"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请检查服务地址和模型"
+          }
+        }
+      }
+    },
+    "Check the service URL and model." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check the service URL and model."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请检查服务地址和模型。"
+          }
+        }
+      }
+    },
+    "Confirm AI Connection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm AI Connection"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认 AI 连接"
+          }
+        }
+      }
+    },
+    "Only Responses is supported. Confirm the connection settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only Responses is supported. Confirm the connection settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前仅支持 Responses，请确认连接设置。"
+          }
+        }
+      }
+    },
+    "The service returned an invalid Responses response." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The service returned an invalid Responses response."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务返回了无效的 Responses 响应。"
+          }
+        }
+      }
+    },
     "Whole Words": {
       "extractionState": "manual",
       "localizations": {
@@ -326,23 +406,6 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
-    "API Type" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API Type"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "接口类型"
-          }
-        }
-      }
-    },
     "Add Annotation…" : {
       "localizations" : {
         "en" : {
@@ -562,40 +625,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "修改差异，减号为原文，加号为新内容"
-          }
-        }
-      }
-    },
-    "Check the service URL, API type, and model" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check the service URL, API type, and model"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请检查服务地址、接口类型和模型"
-          }
-        }
-      }
-    },
-    "Check the service URL, credentials, API type, and model." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Check the service URL, credentials, API type, and model."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请检查服务地址、认证信息、接口类型和模型。"
           }
         }
       }
@@ -1188,23 +1217,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请输入搜索服务的 API Key。"
-          }
-        }
-      }
-    },
-    "Enter a valid Base URL and Model ID in Model Settings." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enter a valid Base URL and Model ID in Model Settings."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请在模型设置中填写有效的 Base URL 和模型 ID。"
           }
         }
       }
@@ -2713,23 +2725,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "模型服务返回 HTTP %1$lld。%2$@"
-          }
-        }
-      }
-    },
-    "The model service returned an unreadable response. Check the API type and Model ID." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The model service returned an unreadable response. Check the API type and Model ID."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模型服务没有返回可读取的回答，请检查接口与模型 ID。"
           }
         }
       }

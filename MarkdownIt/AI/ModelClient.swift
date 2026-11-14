@@ -1,17 +1,22 @@
 import Foundation
 
-/// A single explicit protocol per request. No model probes, protocol fallback or automatic retries.
+/// Responses transport without model probes, protocol fallback or automatic retries.
 struct ModelClient: Sendable {
     var session: URLSession
     let diagnostics: ModelDiagnostics
+    private let beforeRequest: @Sendable () async throws -> Void
 
-    init(session: URLSession? = nil, diagnostics: ModelDiagnostics = ModelDiagnostics()) {
+    init(
+        session: URLSession? = nil, diagnostics: ModelDiagnostics = ModelDiagnostics(),
+        beforeRequest: @escaping @Sendable () async throws -> Void = {}
+    ) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 90
         self.session = session ?? URLSession(configuration: configuration)
         self.diagnostics = diagnostics
+        self.beforeRequest = beforeRequest
     }
 
     @discardableResult
@@ -37,6 +42,8 @@ struct ModelClient: Sendable {
             ? ModelToolWire.requestBody(
                 configuration, messages: messages, tools: tools, exchanges: exchanges, maxOutputTokens: maxOutputTokens)
             : ModelWireFormat.requestBody(configuration, messages: messages, maxOutputTokens: maxOutputTokens)
+        try await beforeRequest()
+        try Task.checkCancellation()
         let trace = diagnostics.begin(
             configuration: configuration, endpoint: endpoint, key: key, requestBytes: request.httpBody?.count ?? 0,
             messages: messages.count, tools: tools.count, exchanges: exchanges.count,
@@ -53,6 +60,7 @@ struct ModelClient: Sendable {
             return turn
         } catch {
             trace.emit("request.end") { $0.outcome = ModelDiagnostics.outcome(error) }
+            if let error = error as? ModelServiceFailure { throw error.redacting(key) }
             throw error
         }
     }
@@ -71,26 +79,28 @@ struct ModelClient: Sendable {
             // Atlas uses code/msg; OpenAI-compatible providers commonly use error.message.
             let error =
                 root?["error"] as? [String: Any]
-                ?? root.map { ["code": $0["code"] ?? "", "message": $0["msg"] ?? ""] }
+                ?? root.map {
+                    ["code": $0["code"] ?? "", "message": $0["message"] ?? $0["msg"] ?? ($0["error"] as? String) ?? ""]
+                }
             trace.remoteError(error, key: key)
-            if http.statusCode == 429 {
-                throw ModelError.rateLimited(Self.retryDelay(http.value(forHTTPHeaderField: "Retry-After")))
-            }
-            let message =
-                (error?["message"] as? String
-                ?? String(localized: "Check the service URL, credentials, API type, and model."))
-                .replacingOccurrences(of: key, with: "••••••")
-            throw ModelWireFormat.remoteError(
-                error,
-                fallback: http.statusCode == 413
-                    ? .requestTooLarge : .service(http.statusCode, String(message.prefix(500))))
+            let reason: ModelError =
+                if http.statusCode == 429 {
+                    .rateLimited(Self.retryDelay(http.value(forHTTPHeaderField: "Retry-After")))
+                } else {
+                    ModelWireFormat.remoteError(
+                        error,
+                        fallback: http.statusCode == 413
+                            ? .requestTooLarge : .service(http.statusCode, ""))
+                }
+            throw ModelServiceFailure(
+                reason: reason, httpStatus: http.statusCode, message: ModelWireFormat.errorMessage(error))
         }
         if http.mimeType == "application/json" {
             var data = Data()
             for try await byte in bytes.prefix(2_000_001) { data.append(byte) }
             guard data.count <= 2_000_000 else { throw ModelError.invalidResponse }
             if allowsTools {
-                let turn = try ModelToolWire.complete(data, api: configuration.apiProtocol)
+                let turn = try ModelToolWire.complete(data)
                 try Task.checkCancellation()
                 if !turn.text.isEmpty {
                     trace.emit("request.first_text")
@@ -98,7 +108,7 @@ struct ModelClient: Sendable {
                 }
                 return turn
             }
-            let update = try ModelWireFormat.completeResponse(data, api: configuration.apiProtocol)
+            let update = try ModelWireFormat.completeResponse(data)
             try Task.checkCancellation()
             if !update.text.isEmpty {
                 trace.emit("request.first_text")
@@ -107,10 +117,10 @@ struct ModelClient: Sendable {
             if let failure = update.failure { throw failure }
             return ModelTurn(
                 text: update.text,
-                usage: ModelTokenUsage(try ModelWireFormat.object(data), api: configuration.apiProtocol))
+                usage: ModelTokenUsage(try ModelWireFormat.object(data)))
         }
         var frames = ServerSentEvents()
-        var decoder = ModelStreamDecoder(api: configuration.apiProtocol, allowsTools: allowsTools)
+        var decoder = ModelStreamDecoder(allowsTools: allowsTools)
         var text = ""
         for try await byte in bytes {
             try Task.checkCancellation()
@@ -123,7 +133,7 @@ struct ModelClient: Sendable {
             }
             if let failure = update.failure { throw failure }
             if update.completed {
-                var turn = try decoder.tools.result(text: text, api: configuration.apiProtocol)
+                var turn = try decoder.tools.result(text: text)
                 turn.usage = decoder.usage
                 return turn
             }
@@ -137,7 +147,7 @@ struct ModelClient: Sendable {
             }
             if let failure = update.failure { throw failure }
             if update.completed {
-                var turn = try decoder.tools.result(text: text, api: configuration.apiProtocol)
+                var turn = try decoder.tools.result(text: text)
                 turn.usage = decoder.usage
                 return turn
             }
