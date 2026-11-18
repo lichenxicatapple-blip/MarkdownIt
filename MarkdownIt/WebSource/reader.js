@@ -319,7 +319,7 @@
         readingAnchorFrame = 0;
         // A resize can emit scrolling before its width policy has reconciled.
         // Keep the previous semantic anchor through that intermediate layout.
-        const widthChanging = panelLayout && Math.abs(app.clientWidth - panelLayout.width) >= .5;
+        const widthChanging = panelLayout && Math.abs(app.clientWidth - panelLayout.viewportWidth) >= .5;
         if (!pinnedAnchor && !positioning && !widthChanging) layoutReadingAnchor = captureReadingPosition();
       });
     }, { passive: true });

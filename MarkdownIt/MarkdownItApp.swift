@@ -6,6 +6,19 @@ struct MarkdownItApp: App {
     @StateObject private var session: ReaderSession
     @Environment(\.scenePhase) private var scenePhase
 
+    private var storefrontCountryCodeOverride: String? {
+        #if DEBUG
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--ui-testing") {
+                if let index = arguments.firstIndex(of: "--ui-test-storefront"), index + 1 < arguments.count {
+                    return arguments[index + 1]
+                }
+                return "USA"
+            }
+        #endif
+        return nil
+    }
+
     init() {
         var defaults = UserDefaults.standard
         var modelClient = ModelClient()
@@ -68,7 +81,7 @@ struct MarkdownItApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ReaderScreen(session: session)
+            ReaderScreen(session: session, storefrontCountryCodeOverride: storefrontCountryCodeOverride)
                 .onOpenURL { url in Task { await session.open(url) } }
                 .task {
                     let arguments = ProcessInfo.processInfo.arguments

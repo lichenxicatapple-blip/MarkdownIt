@@ -41,7 +41,9 @@ python3 scripts/build_native_web.py --check
 
 发布版本和构建号统一维护在 [`Configuration/Version.xcconfig`](Configuration/Version.xcconfig)，Debug 与 Release 引用同一份配置。`MARKETING_VERSION` 使用 `主版本.次版本.修订号`：修复增加修订号，兼容的新功能增加次版本，不兼容的变化增加主版本。`CURRENT_PROJECT_VERSION` 是递增的正整数，每次向 App Store Connect 上传新构建前增加，不因普通本地构建或测试自动变化。
 
-App 的 `Info.plist` 引用这两个构建设置，首页从已构建应用的 Bundle 元数据读取，不在界面或脚本中重复写版本。App Store 的发布版本与 `MARKETING_VERSION` 保持一致；发布标签使用 `v主版本.次版本.修订号`。同一发布版本重新上传时仅增加构建号，保留已有标签的含义。
+App 的 `Info.plist` 引用这两个构建设置，“关于”窗口从已构建应用的 Bundle 元数据读取，不在界面或脚本中重复写版本。App Store 的发布版本与 `MARKETING_VERSION` 保持一致；发布标签使用 `v主版本.次版本.修订号`。同一发布版本重新上传时仅增加构建号，保留已有标签的含义。
+
+备案号统一维护在 `MarkdownIt/Info.plist` 的 `MarkdownItICPFilingNumber`，仅在中国大陆商店地区的“关于”窗口显示。独立分发时使用发布者自己的有效备案信息；无备案号时清空该值，自动隐藏查询入口。地区显隐的 UI 测试使用隔离的商店地区值；普通 App 通过 StoreKit 读取实际地区，不根据语言或 IP 判断。
 
 签名和上传在已登录用户的桌面会话中执行，自动化任务由该用户的 LaunchAgent 调度。仅使用相同用户名或 UID 不保证具有相同的钥匙串访问环境，详见 Apple 的 [Mac 钥匙串说明](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)。归档前在实际执行任务的会话中运行 `launchctl managername` 和 `security find-identity -v -p codesigning`，确认桌面会话为 `Aqua` 且能识别有效签名身份。
 

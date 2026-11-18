@@ -50,38 +50,26 @@ struct PrivacyPolicyContent: Decodable {
 }
 
 struct PrivacyPolicyView: View {
-    @Environment(\.dismiss) private var dismiss
     private let policy = try? PrivacyPolicyContent.load(language: Bundle.main.preferredLocalizations.first ?? "en")
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    if let policy {
-                        ForEach(Array(policy.blocks.enumerated()), id: \.offset) { index, block in
-                            content(block)
-                                .font(index == 0 ? .footnote : .body)
-                                .foregroundStyle(index == 0 ? .secondary : .primary)
-                        }
-                    } else {
-                        Text("Offline rendering resources are missing.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if let policy {
+                    ForEach(Array(policy.blocks.enumerated()), id: \.offset) { index, block in
+                        content(block)
+                            .font(index == 0 ? .footnote : .body)
+                            .foregroundStyle(index == 0 ? .secondary : .primary)
                     }
-                }
-                .textSelection(.enabled).lineSpacing(4)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(24)
-            }
-            .accessibilityIdentifier("PrivacyPolicyContent")
-            .navigationTitle("Privacy Policy").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", systemImage: "xmark") { dismiss() }
-                        .labelStyle(.iconOnly).keyboardShortcut(.cancelAction)
-                        .accessibilityIdentifier("ClosePrivacyPolicy")
+                } else {
+                    Text("Offline rendering resources are missing.")
                 }
             }
+            .textSelection(.enabled).lineSpacing(4)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }
-        .presentationSizing(.form)
-        .presentationBackgroundInteraction(.disabled)
+        .accessibilityIdentifier("PrivacyPolicyContent")
+        .navigationTitle("Privacy Policy").navigationBarTitleDisplayMode(.inline)
     }
 
     @ViewBuilder

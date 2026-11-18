@@ -42,6 +42,8 @@ final class ReaderSession: ObservableObject {
     @Published var findActive = false
     @Published var errorMessage: String?
     @Published private(set) var resourcePermission: ResourcePermissionRequest?
+    @Published private(set) var linkedImage: ReaderLinkedImage?
+    private var linkedImageRequest = UUID()
     @Published var agentOpen = false
     @Published var agentVisible = false
     @Published var agentModalActive = false
@@ -187,7 +189,7 @@ final class ReaderSession: ObservableObject {
         switch request.purpose {
         case .images:
             reloadResources()
-        case .document(let link):
+        case .document(let link), .image(let link):
             await resolveLink(link)
         }
         return true
@@ -376,6 +378,7 @@ final class ReaderSession: ObservableObject {
         agentVisible = false
         agentModalActive = false
         documentLeading = 0
+        dismissLinkedImage()
         documentToken = UUID().uuidString.lowercased()
         conversationID = nextConversation?.contextID ?? documentToken
         if let nextConversation {
@@ -679,6 +682,7 @@ final class ReaderSession: ObservableObject {
         agentVisible = false
         agentModalActive = false
         documentLeading = 0
+        dismissLinkedImage()
         documentToken = UUID().uuidString.lowercased()
         rendererReady = false
         mode = "preview"
@@ -724,25 +728,60 @@ final class ReaderSession: ObservableObject {
             await UIApplication.shared.open(url)
             return
         }
-        guard let document else { return }
+        guard let document, !isClosingDocument, !isOpeningDocument else { return }
+        let token = documentToken
+        let request = UUID()
+        linkedImageRequest = request
         let access = ResourceAccess(documentURL: document.fileURL, roots: grantedRoots, token: documentToken)
+        var openingImage = false
         do {
             var file = try access.resourceURL(href)
-            guard MarkdownDocument.supportedFilenameExtensions.contains(file.pathExtension.lowercased()) else { return }
+            let isDocument = MarkdownDocument.supportedFilenameExtensions.contains(file.pathExtension.lowercased())
+            let imageType = UTType(filenameExtension: file.pathExtension).flatMap { $0.conforms(to: .image) ? $0 : nil }
+            guard isDocument || imageType != nil else { return }
+            openingImage = !isDocument
             do {
                 file = try access.resolve(href)
             } catch let error as CocoaError where error.code == .fileReadNoPermission {
                 guard let directory = access.directoryContaining(href) else { throw error }
                 resourcePermission = ResourcePermissionRequest(
-                    documentToken: documentToken, directory: directory, purpose: .document(link: href))
+                    documentToken: token, directory: directory,
+                    purpose: isDocument ? .document(link: href) : .image(link: href))
+                return
+            }
+            if let imageType, !isDocument {
+                let imageFile = file
+                let image = try await Task.detached(priority: .userInitiated) {
+                    ReaderLinkedImage(
+                        name: imageFile.lastPathComponent,
+                        mimeType: imageType.preferredMIMEType ?? "application/octet-stream",
+                        data: try LocalResourceHandler.readCoordinated(imageFile))
+                }.value
+                guard token == documentToken, request == linkedImageRequest, !isClosingDocument else { return }
+                linkedImage = image
                 return
             }
             _ = try await openDocument(navigation: .followLink) {
                 RecentDocumentLocation(file: file, folders: await self.recentDocuments.folders(for: file))
             }
         } catch {
-            errorMessage = String(localized: "Unable to open this document: \(error.localizedDescription)")
+            guard token == documentToken, request == linkedImageRequest, !isClosingDocument else { return }
+            errorMessage =
+                openingImage
+                ? String(localized: "Unable to open this image: \(error.localizedDescription)")
+                : String(localized: "Unable to open this document: \(error.localizedDescription)")
         }
+    }
+
+    func dismissLinkedImage() {
+        linkedImageRequest = UUID()
+        linkedImage = nil
+    }
+
+    func linkedImageFailed(id: UUID) {
+        guard linkedImage?.id == id else { return }
+        dismissLinkedImage()
+        errorMessage = String(localized: "Unable to open this image.")
     }
 
     func toggleAgent() {

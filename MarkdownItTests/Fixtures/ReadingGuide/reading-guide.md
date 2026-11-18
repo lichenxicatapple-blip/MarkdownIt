@@ -185,6 +185,8 @@ Setext 二级标题示例
 
 图片只有一行源码，却可能占据多行正文。这是验证内容映射的重要位置：在图片上方、图片中部和图片下方切换时，结果应该与当前引用位置有关，而不是由全文高度比例决定。
 
+也可以直接查看[阅读流程图](images/reading-flow.webp)、[透明标注层](images/focus-overlay.png)和[市场结构原图](images/market-structure.svg)。这些普通链接保留正文排版，点击后查看原图。
+
 ### 6.2 HTML 图片与说明
 
 <figure>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src jm-image-preview:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+    img { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-user-select: none; }
+  </style>
+</head>
+<body>
+  <img alt="" draggable="false">
+  <script>
+    const image = document.querySelector('img');
+    image.onload = () => window.webkit.messageHandlers.imagePreview.postMessage({width: image.naturalWidth, height: image.naturalHeight});
+    image.onerror = () => window.webkit.messageHandlers.imagePreview.postMessage({});
+    image.src = 'jm-image-preview://image/content';
+  </script>
+</body>
+</html>

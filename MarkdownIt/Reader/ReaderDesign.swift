@@ -22,6 +22,7 @@ enum ReaderDesign {
     static let sourceTopInset: CGFloat = 76
     static let sourceBottomInset: CGFloat = 84
     static let findWidth: CGFloat = 440
+    static let imagePreviewRadius: CGFloat = 12
     static let findInset: CGFloat = 4
     static let hitTarget: CGFloat = 44
     static let floatingIcon: CGFloat = 20
@@ -61,6 +62,7 @@ enum ReaderDesign {
     static let recentsWidth: CGFloat = 360
     static let recentsMaxHeight: CGFloat = 540
     static var shadow: UIColor { palette(light: 0x1F23_2918, dark: 0x0000_0040) }
+    static var modalScrim: UIColor { palette(light: 0x0000_0040, dark: 0x0000_0070) }
     static var agentPaper: UIColor { palette(light: 0xFAFC_FFFF, dark: 0x1119_25FF) }
     static var agentChrome: UIColor { palette(light: 0xEAF0_FCFF, dark: 0x2535_53FF) }
     static var agentLine: UIColor { palette(light: 0xDCE5_F1FF, dark: 0x2A39_51FF) }
@@ -85,7 +87,8 @@ enum ReaderDesign {
         }
     }
     static let toolsDuration: TimeInterval = 0.24
-    static let agentDuration: TimeInterval = 0.28
+    static let layoutDuration: TimeInterval = 0.32
+    static let agentDuration: TimeInterval = 0.32
     static let documentCloseDuration: TimeInterval = 0.62
     static let inputAvoidanceDuration: TimeInterval = 0.22
     static let contentDuration: TimeInterval = 0.14

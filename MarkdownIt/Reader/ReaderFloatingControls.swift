@@ -10,6 +10,23 @@ enum ReaderChromeSymbols {
     }
 }
 
+struct ReaderChromeIcon: View {
+    let name: String
+
+    init(_ name: String) { self.name = name }
+
+    var body: some View {
+        Group {
+            if let image = ReaderChromeSymbols.symbol(name) {
+                Image(uiImage: image).renderingMode(.template)
+            }
+        }
+        .frame(width: ReaderDesign.readerChromeCanvas, height: ReaderDesign.readerChromeCanvas)
+        .frame(width: ReaderDesign.hitTarget, height: ReaderDesign.hitTarget)
+        .contentShape(Circle())
+    }
+}
+
 /// All document chrome uses the document column's leading edge and one stride.
 struct ReaderChromeLayout {
     let back: CGFloat

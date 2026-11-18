@@ -20,7 +20,8 @@
         "DocumentNavigation",
         "ModelDataConsentPrompt",
         "SearchDataConsentPrompt",
-        "DocumentFind"
+        "DocumentFind",
+        "LinkedImagePreview"
       ],
       "invariants": [
         "One native screen coordinates the document surface and shared reading controls."
@@ -35,10 +36,10 @@
       "owns": [
         "NewDocument",
         "RecentDocuments",
-        "PrivacyPolicy"
+        "About"
       ],
       "invariants": [
-        "One ordered collection determines the central homepage layout and entrance sequence; the policy entry occupies its own footer.",
+        "One ordered collection determines the central homepage layout and entrance sequence; one quiet About entry occupies its own footer.",
         "Open Document and New Document share one equal-width, equal-height native button row; Recent Documents remains a secondary text action below."
       ],
       "specification": "design/README.md#首页与最近文档"
@@ -70,6 +71,7 @@
       "nativeOwners": [
         "MarkdownIt/Reader/ReaderWebView.swift",
         "MarkdownIt/Reader/ReaderViewport.swift",
+        "MarkdownIt/Reader/ReaderReflowTransition.swift",
         "MarkdownIt/Editor/SourceEditor.swift"
       ],
       "webOwners": [
@@ -90,6 +92,7 @@
       "invariants": [
         "Preview, source and outline derive from one working Markdown buffer.",
         "Preview fills the available document column with equal visible gutters to adjacent panels and no fixed maximum width; reflow preserves the reading anchor and clears the floating controls.",
+        "Panel reflow continuously changes the live document width and leading edge without fading, scaling or duplicating its content. Reversal continues from the current width, and Reduce Motion uses the final layout directly.",
         "One window-width policy coordinates both auxiliary panels; native document controls receive the actual leading edge of the document column."
       ],
       "specification": "design/README.md#阅读与源码"
@@ -382,12 +385,26 @@
       "specification": "design/README.md#阅读与源码"
     },
     {
+      "id": "About",
+      "nativeOwners": [
+        "MarkdownIt/Reader/AppInformationView.swift"
+      ],
+      "uses": [
+        "PrivacyPolicy"
+      ],
+      "invariants": [
+        "One native form presents Bundle version metadata and the existing privacy page. The home screen shows only its About entry.",
+        "Only a confirmed CHN StoreKit storefront shows the verbatim ICP filing link; language, device region and IP never determine visibility. Other and unknown storefronts hide it."
+      ],
+      "specification": "design/README.md#首页与最近文档"
+    },
+    {
       "id": "PrivacyPolicy",
       "nativeOwners": [
         "MarkdownIt/Privacy/PrivacyPolicyView.swift"
       ],
       "invariants": [
-        "One quiet homepage entry presents the bundled policy with native text, lists, tables and scrolling in the App language."
+        "About navigation reuses one bundled privacy page with native text, lists, tables and scrolling in the App language."
       ],
       "specification": "design/README.md#首页与最近文档"
     },
@@ -474,7 +491,7 @@
       "invariants": [
         "Request concrete resource folders individually; do not infer a common ancestor for unrelated paths.",
         "One native sheet separates secondary explanatory text from the primary medium-weight directory path, with Choose Folder/Cancel. Present the system picker directly from this sheet, keeping the prompt underneath; the user navigates manually, without an initial-location override.",
-        "One typed request records purpose, target directory, document token and request identity; picker results must match both identities and cover the target before persisting scope or resuming image loads or the original local document link.",
+        "One typed request records purpose, target directory, document token and request identity; picker results must match both identities and cover the target before persisting scope or resuming image loads or the original local document/image link.",
         "A rejected selection retains the same permission prompt. Cancel resumes the current document and invalidates late results; image failures do not replace a pending document-open request.",
         "Recent, external, in-app and session-restoration entry points reuse saved directory bookmarks while retaining the fresh incoming file URL."
       ],
@@ -562,6 +579,19 @@
         "Find is read-only and transient. Mode and document changes end it; CSS highlights preserve selection, layout and annotations."
       ],
       "specification": "design/README.md#文内查找"
+    },
+    {
+      "id": "LinkedImagePreview",
+      "nativeOwners": [
+        "MarkdownIt/Reader/ReaderImagePreview.swift",
+        "MarkdownIt/Reader/ReaderSession.swift"
+      ],
+      "invariants": [
+        "Local image links present original image bytes in an independent floating surface; the current document, scroll position, edit history and document navigation path remain unchanged.",
+        "Native file access and the shared folder permission request resolve the original link before preview. Each presentation is isolated from late loads and cleared when the document changes.",
+        "One image-only WebKit surface supports reader image formats, zooming and panning; the close control shares reader chrome and the surrounding scrim dismisses the preview."
+      ],
+      "specification": "design/README.md#文档链接与返回"
     }
   ]
 }

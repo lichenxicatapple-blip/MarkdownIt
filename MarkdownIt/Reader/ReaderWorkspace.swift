@@ -10,6 +10,7 @@ final class ReaderWorkspace {
     private(set) var outline = false
     private(set) var hasOutline = false
     private(set) var mode = "preview"
+    private(set) var documentGeneration = 0
     private var lastActivePanel = "outline"
     private var width: CGFloat = 0
     private var revision = 0
@@ -29,6 +30,7 @@ final class ReaderWorkspace {
     }
     var recovery: [String: Any] { ["agent": agent, "outline": outline, "lastActivePanel": lastActivePanel] }
     func load(mode: String, recovery: [String: Any]?) {
+        documentGeneration += 1
         resolveWaiters(false)
         self.mode = mode
         agent = recovery?["agent"] as? Bool ?? false

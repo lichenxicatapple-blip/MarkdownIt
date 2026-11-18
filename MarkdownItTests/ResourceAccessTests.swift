@@ -181,7 +181,7 @@ final class ResourceAccessTests: XCTestCase {
     }
 
     @MainActor
-    func testNonMarkdownLinksDoNotRequestFolderPermission() async throws {
+    func testUnsupportedLocalLinksDoNotRequestFolderPermission() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -192,12 +192,98 @@ final class ResourceAccessTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: name) }
         let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
         await session.open(file)
-        for link in ["../images/figure.svg", "../notes/example.txt"] {
+        for link in ["../notes/example.txt", "../downloads/archive.zip"] {
             await session.resolveLink(link)
             XCTAssertNil(session.resourcePermission)
             XCTAssertNil(session.errorMessage)
             XCTAssertEqual(session.document?.fileURL, file)
         }
+        await session.closeDocument()
+    }
+
+    @MainActor
+    func testImageLinkPermissionResumesOriginalBytesWithoutOpeningAnotherDocument() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let notes = root.appendingPathComponent("notes", isDirectory: true)
+        let images = root.appendingPathComponent("图片", isDirectory: true)
+        for folder in [notes, images] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = notes.appendingPathComponent("index.md")
+        try Data("# Images\n".utf8).write(to: file)
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        await session.open(file)
+        let token = session.documentToken
+        let original = Data("original image bytes".utf8)
+        try original.write(to: images.appendingPathComponent("focus overlay.png"))
+        let link = "../%E5%9B%BE%E7%89%87/focus%20overlay.png?version=1#image"
+        await session.resolveLink(link)
+        let request = try XCTUnwrap(session.resourcePermission)
+        XCTAssertEqual(request.purpose, .image(link: link))
+        XCTAssertEqual(request.directory.path, images.path)
+        XCTAssertNil(session.linkedImage)
+        session.localResourcesChanged(["unrelated/missing.png"], token: token)
+        session.resources.onPermissionDenied?(token, "unrelated/missing.png")
+        XCTAssertEqual(session.resourcePermission?.id, request.id)
+        let rejected = await session.finishResourcePermission(notes, requestID: request.id)
+        XCTAssertFalse(rejected)
+        XCTAssertEqual(session.resourcePermission?.id, request.id)
+        let accepted = await session.finishResourcePermission(images, requestID: request.id)
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(session.linkedImage?.data, original)
+        XCTAssertEqual(session.linkedImage?.mimeType, "image/png")
+        XCTAssertEqual(session.linkedImage?.name, "focus overlay.png")
+        XCTAssertNil(session.resourcePermission)
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertEqual(session.document?.fileURL, file)
+        XCTAssertFalse(session.canGoBack)
+        XCTAssertEqual(session.recentDocuments.documents.count, 1)
+
+        session.dismissLinkedImage()
+        await session.resolveLink(link)
+        XCTAssertNotNil(session.linkedImage)
+        XCTAssertNil(session.resourcePermission, "Reuse the granted folder for subsequent image links")
+        await session.closeDocument()
+        XCTAssertNil(session.linkedImage)
+    }
+
+    @MainActor
+    func testCancelledImagePermissionAndDocumentSwitchInvalidatePreview() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("index.md")
+        let other = root.appendingPathComponent("other.md")
+        for file in [file, other] { try Data("# Document\n".utf8).write(to: file) }
+        try Data("WebP bytes".utf8).write(to: root.appendingPathComponent("figure.webp"))
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        await session.open(file)
+        await session.resolveLink("figure.webp")
+        let request = try XCTUnwrap(session.resourcePermission)
+        session.cancelResourcePermission()
+        let late = await session.finishResourcePermission(root, requestID: request.id)
+        XCTAssertFalse(late)
+        XCTAssertNil(session.linkedImage)
+        await session.resolveLink("figure.webp")
+        let repeated = try XCTUnwrap(session.resourcePermission)
+        let accepted = await session.finishResourcePermission(root, requestID: repeated.id)
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(session.linkedImage?.mimeType, "image/webp")
+        let previewID = try XCTUnwrap(session.linkedImage?.id)
+        await session.open(other)
+        XCTAssertNil(session.linkedImage)
+        session.linkedImageFailed(id: previewID)
+        XCTAssertNil(session.errorMessage, "A released image must not report an error in the new document")
+        await session.resolveLink("missing.png")
+        XCTAssertNotNil(session.errorMessage, "An authorized but missing image must report its read failure")
+        XCTAssertNil(session.linkedImage)
         await session.closeDocument()
     }
 

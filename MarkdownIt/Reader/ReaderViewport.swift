@@ -26,6 +26,9 @@ final class ReaderViewport: UIView {
     private var presentationRevision = 0
     private var previousAgent = false
     private var previousPanelFrame = CGRect.zero
+    private var previousMode: String?
+    private var previousDocumentGeneration: Int?
+    let reflowTransition = ReaderReflowTransition()
 
     override var keyCommands: [UIKeyCommand]? {
         let find = UIKeyCommand(input: "f", modifierFlags: .command, action: #selector(findDocument(_:)))
@@ -43,6 +46,8 @@ final class ReaderViewport: UIView {
         backgroundColor = .systemBackground
         webView.autoresizingMask = []
         addSubview(webView)
+        webView.reflowTransition = reflowTransition
+        reflowTransition.onFinish = { [weak webView] in webView?.workspace.refreshProjection() }
         scrim.backgroundColor = UIColor.black.withAlphaComponent(0.14)
         scrim.isHidden = true
         addSubview(scrim)
@@ -113,7 +118,9 @@ final class ReaderViewport: UIView {
             findBar.bounds.size = frame.size
             findBar.center = CGPoint(x: frame.midX, y: frame.midY)
         }
-        let changed = previousLayout != layout || previousBounds != bounds
+        let changed =
+            previousLayout != layout || previousBounds != bounds || previousMode != workspace.mode
+            || previousDocumentGeneration != workspace.documentGeneration
         let panel = webView.conversationPanel
         let opening = workspace.agent && (!previousAgent || panel?.isHidden == true)
         let closing = !workspace.agent && previousAgent
@@ -132,9 +139,22 @@ final class ReaderViewport: UIView {
         }
         let targetDocument = CGRect(
             x: 0, y: 0, width: max(0, bounds.width - layout.reservedWidth), height: bounds.height)
-        let geometryChanged = webView.frame != targetDocument || (panel != nil && previousPanelFrame != panelFrame)
-        guard changed || geometryChanged || opening || closing else { return }
+        let documentChanged = (reflowTransition.targetWidth ?? webView.frame.width) != targetDocument.width
+        let geometryChanged =
+            documentChanged || webView.frame.height != targetDocument.height
+            || (panel != nil && previousPanelFrame != panelFrame)
         let initialLayout = previousBounds.isEmpty
+        let sameCanvas =
+            previousBounds.width == bounds.width && previousMode == workspace.mode
+            && previousDocumentGeneration == workspace.documentGeneration
+        if UIAccessibility.isReduceMotionEnabled || !sameCanvas { reflowTransition.cancel() }
+        guard changed || geometryChanged || opening || closing else { return }
+        let duration = opening || closing ? ReaderDesign.agentDuration : ReaderDesign.layoutDuration
+        if !initialLayout, sameCanvas, documentChanged, !UIAccessibility.isReduceMotionEnabled {
+            reflowTransition.animate(webView, to: targetDocument.width, duration: duration)
+        }
+        previousMode = workspace.mode
+        previousDocumentGeneration = workspace.documentGeneration
         previousAgent = workspace.agent
         previousPanelFrame = panelFrame
         previousLayout = layout
@@ -158,7 +178,8 @@ final class ReaderViewport: UIView {
         if !workspace.agent { panel?.composer.setVisible(false) }
         workspace.project(layout, visible: panel?.isHidden == false)
         let updates = {
-            self.webView.frame = targetDocument
+            self.webView.frame.size.height = targetDocument.height
+            if !self.reflowTransition.isActive { self.webView.frame.size.width = targetDocument.width }
             panel?.transform =
                 workspace.agent
                 ? .identity
@@ -187,7 +208,7 @@ final class ReaderViewport: UIView {
         } else {
             UIView.animate(
                 withDuration: opening || closing || changed
-                    ? ReaderDesign.agentDuration : ReaderDesign.inputAvoidanceDuration,
+                    ? duration : ReaderDesign.inputAvoidanceDuration,
                 delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut],
                 animations: updates, completion: finish)
         }

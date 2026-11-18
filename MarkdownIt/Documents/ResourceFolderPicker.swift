@@ -131,7 +131,7 @@ private struct ResourceFolderPrompt: View {
 
     private var title: LocalizedStringKey {
         switch request.purpose {
-        case .images: "Load Local Images"
+        case .images, .image: "Load Local Images"
         case .document: "Open Local Document"
         }
     }
@@ -139,6 +139,7 @@ private struct ResourceFolderPrompt: View {
     private var explanation: LocalizedStringKey {
         switch request.purpose {
         case .images: "This document references images in the folder below. Please allow access."
+        case .image: "This image is in the folder below. Please allow access."
         case .document: "This document is in the folder below. Please allow access."
         }
     }

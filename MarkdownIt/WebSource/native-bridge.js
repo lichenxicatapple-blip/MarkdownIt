@@ -204,14 +204,15 @@
       panelLayout(value) {
         if (panelLayout && value.revision < panelLayout.revision) return;
         const changedColumns = panelLayout && (Boolean(panelLayout.outline && !panelLayout.overlay) !== Boolean(value.outline && !value.overlay));
-        if (changedColumns && app.dataset.ready && displayedMode === 'preview') pinnedAnchor = captureReadingPosition();
+        if ((changedColumns || value.reflowing) && app.dataset.ready && displayedMode === 'preview')
+          pinnedAnchor = pinnedAnchor || layoutReadingAnchor || captureReadingPosition();
         panelLayout = {...value,viewportWidth:app.clientWidth};
         state.agent = value.agent; state.outline = value.outline;
         app.dataset.compactWindow=String(value.compact);
         app.dataset.agentLayout=value.sheet?'sheet':'side'; app.dataset.outlineLayout=value.overlay?'overlay':'side';
         app.dataset.panelsCoexist=String(value.coexist); app.classList.toggle('mdv-agent-open',value.agent);
         reader.inert=value.modal; outline.inert=value.modal;
-        render(); if(!documentFind.restoreCurrent() && changedColumns && pinnedAnchor)restoreReadingPosition(pinnedAnchor);
+        render(); if(!documentFind.restoreCurrent() && (changedColumns || value.reflowing) && pinnedAnchor)restoreReadingPosition(pinnedAnchor);
       },
       reloadResources() {
         reader.querySelectorAll('img[src^="jm-resource:"]').forEach(image => { image.src = `jm-resource://${nativeToken}/image?path=${encodeURIComponent(image.dataset.sourcePath)}&revision=${Date.now()}`; });

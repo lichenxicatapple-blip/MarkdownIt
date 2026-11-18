@@ -178,6 +178,11 @@
     {
       "action": "close-find",
       "native": "xmark"
+    },
+    {
+      "action": "close-image",
+      "native": "xmark",
+      "size": 18
     }
   ],
   "status": "Native SF Symbol mapping and web icon identifiers.",

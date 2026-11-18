@@ -10,6 +10,7 @@ final class ReaderWKWebView: WKWebView {
     var annotateSelectedText: ((String) -> Void)?
     var hasAnnotationSelection = false
     weak var sourceView: SourceTextView?
+    weak var reflowTransition: ReaderReflowTransition?
     weak var annotationView: UITextView?
     var findDocument: (() -> Void)?
     var findBar: ReaderFindBar?
@@ -377,7 +378,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandl
 
     private func projectLayout(_ value: [String: Any]) {
         guard ready else { return }
-        pendingLayout = value
+        var projection = value
+        projection["reflowing"] = webView.reflowTransition?.isActive == true
+        pendingLayout = projection
         guard layoutTask == nil else { return }
         layoutTask = Task { [weak self] in
             guard let self else { return }

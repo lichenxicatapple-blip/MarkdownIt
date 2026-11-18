@@ -7,6 +7,201 @@ import XCTest
 
 final class WebReaderTests: XCTestCase {
     @MainActor
+    func testPanelReflowContinuouslyMovesLiveTextAndPreservesTheReadingAnchor() async throws {
+        let (_, bridge, _) = try await navigationReader()
+        let viewport = try XCTUnwrap(bridge.webView.superview as? ReaderViewport)
+        let container = try XCTUnwrap(viewport.superview)
+        container.autoresizingMask = []
+        container.frame = CGRect(x: 0, y: 0, width: 1376, height: 1000)
+        container.layoutIfNeeded()
+        try await waitUntil {
+            guard bridge.webView.bounds.width == 1376, !viewport.reflowTransition.isActive else { return false }
+            return try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-app').getAnimations({subtree:true}).every(a=>a.playState==='finished')"
+            ) as? Bool == true
+        }
+        _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 120])
+        try await waitUntil {
+            let anchor = try await self.diagnostics(bridge)["anchor"] as? [String: Any]
+            return anchor?["line"] as? Double == 120
+        }
+        let original = try await diagnostics(bridge)["anchor"] as? [String: Any]
+        let originalLine = try XCTUnwrap(original?["line"] as? Double)
+        let existing = viewport.subviews.map(ObjectIdentifier.init)
+        func startSampling() async throws {
+            _ = try await bridge.webView.evaluateJavaScript(
+                """
+                (() => {
+                  const probe = window.motionProbe = {running: true, frames: []};
+                  const article = document.querySelector('.mdv-article');
+                  const layout = document.querySelector('.mdv-reading-layout');
+                  function sample() {
+                    const rect = article.getBoundingClientRect();
+                    probe.frames.push({width: rect.width, x: rect.x,
+                      opacity: Number(getComputedStyle(layout).opacity),
+                      font: getComputedStyle(article).fontSize});
+                    if (probe.running) requestAnimationFrame(sample);
+                  }
+                  requestAnimationFrame(sample);
+                })();
+                """)
+        }
+        func stopSampling() async throws -> [[String: Any]] {
+            let value = try await bridge.webView.evaluateJavaScript("motionProbe.running=false; motionProbe.frames")
+            return try XCTUnwrap(value as? [[String: Any]])
+        }
+        try await startSampling()
+        let initialWidth = bridge.webView.bounds.width
+        bridge.webView.workspace.request("agent", open: true)
+        container.layoutIfNeeded()
+        let targetWidth = try XCTUnwrap(viewport.reflowTransition.targetWidth)
+        var nativeFrames: [CGFloat] = []
+        let end = CACurrentMediaTime() + ReaderDesign.agentDuration + ReaderDesign.contentDuration
+        while CACurrentMediaTime() < end {
+            nativeFrames.append(bridge.webView.bounds.width)
+            try await Task.sleep(for: .milliseconds(16))
+        }
+        let frames = try await stopSampling()
+        let widths = frames.compactMap { $0["width"] as? Double }
+        XCTAssertTrue(nativeFrames.contains { $0 > targetWidth + 1 && $0 < initialWidth - 1 })
+        XCTAssertGreaterThan(
+            Set(widths.map { Int($0.rounded()) }).count, 2,
+            "WebKit must render intermediate widths, rather than switch straight to the final layout: \(widths)")
+        XCTAssertTrue(frames.allSatisfy { $0["opacity"] as? Double == 1 })
+        XCTAssertEqual(Set(frames.compactMap { $0["font"] as? String }).count, 1)
+        XCTAssertEqual(
+            viewport.subviews.map(ObjectIdentifier.init), existing,
+            "Live reflow must not introduce a duplicate document surface")
+        XCTAssertFalse(viewport.reflowTransition.isActive)
+        XCTAssertEqual(bridge.webView.bounds.width, targetWidth, accuracy: 0.1)
+        let after = try await diagnostics(bridge)["anchor"] as? [String: Any]
+        XCTAssertEqual(try XCTUnwrap(after?["line"] as? Double), originalLine, accuracy: 1)
+
+        bridge.webView.workspace.request("agent", open: false)
+        bridge.webView.workspace.request("outline", open: false)
+        container.layoutIfNeeded()
+        try await waitUntil {
+            guard !viewport.reflowTransition.isActive else { return false }
+            return try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-app').getAnimations({subtree:true}).every(a=>a.playState==='finished')"
+            ) as? Bool == true
+        }
+        try await startSampling()
+        bridge.webView.workspace.request("outline", open: true)
+        container.layoutIfNeeded()
+        try await Task.sleep(for: .seconds(ReaderDesign.layoutDuration + ReaderDesign.contentDuration))
+        let outlineFrames = try await stopSampling()
+        let positions = outlineFrames.compactMap { $0["x"] as? Double }
+        XCTAssertGreaterThan(
+            Set(positions.map { Int($0.rounded()) }).count, 2,
+            "The live document must move continuously with the outline: \(positions)")
+        XCTAssertTrue(outlineFrames.allSatisfy { $0["opacity"] as? Double == 1 })
+    }
+
+    @MainActor
+    func testDocumentReflowReversesFromItsCurrentWidthAndCleansUp() async throws {
+        let (_, bridge, _) = try await navigationReader()
+        let viewport = try XCTUnwrap(bridge.webView.superview as? ReaderViewport)
+        let container = try XCTUnwrap(viewport.superview)
+        container.autoresizingMask = []
+        container.frame = CGRect(x: 0, y: 0, width: 1376, height: 1000)
+        container.layoutIfNeeded()
+        try await waitUntil { bridge.webView.bounds.width == 1376 && !viewport.reflowTransition.isActive }
+        let workspace = bridge.webView.workspace
+        workspace.request("agent", open: true)
+        container.layoutIfNeeded()
+        let targetWidth = try XCTUnwrap(viewport.reflowTransition.targetWidth)
+        try await waitUntil { bridge.webView.bounds.width < 1375 && bridge.webView.bounds.width > targetWidth + 1 }
+        let currentWidth = bridge.webView.bounds.width
+        workspace.request("agent", open: false)
+        container.layoutIfNeeded()
+        XCTAssertEqual(
+            bridge.webView.bounds.width, currentWidth, accuracy: 0.1,
+            "Reversal must continue from the current live width")
+        try await waitUntil { !viewport.reflowTransition.isActive }
+        XCTAssertEqual(bridge.webView.bounds.width, 1376, accuracy: 0.1)
+        workspace.request("agent", open: true)
+        container.layoutIfNeeded()
+        XCTAssertTrue(viewport.reflowTransition.isActive)
+        workspace.load(mode: "preview", recovery: nil)
+        container.layoutIfNeeded()
+        XCTAssertFalse(viewport.reflowTransition.isActive, "A document handover must cancel the previous layout motion")
+        XCTAssertEqual(bridge.webView.bounds.width, 1376, accuracy: 0.1)
+    }
+
+    @MainActor
+    func testLinkedImageSurfaceDecodesReaderFormatsAndPreservesDocumentPosition() async throws {
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let session = ReaderSession(defaults: defaults, modelSettings: isolatedModelSettings())
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sample = try XCTUnwrap(Bundle.main.url(forResource: "Sample", withExtension: nil))
+        try FileManager.default.copyItem(
+            at: sample.appendingPathComponent("images"), to: root.appendingPathComponent("images"))
+        let file = root.appendingPathComponent("index.md")
+        try Data(("# Reading\n\n" + String(repeating: "A paragraph to keep reading.\n\n", count: 100)).utf8).write(
+            to: file)
+        await session.open(file)
+        let granted = await session.grant(root)
+        XCTAssertTrue(granted)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: ReaderScreen(session: session))
+        window.makeKeyAndVisible()
+        defer {
+            session.bridge?.detach()
+            window.isHidden = true
+        }
+        try await waitUntil { session.rendererReady }
+        let bridge = try XCTUnwrap(session.bridge)
+        _ = try await bridge.webView.evaluateJavaScript("window.scrollTo({top: 500, behavior: 'instant'})")
+        let positionValue = try await bridge.webView.evaluateJavaScript("window.scrollY")
+        let position = try XCTUnwrap(positionValue as? Double)
+        let token = session.documentToken
+        func previewView(_ view: UIView) -> WKWebView? {
+            if let web = view as? WKWebView, web.accessibilityIdentifier == "LinkedImageWebView" { return web }
+            return view.subviews.lazy.compactMap { previewView($0) }.first
+        }
+        for filename in ["reading-flow.webp", "focus-overlay.png", "market-structure.svg"] {
+            // Exercise the same native route used by links in the reader and conversation.
+            await session.resolveLink("images/\(filename)")
+            try await waitUntil {
+                guard let web = previewView(window), web.bounds.width > 0 else { return false }
+                return try await web.evaluateJavaScript("document.querySelector('img')?.naturalWidth > 0") as? Bool
+                    == true
+            }
+            let preview = try XCTUnwrap(previewView(window))
+            XCTAssertTrue(preview.configuration.websiteDataStore.isPersistent == false)
+            let displayed = preview.convert(preview.bounds, to: window)
+            XCTAssertTrue(window.bounds.contains(displayed), "The image must fit the current window")
+            let hit = window.hitTest(CGPoint(x: displayed.midX, y: displayed.midY), with: nil)
+            XCTAssertTrue(hit?.isDescendant(of: preview) == true, "Image hit test reached \(String(describing: hit))")
+            let original = try Data(contentsOf: root.appendingPathComponent("images/\(filename)"))
+            XCTAssertEqual(session.linkedImage?.data, original)
+            XCTAssertEqual(session.documentToken, token)
+            XCTAssertFalse(session.canGoBack)
+            try await waitUntil { preview.scrollView.maximumZoomScale >= 2 }
+            preview.scrollView.setZoomScale(2, animated: false)
+            XCTAssertEqual(preview.scrollView.zoomScale, 2, accuracy: 0.01)
+            XCTAssertGreaterThan(preview.scrollView.contentSize.width, preview.bounds.width)
+            session.dismissLinkedImage()
+            try await waitUntil { previewView(window) == nil }
+            let restoredValue = try await bridge.webView.evaluateJavaScript("window.scrollY")
+            let restored = try XCTUnwrap(restoredValue as? Double)
+            XCTAssertEqual(restored, position, accuracy: 0.5)
+            XCTAssertNil(session.errorMessage)
+        }
+        try Data("invalid image".utf8).write(to: root.appendingPathComponent("broken.png"))
+        await session.resolveLink("broken.png")
+        try await waitUntil { session.errorMessage != nil }
+        XCTAssertNil(session.linkedImage, "Decode failure must dismiss the unusable image surface")
+        await session.closeDocument()
+    }
+
+    @MainActor
     func testDocumentFindScopesPreviewAndSharesNavigationForBothModes() async throws {
         let markdown =
             "# Needle\n\nNeedle **needle** `needle`\n\n<div hidden>hidden needle</div>\n\n```swift\nlet value = 1\n```\n"

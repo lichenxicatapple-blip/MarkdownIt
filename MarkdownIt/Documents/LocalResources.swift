@@ -6,6 +6,7 @@ struct ResourcePermissionRequest: Identifiable, Equatable {
     enum Purpose: Equatable {
         case images
         case document(link: String)
+        case image(link: String)
     }
 
     let id = UUID()

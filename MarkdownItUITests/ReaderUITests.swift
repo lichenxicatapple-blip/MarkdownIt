@@ -19,6 +19,53 @@ final class ReaderUITests: XCTestCase {
         }
     }
 
+    func testDocumentPanelTransitionsKeepReadingContext() {
+        SimulatorOrientation.set(UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-model-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        let paragraph = app.webViews["ReaderWebView"].staticTexts[
+            "这是一份可以实际滚动、选择、修改和来回切换的长文样例。内容同时包含基础 Markdown、常见扩展和正文 HTML。标题与正文都保存在这份源码里，预览和目录从同一份内容生成。"
+        ]
+        XCTAssertTrue(paragraph.waitForExistence(timeout: 25))
+        let outline = app.buttons["OutlineToggle"]
+        waitForEnabled(outline)
+        outline.tap()
+        XCTAssertTrue(paragraph.exists)
+        record("document-outline-transition")
+        outline.tap()
+        XCTAssertTrue(paragraph.isHittable)
+        let readingFrame = paragraph.frame
+        outline.doubleTap()
+        XCTAssertEqual(paragraph.frame.minX, readingFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(paragraph.frame.minY, readingFrame.minY, accuracy: 0.5)
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        let collapse = app.buttons["CollapseAgent"]
+        XCTAssertTrue(collapse.waitForExistence(timeout: 8))
+        record("document-ai-transition")
+        collapse.tap()
+        XCTAssertTrue(collapse.waitForNonExistence(timeout: 8))
+        XCTAssertTrue(paragraph.isHittable)
+        record("document-after-panel-transitions")
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        let source = editor.value as? String
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        XCTAssertTrue(collapse.waitForExistence(timeout: 8))
+        XCTAssertEqual(editor.value as? String, source)
+        record("source-ai-transition")
+        collapse.tap()
+        XCTAssertTrue(collapse.waitForNonExistence(timeout: 8))
+        XCTAssertEqual(editor.value as? String, source)
+    }
+
     private func record(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIApplication().windows.firstMatch.screenshot())
         attachment.name = name
@@ -610,35 +657,43 @@ final class ReaderUITests: XCTestCase {
                 .firstMatch.waitForExistence(timeout: 10))
     }
 
-    func testPrivacyPolicyHomeEntryAndLocalizedContent() {
+    func testAboutHomeEntryAndLocalizedPrivacyContent() {
         SimulatorOrientation.set(.portrait)
         let app = XCUIApplication()
-        for (language, locale, title, firstSection, lastSection) in [
-            ("zh-Hans", "zh_CN", "隐私政策", "1. 适用范围", "9. 政策更新与联系"),
-            ("en", "en_US", "Privacy Policy", "1. Scope", "9. Updates and contact"),
+        for (language, locale, aboutTitle, title, firstSection, lastSection) in [
+            ("zh-Hans", "zh_CN", "关于", "隐私政策", "1. 适用范围", "9. 政策更新与联系"),
+            ("en", "en_US", "About", "Privacy Policy", "1. Scope", "9. Updates and contact"),
         ] {
             app.launchArguments = [
-                "--ui-testing", "-AppleLanguages", "(\(language))", "-AppleLocale", locale,
+                "--ui-testing", "--ui-test-storefront", "CHN",
+                "-AppleLanguages", "(\(language))", "-AppleLocale", locale,
             ]
             app.launch()
-            let entry = app.buttons["PrivacyPolicy"]
+            let entry = app.buttons["About"]
             XCTAssertTrue(entry.waitForExistence(timeout: 8))
             let open = app.buttons["OpenDocument"]
+            let version = app.descendants(matching: .any).matching(identifier: "AppVersion").firstMatch
+            let filing = app.descendants(matching: .any).matching(identifier: "ICPFilingNumber").firstMatch
             XCTAssertGreaterThanOrEqual(entry.frame.width, 44)
             XCTAssertGreaterThanOrEqual(entry.frame.height, 44)
             XCTAssertGreaterThan(entry.frame.minY, open.frame.maxY)
             XCTAssertGreaterThan(entry.frame.midX, app.windows.firstMatch.frame.midX)
-            let version = app.staticTexts["AppVersion"]
-            XCTAssertTrue(version.exists)
-            XCTAssertGreaterThanOrEqual(version.frame.minY, entry.frame.maxY - 0.5)
-            XCTAssertEqual(version.frame.maxX, entry.frame.maxX, accuracy: 1)
-            XCTAssertTrue(version.label.hasPrefix(language == "zh-Hans" ? "版本 " : "Version "))
-            record("home-privacy-\(language)")
+            XCTAssertFalse(version.exists)
+            XCTAssertFalse(filing.exists)
+            XCTAssertFalse(app.buttons["PrivacyPolicy"].exists)
+            record("home-about-\(language)")
             entry.tap()
+            XCTAssertTrue(app.navigationBars[aboutTitle].waitForExistence(timeout: 8))
+            XCTAssertTrue(version.exists)
+            XCTAssertTrue(version.label.contains(language == "zh-Hans" ? "版本" : "Version"))
+            XCTAssertTrue(filing.isHittable)
+            XCTAssertEqual(filing.label, "粤ICP备2026033958号-2A")
+            XCTAssertFalse(open.isHittable)
+            record("about-china-\(language)")
+            app.buttons["PrivacyPolicy"].tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 8))
             let policy = app.scrollViews["PrivacyPolicyContent"]
             XCTAssertTrue(policy.staticTexts[firstSection].waitForExistence(timeout: 8))
-            XCTAssertFalse(open.isHittable)
             XCTAssertTrue(
                 policy.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "lichenxi.catapple@gmail.com"))
                     .firstMatch.exists)
@@ -649,10 +704,35 @@ final class ReaderUITests: XCTestCase {
                 policy.swipeUp()
             }
             XCTAssertTrue(last.isHittable, "The complete policy must be readable inside the modal")
-            record("privacy-policy-bottom-\(language)")
-            app.buttons["ClosePrivacyPolicy"].tap()
-            XCTAssertTrue(open.waitForExistence(timeout: 5))
+            app.navigationBars[title].buttons.firstMatch.tap()
+            XCTAssertTrue(app.buttons["CloseAbout"].waitForExistence(timeout: 5))
+            app.buttons["CloseAbout"].tap()
+            XCTAssertTrue(entry.waitForExistence(timeout: 5))
             XCTAssertTrue(entry.isHittable)
+            app.terminate()
+        }
+    }
+
+    func testAboutHidesFilingForOtherStorefronts() {
+        SimulatorOrientation.set(.portrait)
+        let app = XCUIApplication()
+        for (language, locale, country) in [
+            ("zh-Hans", "zh_CN", "USA"), ("en", "en_US", "JPN"), ("en", "en_US", ""),
+        ] {
+            app.launchArguments = [
+                "--ui-testing", "--ui-test-storefront", country,
+                "-AppleLanguages", "(\(language))", "-AppleLocale", locale,
+            ]
+            app.launch()
+            let entry = app.buttons["About"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 8))
+            entry.tap()
+            XCTAssertTrue(app.buttons["CloseAbout"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["PrivacyPolicy"].isHittable)
+            XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "ICPFilingNumber").firstMatch.exists)
+            record("about-\(country.isEmpty ? "unknown" : country)-\(language)")
+            app.buttons["CloseAbout"].tap()
+            XCTAssertTrue(entry.waitForExistence(timeout: 5))
             app.terminate()
         }
     }
@@ -2105,6 +2185,67 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(quote.elementType == .image || quote.images.firstMatch.exists)
             record("image-quote-composer-\(language)")
             app.terminate()
+        }
+    }
+
+    private func imageCenterPixels(_ screenshot: XCUIScreenshot) throws -> [UInt8] {
+        let image = try XCTUnwrap(screenshot.image.cgImage)
+        let crop = CGRect(x: image.width / 4, y: image.height / 4, width: image.width / 2, height: image.height / 2)
+        let center = try XCTUnwrap(image.cropping(to: crop))
+        var pixels = [UInt8](repeating: 0, count: center.width * center.height * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(
+                CGContext(
+                    data: buffer.baseAddress, width: center.width, height: center.height, bitsPerComponent: 8,
+                    bytesPerRow: center.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(center, in: CGRect(x: 0, y: 0, width: center.width, height: center.height))
+        }
+        return pixels
+    }
+
+    func testLocalImageLinksPreviewAboveTheReaderAndDismissInPlace() throws {
+        let app = XCUIApplication()
+        _ = openImageReader(app, language: "zh-Hans", locale: "zh_CN")
+        let reader = app.webViews["ReaderWebView"]
+        for (label, name) in [("阅读流程图", "webp"), ("透明标注层", "transparent-png"), ("市场结构原图", "svg")] {
+            let link = reader.links[label]
+            for _ in 0..<8 {
+                if link.isHittable { break }
+                reader.swipeUp()
+            }
+            XCTAssertTrue(link.isHittable)
+            let original = link.frame
+            link.tap()
+            let close = app.buttons["CloseLinkedImage"]
+            let preview = app.webViews["LinkedImageWebView"]
+            XCTAssertTrue(close.waitForExistence(timeout: 8))
+            XCTAssertTrue(preview.waitForExistence(timeout: 8))
+            XCTAssertFalse(
+                app.buttons["CloseDocument"].exists, "Underlying reader controls must leave the accessibility tree")
+            record("linked-image-\(name)")
+            if name == "webp" {
+                let before = try imageCenterPixels(preview.screenshot())
+                preview.pinch(withScale: 4, velocity: 1)
+                preview.swipeLeft()
+                let after = try imageCenterPixels(preview.screenshot())
+                XCTAssertEqual(before.count, after.count)
+                let changed = zip(before, after).filter { abs(Int($0.0) - Int($0.1)) > 16 }.count
+                XCTAssertGreaterThan(
+                    Double(changed) / Double(before.count), 0.01,
+                    "Pinch must actually enlarge the image, not merely synthesize an input event")
+                record("linked-image-zoomed")
+                close.tap()
+            } else {
+                let blank = app.windows.firstMatch.coordinate(
+                    withNormalizedOffset: .zero
+                ).withOffset(CGVector(dx: app.windows.firstMatch.frame.midX, dy: close.frame.midY))
+                blank.tap()
+            }
+            XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(link.isHittable)
+            XCTAssertEqual(link.frame.minY, original.minY, accuracy: 1)
+            XCTAssertFalse(app.buttons["PreviousDocument"].exists)
         }
     }
 

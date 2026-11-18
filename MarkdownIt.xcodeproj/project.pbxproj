@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A18E20260000000000000001 /* AppInformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18E20260000000000000002 /* AppInformationView.swift */; };
+		A16E20260000000000000003 /* ReaderReflowTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16E20260000000000000004 /* ReaderReflowTransition.swift */; };
+		A16E20260000000000000001 /* ReaderImagePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16E20260000000000000002 /* ReaderImagePreview.swift */; };
 		F1AD00000000000000000003 /* ReaderFindBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AD00000000000000000004 /* ReaderFindBar.swift */; };
 		F1AD00000000000000000001 /* ReaderFindController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AD00000000000000000002 /* ReaderFindController.swift */; };
 		5DF282AE84374C4AA5EBE5AA /* ReaderWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B316C769FB84FB880DB527F /* ReaderWorkspace.swift */; };
@@ -122,6 +125,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A18E20260000000000000002 /* AppInformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInformationView.swift; sourceTree = "<group>"; };
+		A16E20260000000000000004 /* ReaderReflowTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderReflowTransition.swift; sourceTree = "<group>"; };
+		A16E20260000000000000002 /* ReaderImagePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderImagePreview.swift; sourceTree = "<group>"; };
 		F1AD00000000000000000004 /* ReaderFindBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderFindBar.swift; sourceTree = "<group>"; };
 		F1AD00000000000000000002 /* ReaderFindController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderFindController.swift; sourceTree = "<group>"; };
 		1B316C769FB84FB880DB527F /* ReaderWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderWorkspace.swift; sourceTree = "<group>"; };
@@ -272,6 +278,9 @@
 				F1AD00000000000000000002 /* ReaderFindController.swift */,
 				F1AD00000000000000000004 /* ReaderFindBar.swift */,
 				892B2E41ACAB9300E154E72318 /* ReaderImageMenu.swift */,
+				A16E20260000000000000002 /* ReaderImagePreview.swift */,
+				A16E20260000000000000004 /* ReaderReflowTransition.swift */,
+				A18E20260000000000000002 /* AppInformationView.swift */,
 				FDA62040CEE3AD5B798B01EE /* ReaderScreen.swift */,
 				FA11AA220000000000000002 /* ReaderRecovery.swift */,
 				BB3EF24BC49856ED5299CA5F /* ReaderSession.swift */,
@@ -646,6 +655,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A18E20260000000000000001 /* AppInformationView.swift in Sources */,
 				4FE425A3546C55588313A914 /* ReaderPencilInteraction.swift in Sources */,
 				6FCBF03A15BF6086857A485A /* DocumentRevision.swift in Sources */,
 				36AFEF08CB03F3F61FE4B656 /* ReaderActionMenu.swift in Sources */,
@@ -657,6 +667,8 @@
 				F1AD00000000000000000001 /* ReaderFindController.swift in Sources */,
 				F1AD00000000000000000003 /* ReaderFindBar.swift in Sources */,
 				892B2E41ACAB9300E254E72318 /* ReaderImageMenu.swift in Sources */,
+				A16E20260000000000000001 /* ReaderImagePreview.swift in Sources */,
+				A16E20260000000000000003 /* ReaderReflowTransition.swift in Sources */,
 				54E723182B2E41ACAB9300E2 /* AgentImages.swift in Sources */,
 				5FC1C9565ED0426EBD748D70 /* WebSearchAuthorization.swift in Sources */,
 				F5770605EF0B46F195F5A95D /* AgentWebSearch.swift in Sources */,

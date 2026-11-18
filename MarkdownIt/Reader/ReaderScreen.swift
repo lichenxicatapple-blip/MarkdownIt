@@ -18,6 +18,7 @@ private enum HomeItem: CaseIterable, Hashable {
 struct ReaderScreen: View {
     private let homeSlogan = ["just markdown,", "pure reading."]
     @ObservedObject var session: ReaderSession
+    var storefrontCountryCodeOverride: String? = nil
     @State private var modelSettingsPresented = false
     @State private var modelSettingsOpening = false
     @State private var importing = false
@@ -26,7 +27,7 @@ struct ReaderScreen: View {
     @State private var modelSettingsSaved = false
     @State private var homeVisible = false
     @State private var recentsPresented = false
-    @State private var privacyPresented = false
+    @State private var aboutPresented = false
     @AccessibilityFocusState private var focusedAction: ReaderAccessibilityAction?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -34,11 +35,6 @@ struct ReaderScreen: View {
     private var markdownTypes: [UTType] {
         MarkdownDocument.supportedFilenameExtensions.compactMap { UTType(filenameExtension: $0) }
     }
-
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-    }
-    private var appBuild: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—" }
 
     var body: some View {
         GeometryReader { geometry in
@@ -52,20 +48,15 @@ struct ReaderScreen: View {
                 } else if session.document == nil {
                     welcome
                         .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
-                            VStack(alignment: .trailing, spacing: 0) {
-                                Button {
-                                    privacyPresented = true
-                                } label: {
-                                    Text("Privacy Policy")
-                                        .frame(minWidth: ReaderDesign.hitTarget, minHeight: ReaderDesign.hitTarget)
-                                        .contentShape(Rectangle())
-                                }
-                                .font(.caption).foregroundStyle(.secondary).buttonStyle(.plain)
-                                .accessibilityIdentifier("PrivacyPolicy")
-                                Text("Version \(appVersion) (\(appBuild))")
-                                    .font(.caption2).foregroundStyle(.tertiary)
-                                    .accessibilityIdentifier("AppVersion")
+                            Button {
+                                aboutPresented = true
+                            } label: {
+                                Text("About")
+                                    .frame(minWidth: ReaderDesign.hitTarget, minHeight: ReaderDesign.hitTarget)
+                                    .contentShape(Rectangle())
                             }
+                            .font(.caption).foregroundStyle(.secondary).buttonStyle(.plain)
+                            .accessibilityIdentifier("About")
                             .padding(.horizontal, 24).padding(.bottom, 8)
                         }
                         .transition(.opacity)
@@ -81,7 +72,7 @@ struct ReaderScreen: View {
                             Button {
                                 session.toggleOutline()
                             } label: {
-                                chromeIcon("sidebar.left")
+                                ReaderChromeIcon("sidebar.left")
                             }
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
                             .offset(x: chrome.outline).padding(.top, ReaderDesign.floatingInset)
@@ -91,7 +82,7 @@ struct ReaderScreen: View {
                                     ? String(localized: "Hide contents") : String(localized: "Show contents")
                             )
                             .accessibilityIdentifier("OutlineToggle")
-                            .modifier(ReaderChromeVisibility(hidden: session.findActive))
+                            .modifier(ReaderChromeVisibility(hidden: chromeHidden))
                             .disabled(!session.rendererReady)
                         }
                     }
@@ -101,14 +92,14 @@ struct ReaderScreen: View {
                                 toolsExpanded = false
                                 Task { await session.goBack() }
                             } label: {
-                                chromeIcon("chevron.backward")
+                                ReaderChromeIcon("chevron.backward")
                             }
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
                             .offset(x: chrome.back).padding(.top, ReaderDesign.floatingInset)
                             .animation(chromeAnimation, value: chrome.back)
                             .accessibilityLabel("Previous document")
                             .accessibilityIdentifier("PreviousDocument")
-                            .modifier(ReaderChromeVisibility(hidden: session.findActive))
+                            .modifier(ReaderChromeVisibility(hidden: chromeHidden))
                             .disabled(!session.rendererReady)
                             .transition(.opacity)
                         }
@@ -119,7 +110,7 @@ struct ReaderScreen: View {
                                 toolsExpanded = false
                                 Task { await session.closeDocument() }
                             } label: {
-                                chromeIcon("xmark")
+                                ReaderChromeIcon("xmark")
                             }
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
                             .modifier(
@@ -130,19 +121,19 @@ struct ReaderScreen: View {
                             .padding(.top, ReaderDesign.floatingInset)
                             .accessibilityLabel("Close document")
                             .accessibilityIdentifier("CloseDocument")
-                            .modifier(ReaderChromeVisibility(hidden: session.findActive))
+                            .modifier(ReaderChromeVisibility(hidden: chromeHidden))
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
                         ZStack {
-                            if !session.agentVisible && !session.findActive {
+                            if !session.agentVisible && !chromeHidden {
                                 ReaderFloatingControls(expanded: toolsExpanded) { floatingActions }
                                     .ignoresSafeArea(.all, edges: .bottom)
                                     .transition(.opacity)
                             }
                         }
-                        .allowsHitTesting(!session.agentVisible && !session.findActive)
-                        .accessibilityHidden(session.agentVisible || session.findActive)
+                        .allowsHitTesting(!session.agentVisible && !chromeHidden)
+                        .accessibilityHidden(session.agentVisible || chromeHidden)
                         .animation(
                             reduceMotion ? nil : .easeOut(duration: ReaderDesign.contentDuration),
                             value: session.agentVisible
@@ -182,6 +173,7 @@ struct ReaderScreen: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
+        .modifier(ReaderImagePresentation(session: session))
         .fileImporter(
             isPresented: $importing, allowedContentTypes: markdownTypes,
             allowsMultipleSelection: false
@@ -219,7 +211,9 @@ struct ReaderScreen: View {
                 .presentationBackgroundInteraction(.disabled)
                 .interactiveDismissDisabled()
         }
-        .sheet(isPresented: $privacyPresented) { PrivacyPolicyView() }
+        .sheet(isPresented: $aboutPresented) {
+            AppInformationView(storefrontCountryCodeOverride: storefrontCountryCodeOverride)
+        }
         .alert(
             "Unable to Complete Action",
             isPresented: Binding(
@@ -422,20 +416,10 @@ struct ReaderScreen: View {
     }
 
     private var showsOutlineControl: Bool { session.mode == "preview" && session.hasOutline }
+    private var chromeHidden: Bool { session.findActive || session.linkedImage != nil }
 
     private var chromeAnimation: Animation? {
         reduceMotion ? nil : .easeInOut(duration: ReaderDesign.toolsDuration)
-    }
-
-    private func chromeIcon(_ name: String) -> some View {
-        Group {
-            if let image = ReaderChromeSymbols.symbol(name) {
-                Image(uiImage: image).renderingMode(.template)
-            }
-        }
-        .frame(width: ReaderDesign.readerChromeCanvas, height: ReaderDesign.readerChromeCanvas)
-        .frame(width: ReaderDesign.hitTarget, height: ReaderDesign.hitTarget)
-        .contentShape(Circle())
     }
 
     private var toolsAnimation: Animation? {
@@ -576,7 +560,7 @@ private struct HomeEntrance: ViewModifier {
 }
 
 /// All floating reader controls use the same system material and circular feedback.
-private struct ReaderGlassControl: ViewModifier {
+struct ReaderGlassControl: ViewModifier {
     func body(content: Content) -> some View {
         content.buttonStyle(.plain).glassEffect(.regular.interactive(), in: .circle)
     }

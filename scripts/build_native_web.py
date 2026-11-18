@@ -51,6 +51,7 @@ def reader_design(spec):
         "sourceTopInset": "space.sourceTopInset",
         "sourceBottomInset": "space.sourceBottomInset",
         "findWidth": "size.findWidth",
+        "imagePreviewRadius": "size.imagePreviewRadius",
         "findInset": "space.findInset",
         "hitTarget": "size.hitTarget",
         "floatingIcon": "size.floatingIcon",
@@ -98,7 +99,7 @@ def reader_design(spec):
         if not (
             key.startswith("color.annotation")
             or key.startswith("color.agent")
-            or key == "color.shadow"
+            or key in {"color.shadow", "color.modalScrim"}
         ):
             continue
         colors = re.fullmatch(r"light-dark\((#[0-9a-fA-F]+), (#[0-9a-fA-F]+)\)", token["value"])
@@ -126,6 +127,7 @@ def reader_design(spec):
         f"    static let {name}Duration: TimeInterval = {spec['motion'][key]['duration'] / 1000:g}"
         for name, key in [
             ("tools", "tools"),
+            ("layout", "layout"),
             ("agent", "agentPanel"),
             ("documentClose", "documentClose"),
             ("inputAvoidance", "inputAvoidance"),
@@ -427,6 +429,7 @@ def generate(destination):
     )
     shutil.copy2(SOURCE / "rich-text.js", package / "rich-text.js")
     shutil.copy2(SOURCE / "document-find.js", package / "document-find.js")
+    shutil.copy2(SOURCE / "image-preview.html", package / "image-preview.html")
     localization = replace_once(
         (SOURCE / "localization.js").read_text(),
         "/* localization-data */ {}",

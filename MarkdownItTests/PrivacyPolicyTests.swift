@@ -96,7 +96,10 @@ private struct PrivacyLayoutHost: View {
 
     var body: some View {
         Color.clear.sheet(isPresented: .constant(true)) {
-            PrivacyPolicyView().environment(\.dynamicTypeSize, size)
+            NavigationStack {
+                PrivacyPolicyView().environment(\.dynamicTypeSize, size)
+            }
+            .presentationSizing(.form)
         }
     }
 }
