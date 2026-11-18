@@ -32,7 +32,15 @@ final class WebReaderTests: XCTestCase {
             document.querySelector('.mdv-app').style.width = '500px';
             window.MarkdownIt.panelLayout({...window.lastPanelProjection,
               revision:window.lastPanelProjection.revision + 1});
-            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            // ResizeObserver delivers after animation-frame callbacks. Observe
+            // the resized article before checking its restored scroll position.
+            await new Promise(resolve => {
+              const observer = new ResizeObserver(() => {
+                observer.disconnect();
+                requestAnimationFrame(resolve);
+              });
+              observer.observe(document.querySelector('.mdv-article'));
+            });
             return window.MarkdownIt.diagnostics().anchor.line;
             """, arguments: [:], in: nil, contentWorld: .page)
         XCTAssertEqual(try XCTUnwrap(value as? Double), 120, accuracy: 1)
@@ -64,7 +72,15 @@ final class WebReaderTests: XCTestCase {
             window.scrollTo(0, 0);
             window.MarkdownIt.panelLayout({...window.lastPanelProjection,
               revision:window.lastPanelProjection.revision + 1});
-            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            // ResizeObserver delivers after animation-frame callbacks. Observe
+            // the resized article before checking its restored scroll position.
+            await new Promise(resolve => {
+              const observer = new ResizeObserver(() => {
+                observer.disconnect();
+                requestAnimationFrame(resolve);
+              });
+              observer.observe(document.querySelector('.mdv-article'));
+            });
             return window.MarkdownIt.diagnostics().anchor.line;
             """, arguments: [:], in: nil, contentWorld: .page)
         XCTAssertEqual(try XCTUnwrap(value as? Double), 120, accuracy: 1)
