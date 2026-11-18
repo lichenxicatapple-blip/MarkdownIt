@@ -240,15 +240,14 @@ final class ReaderFindController {
 
     private func reveal(_ range: NSRange) {
         if usingSource {
-            guard let start = source.position(from: source.beginningOfDocument, offset: range.location),
-                let end = source.position(from: start, offset: range.length),
-                let selection = source.textRange(from: start, to: end)
-            else { return }
-            let rect = source.firstRect(for: selection)
-            let bottom = max(0, source.contentSize.height - source.bounds.height + source.adjustedContentInset.bottom)
-            source.setContentOffset(
-                CGPoint(x: source.contentOffset.x, y: min(bottom, max(0, rect.midY - source.bounds.height / 2))),
-                animated: false)
+            source.layoutIfNeeded()
+            if let layout = source.textLayoutManager, let content = layout.textContentManager,
+                let end = content.location(content.documentRange.location, offsetBy: NSMaxRange(range)),
+                let prefix = NSTextRange(location: content.documentRange.location, end: end)
+            {
+                layout.ensureLayout(for: prefix)
+            }
+            source.scrollRangeToVisible(range)
         } else {
             pendingReveal = range
             scheduleDecoration()
@@ -257,16 +256,20 @@ final class ReaderFindController {
 
     private func decorateSource(_ range: NSRange, style: HighlightStyle) {
         if style == .none { sourceRanges.removeValue(forKey: range) } else { sourceRanges[range] = style }
-        renderSource(range, style: style)
+        if let textRange = renderSource(range, style: style) {
+            // TextKit keeps already drawn fragments until their layout is invalidated.
+            source.textLayoutManager?.invalidateLayout(for: textRange)
+        }
     }
 
-    private func renderSource(_ range: NSRange, style: HighlightStyle) {
+    @discardableResult
+    private func renderSource(_ range: NSRange, style: HighlightStyle) -> NSTextRange? {
         guard NSMaxRange(range) <= (source.text as NSString?)?.length ?? 0,
             let layout = source.textLayoutManager, let content = layout.textContentManager,
             let start = content.location(content.documentRange.location, offsetBy: range.location),
             let end = content.location(start, offsetBy: range.length)
-        else { return }
-        guard let textRange = NSTextRange(location: start, end: end) else { return }
+        else { return nil }
+        guard let textRange = NSTextRange(location: start, end: end) else { return nil }
         if style == .none {
             layout.removeRenderingAttribute(.backgroundColor, for: textRange)
             layout.removeRenderingAttribute(.foregroundColor, for: textRange)
@@ -280,6 +283,7 @@ final class ReaderFindController {
                 layout.removeRenderingAttribute(.foregroundColor, for: textRange)
             }
         }
+        return textRange
     }
 
     private func validateSourceHighlights(_ fragment: NSTextLayoutFragment) {

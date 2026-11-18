@@ -360,6 +360,7 @@ final class ReaderUITests: XCTestCase {
         let yellow = stride(from: 0, to: pixels.count, by: 4).filter { index in
             pixels[index] > 180 && pixels[index + 1] > 130 && pixels[index + 2] < 100
         }.count
+        if yellow <= 8 { record("find-highlight-not-painted") }
         XCTAssertGreaterThan(
             yellow, 8, "The current match must be painted inside the visible document", file: file, line: line)
     }

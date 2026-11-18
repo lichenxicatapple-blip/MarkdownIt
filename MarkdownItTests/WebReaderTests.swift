@@ -7,6 +7,38 @@ import XCTest
 
 final class WebReaderTests: XCTestCase {
     @MainActor
+    func testPanelProjectionPreservesReadingAnchorBeforeResizeObserverRuns() async throws {
+        let (_, bridge, _) = try await navigationReader()
+        _ = try await bridge.webView.evaluateJavaScript(
+            """
+            const projectPanel = window.MarkdownIt.panelLayout;
+            window.MarkdownIt.panelLayout = function(value) {
+              window.lastPanelProjection = value;
+              return projectPanel.call(this, value);
+            };
+            true;
+            """)
+        bridge.webView.workspace.refreshProjection()
+        try await waitUntil {
+            try await bridge.webView.evaluateJavaScript("Boolean(window.lastPanelProjection)") as? Bool == true
+        }
+        _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 120])
+        // Native projection can arrive before ResizeObserver. Preserve the
+        // reading anchor even when WebKit has already clamped the old scroll.
+        let value = try await bridge.webView.callAsyncJavaScript(
+            """
+            document.querySelector('.mdv-reader').dispatchEvent(new WheelEvent('wheel', {bubbles:true}));
+            document.querySelector('.mdv-app').style.width = '500px';
+            window.scrollTo(0, 0);
+            window.MarkdownIt.panelLayout({...window.lastPanelProjection,
+              revision:window.lastPanelProjection.revision + 1});
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            return window.MarkdownIt.diagnostics().anchor.line;
+            """, arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(try XCTUnwrap(value as? Double), 120, accuracy: 1)
+    }
+
+    @MainActor
     func testPanelReflowContinuouslyMovesLiveTextAndPreservesTheReadingAnchor() async throws {
         let (_, bridge, _) = try await navigationReader()
         let viewport = try XCTUnwrap(bridge.webView.superview as? ReaderViewport)
