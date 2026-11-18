@@ -120,7 +120,10 @@
     });
     positionObserver.observe(reader);
     ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => {
-      document.addEventListener(type, () => { pinnedAnchor = null; }, { passive: true, capture: true });
+      document.addEventListener(type, event => {
+        // Browsing the outline must not release the document's layout anchor.
+        if (!event.composedPath().includes(outline)) pinnedAnchor = null;
+      }, { passive: true, capture: true });
     });
     function buildOutline() {
     stopOutlineFollow();

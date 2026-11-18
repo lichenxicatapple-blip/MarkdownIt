@@ -1943,9 +1943,9 @@ final class AgentFlowTests: AgentReaderTestCase {
         // Programmatic scroll offsets are meaningful after the panel's
         // presentation has settled, rather than during its moving transform.
         try await wait {
-            try await bridge.conversationWebView.evaluateJavaScript(
-                "(() => { const panel = document.querySelector('.mdv-agent'); return !panel.hidden && !panel.inert && panel.getAnimations().length === 0; })()"
-            ) as? Bool == true
+            let panel = bridge.conversationPanel!
+            return !panel.isHidden && panel.alpha == 1 && panel.bounds.height > 0
+                && panel.layer.animationKeys()?.isEmpty != false && bridge.composer.view.isFirstResponder
         }
         try await send("Explain the document", bridge: bridge)
         try await wait {
@@ -1955,7 +1955,7 @@ final class AgentFlowTests: AgentReaderTestCase {
         // This geometry test needs the complete rendered surface, including
         // those child animations, before assigning programmatic scroll offsets.
         try await wait {
-            try await bridge.webView.evaluateJavaScript(
+            try await bridge.conversationWebView.evaluateJavaScript(
                 "document.querySelector('.mdv-app').getAnimations({subtree:true}).every(animation => animation.playState === 'finished')"
             ) as? Bool == true
         }
