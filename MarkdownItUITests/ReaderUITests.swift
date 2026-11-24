@@ -456,14 +456,19 @@ final class ReaderUITests: XCTestCase {
             let field = app.textFields["DocumentFindField"]
             XCTAssertTrue(field.waitForExistence(timeout: 10))
             field.typeText(source ? "CommonMark specification" : "通用资源解析")
-            waitForVisibleSoftwareKeyboard(in: app)
+            let keyboard = waitForVisibleSoftwareKeyboard(in: app)
             let body = source ? app.textViews["SourceEditor"] : app.webViews.firstMatch
             try assertFindHighlightIsPainted(body)
-            XCTAssertFalse(app.otherElements["DocumentFindBar"].frame.intersects(app.keyboards.firstMatch.frame))
+            XCTAssertFalse(app.otherElements["DocumentFindBar"].frame.intersects(keyboard.frame))
             record(source ? "source-find-document-end" : "preview-find-document-end")
             if UIDevice.current.userInterfaceIdiom == .pad {
-                app.keyboards.buttons["Hide keyboard"].tap()
-                XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
+                keyboard.buttons["Hide keyboard"].tap()
+                let hidden = XCTNSPredicateExpectation(
+                    predicate: NSPredicate { _, _ in !self.softwareKeyboardIsVisible(keyboard, in: app) },
+                    object: nil)
+                XCTAssertEqual(
+                    XCTWaiter.wait(for: [hidden], timeout: 8), .completed,
+                    "The software keyboard must leave the screen after dismissal.")
                 XCTAssertTrue(field.exists)
                 try assertFindHighlightIsPainted(body)
                 rotate(to: .landscapeLeft, in: app, viewport: field)
@@ -2271,6 +2276,12 @@ final class ReaderUITests: XCTestCase {
     //     XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
     // }
 
+    private func softwareKeyboardIsVisible(_ keyboard: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard keyboard.exists else { return false }
+        // A dismissed iPad keyboard can still be reported with an empty, offscreen frame.
+        return !keyboard.frame.intersection(app.windows.firstMatch.frame).isEmpty
+    }
+
     @discardableResult
     private func waitForVisibleSoftwareKeyboard(
         in app: XCUIApplication, timeout: TimeInterval = 5,
@@ -2278,11 +2289,8 @@ final class ReaderUITests: XCTestCase {
     ) -> XCUIElement {
         let keyboard = app.keyboards.firstMatch
         let visible = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                guard keyboard.exists else { return false }
-                let intersection = keyboard.frame.intersection(app.windows.firstMatch.frame)
-                return !intersection.isNull && intersection.height > 0
-            }, object: nil)
+            predicate: NSPredicate { _, _ in self.softwareKeyboardIsVisible(keyboard, in: app) },
+            object: nil)
         XCTAssertEqual(
             XCTWaiter.wait(for: [visible], timeout: timeout), .completed,
             "The software keyboard must occupy the screen; a hidden preview node is insufficient.",

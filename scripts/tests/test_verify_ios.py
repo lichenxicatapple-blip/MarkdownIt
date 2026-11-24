@@ -297,6 +297,7 @@ class FullTestExecution(unittest.TestCase):
         for code, counts, expected in [
             (0, self.summary(), True),
             (1, self.summary(), False),
+            (130, self.summary(), False),
             (0, self.summary(totalTestCount=0, passedTests=0), False),
             (0, self.summary(passedTests=125, failedTests=1), False),
             (0, self.summary(passedTests=125, skippedTests=1), False),
@@ -305,7 +306,7 @@ class FullTestExecution(unittest.TestCase):
             with (
                 self.subTest(code=code, counts=counts),
                 tempfile.TemporaryDirectory() as directory,
-                patch.object(verify_ios, "run"),
+                patch.object(verify_ios, "run") as simctl,
                 patch.object(verify_ios, "run_tests", return_value=code) as run_tests,
                 patch.object(verify_ios, "test_summary", return_value=counts),
                 patch.object(verify_ios, "failure_details"),
@@ -321,6 +322,7 @@ class FullTestExecution(unittest.TestCase):
                     cancel=threading.Event(),
                 )
                 self.assertEqual(result["passed"], expected)
+                self.assertEqual(simctl.call_args.args[0], ["xcrun", "simctl", "shutdown", "phone"])
                 command = run_tests.call_args.args[0]
                 self.assertEqual(command[command.index("-collect-test-diagnostics") + 1], "never")
                 self.assertEqual(
@@ -352,7 +354,7 @@ class FullTestExecution(unittest.TestCase):
                 return_value=subprocess.CompletedProcess(
                     [], 0, "Status=3\nData Migration Failed\n"
                 ),
-            ),
+            ) as simctl,
             patch.object(verify_ios, "run_tests") as run_tests,
             self.assertRaisesRegex(ValueError, "data migration failed"),
         ):
@@ -367,6 +369,7 @@ class FullTestExecution(unittest.TestCase):
                 cancel=threading.Event(),
             )
         run_tests.assert_not_called()
+        self.assertEqual(simctl.call_args.args[0], ["xcrun", "simctl", "shutdown", "phone"])
 
     def test_infrastructure_failure_does_not_omit_the_other_family(self):
         def execute(family, **options):

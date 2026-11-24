@@ -19,15 +19,17 @@ env:
 jobs:
   verify:
     name: Full iPhone and iPad regression
-    environment: >-
-      ${{ github.actor == github.repository_owner
-          && github.triggering_actor == github.repository_owner
-          && (github.event_name == 'push'
-              || github.event_name == 'workflow_dispatch'
-              || (github.event_name == 'pull_request'
-                  && github.event.pull_request.user.login == github.repository_owner
-                  && github.event.pull_request.head.repo.full_name == github.repository))
-          && 'local-ci-owner' || 'local-ci' }}
+    environment:
+      name: >-
+        ${{ github.actor == github.repository_owner
+            && github.triggering_actor == github.repository_owner
+            && (github.event_name == 'push'
+                || github.event_name == 'workflow_dispatch'
+                || (github.event_name == 'pull_request'
+                    && github.event.pull_request.user.login == github.repository_owner
+                    && github.event.pull_request.head.repo.full_name == github.repository))
+            && 'local-ci-owner' || 'local-ci' }}
+      deployment: false
     runs-on: [self-hosted, macOS, ARM64, justmarkdown]
     timeout-minutes: 65
     steps:

@@ -413,83 +413,102 @@ def verify_family(
         device = {"udid": identifier, "state": "Shutdown"}
     identifier = device["udid"]
     print(f"{family}: preparing simulator {identifier} on {runtime['name']}", flush=True)
-    if device["state"] != "Booted":
-        run(["xcrun", "simctl", "boot", identifier])
-    boot = run(["xcrun", "simctl", "bootstatus", identifier, "-b"], capture_output=True, text=True)
-    print(boot.stdout, end="", flush=True)
-    if "Data Migration Failed" in boot.stdout:
-        raise ValueError("Simulator data migration failed; the test environment is not ready")
-    preparation_seconds = time.monotonic() - started
-    print(f"{family}: simulator ready after {preparation_seconds:.1f}s", flush=True)
-    bundle = output / f"{family}.xcresult"
-    log = output / f"{family}.log"
-    selected = (
-        list(dict.fromkeys(test_cases))
-        if test_cases
-        else ["MarkdownItLiveTests"]
-        if live
-        else list(TEST_TARGETS.values())
-        if suite == "all"
-        else [TEST_TARGETS[suite]]
-    )
-    scope = "live" if live else "targeted" if test_cases else suite
-    print(f"{family}: running {scope}: {', '.join(selected)}", flush=True)
-    started = time.monotonic()
-    code = run_tests(
-        [
-            "xcodebuild",
-            "test-without-building",
-            "-xctestrun",
-            str(specification),
-            "-destination",
-            f"platform=iOS Simulator,id={identifier}",
-            "-resultBundlePath",
-            str(bundle),
-            "-parallel-testing-enabled",
-            "NO",
-            "-test-timeouts-enabled",
-            "YES",
-            "-collect-test-diagnostics",
-            "never",
-            *[f"-only-testing:{target}" for target in selected],
-        ],
-        log,
-        cancel=cancel,
-        label=family,
-        on_stall=lambda context: stall_details(identifier, output, context),
-    )
-    execution_seconds = time.monotonic() - started
-    counts = test_summary(
-        bundle, {item.split("/")[0] for item in selected}, expected_cases=test_cases
-    )
-    passed = (
-        code == 0
-        and counts is not None
-        and counts["totalTestCount"] > 0
-        and counts["passedTests"] == counts["totalTestCount"]
-        and counts["failedTests"] == 0
-        and counts["skippedTests"] == 0
-    )
-    print(
-        f"{family}: {'passed' if passed else 'failed'} after {execution_seconds:.1f}s", flush=True
-    )
-    if not passed:
-        failure_details(bundle, identifier, output)
-    return {
-        "family": family,
-        "device": identifier,
-        "runtime": runtime["name"],
-        "passed": passed,
-        "testCounts": counts,
-        "suite": suite,
-        "scope": scope,
-        "testPlan": "Live" if live else "Full",
-        "preparationSeconds": round(preparation_seconds, 1),
-        "executionSeconds": round(execution_seconds, 1),
-        "testSelectors": selected,
-        "resultBundle": str(bundle),
-        "log": str(log),
-    }
+    try:
+        if device["state"] != "Booted":
+            run(["xcrun", "simctl", "boot", identifier])
+        boot = run(
+            ["xcrun", "simctl", "bootstatus", identifier, "-b"], capture_output=True, text=True
+        )
+        print(boot.stdout, end="", flush=True)
+        if "Data Migration Failed" in boot.stdout:
+            raise ValueError("Simulator data migration failed; the test environment is not ready")
+        preparation_seconds = time.monotonic() - started
+        print(f"{family}: simulator ready after {preparation_seconds:.1f}s", flush=True)
+        bundle = output / f"{family}.xcresult"
+        log = output / f"{family}.log"
+        selected = (
+            list(dict.fromkeys(test_cases))
+            if test_cases
+            else ["MarkdownItLiveTests"]
+            if live
+            else list(TEST_TARGETS.values())
+            if suite == "all"
+            else [TEST_TARGETS[suite]]
+        )
+        scope = "live" if live else "targeted" if test_cases else suite
+        print(f"{family}: running {scope}: {', '.join(selected)}", flush=True)
+        started = time.monotonic()
+        code = run_tests(
+            [
+                "xcodebuild",
+                "test-without-building",
+                "-xctestrun",
+                str(specification),
+                "-destination",
+                f"platform=iOS Simulator,id={identifier}",
+                "-resultBundlePath",
+                str(bundle),
+                "-parallel-testing-enabled",
+                "NO",
+                "-test-timeouts-enabled",
+                "YES",
+                "-collect-test-diagnostics",
+                "never",
+                *[f"-only-testing:{target}" for target in selected],
+            ],
+            log,
+            cancel=cancel,
+            label=family,
+            on_stall=lambda context: stall_details(identifier, output, context),
+        )
+        execution_seconds = time.monotonic() - started
+        counts = test_summary(
+            bundle, {item.split("/")[0] for item in selected}, expected_cases=test_cases
+        )
+        passed = (
+            code == 0
+            and counts is not None
+            and counts["totalTestCount"] > 0
+            and counts["passedTests"] == counts["totalTestCount"]
+            and counts["failedTests"] == 0
+            and counts["skippedTests"] == 0
+        )
+        print(
+            f"{family}: {'passed' if passed else 'failed'} after {execution_seconds:.1f}s",
+            flush=True,
+        )
+        if not passed:
+            failure_details(bundle, identifier, output)
+        return {
+            "family": family,
+            "device": identifier,
+            "runtime": runtime["name"],
+            "passed": passed,
+            "testCounts": counts,
+            "suite": suite,
+            "scope": scope,
+            "testPlan": "Live" if live else "Full",
+            "preparationSeconds": round(preparation_seconds, 1),
+            "executionSeconds": round(execution_seconds, 1),
+            "testSelectors": selected,
+            "resultBundle": str(bundle),
+            "log": str(log),
+        }
+    finally:
+        try:
+            run(
+                ["xcrun", "simctl", "shutdown", identifier],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.CalledProcessError:
+            devices = simulator_data("devices").get(runtime["identifier"], [])
+            if not any(
+                item["udid"] == identifier and item["state"] == "Shutdown" for item in devices
+            ):
+                raise
+        print(f"{family}: simulator shut down ({identifier})", flush=True)
 
 
 def verify_families(families, **options):
