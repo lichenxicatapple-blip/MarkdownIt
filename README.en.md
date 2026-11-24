@@ -6,7 +6,7 @@
 
 A Markdown reader for iPhone, iPad, and Android phones.
 
-[Download the Android APK](https://github.com/lichenxicatapple-blip/MarkdownIt/releases)
+[Download on the App Store](https://apps.apple.com/us/app/markdownit/id6828690319) · [Download the Android APK](https://github.com/lichenxicatapple-blip/MarkdownIt/releases/latest)
 
 <p>
   <img src="docs/assets/reading-en.png" width="49%" alt="Immersive Markdown reading">
