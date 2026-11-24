@@ -4,7 +4,9 @@
 
 *just markdown, pure reading.*
 
-A Markdown reader for iPhone and iPad.
+A Markdown reader for iPhone, iPad, and Android phones.
+
+[Download the Android APK](https://github.com/lichenxicatapple-blip/MarkdownIt/releases)
 
 <p>
   <img src="docs/assets/reading-en.png" width="49%" alt="Immersive Markdown reading">

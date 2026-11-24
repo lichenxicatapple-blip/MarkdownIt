@@ -4,7 +4,9 @@
 
 *just markdown, pure reading.*
 
-适用于 iPhone 及 iPad 的 Markdown 文档阅读器。
+适用于 iPhone、iPad 和 Android 手机的 Markdown 文档阅读器。
+
+[下载 Android APK](https://github.com/lichenxicatapple-blip/MarkdownIt/releases)
 
 <p>
   <img src="docs/assets/reading-zh.png" width="49%" alt="沉浸式 Markdown 阅读">

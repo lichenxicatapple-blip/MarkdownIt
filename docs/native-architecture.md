@@ -2,6 +2,14 @@
 
 MarkdownIt 是面向 iPhone 和 iPad 的单文档 Markdown 阅读与编辑应用，部署基线为 iOS / iPadOS 26、Swift 6。本文说明当前系统的职责划分、状态归属、关键流程和数据边界；界面行为见[设计规范](../design/README.md)，构建与验证方法见[贡献指南](../CONTRIBUTING.md)。
 
+## Android 手机端
+
+`android/app` 使用原生 Kotlin 界面和 Android System WebView。构建直接打包现有的正文、目录、公式、图表和查找渲染资源，Android 适配器负责连接原生操作与同一套渲染方法。WebView 仅加载应用内资源，系统负责打开外部链接。
+
+Android 使用系统文件选择器新建或打开文档，以及授予目录权限。原生层解析相对引用并检查授权范围，WebView 按当前文档 token 请求图片。原生编辑器持有工作文本和撤销历史，预览渲染同一份文本。写回原文件前先保存私有草稿，并检查文件是否已被其他应用改动。应用重启后恢复最后打开的文档、模式和位置，主动关闭返回首页。
+
+Android 的 AI 阅读对话复用 Web 对话渲染和引用逻辑。Android 原生层管理输入、发送授权、模型目录和 Responses 请求，连接设置由 Android Keystore 加密保护。对话按文档存于本机，重试使用原请求的文档和引用快照。
+
 ## 系统组成
 
 SwiftUI／UIKit 负责系统能力、源码编辑与输入，WKWebView 负责只读文档快照、目录和对话的富文本呈现。源码工作文本与撤销历史由原生层持有，Markdown、数学和图表渲染由离线 Web 组件复用；文件访问、凭据和模型请求保留在原生层。

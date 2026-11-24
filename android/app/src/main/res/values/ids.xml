@@ -1,0 +1,19 @@
+<resources>
+    <item name="open_document" type="id" />
+    <item name="create_document" type="id" />
+    <item name="source_editor" type="id" />
+    <item name="tools_toggle" type="id" />
+    <item name="open_ai" type="id" />
+    <item name="quote_selection" type="id" />
+    <item name="ai_input" type="id" />
+    <item name="ai_send" type="id" />
+    <item name="ai_close" type="id" />
+    <item name="ai_settings_base" type="id" />
+    <item name="ai_settings_key" type="id" />
+    <item name="ai_settings_model" type="id" />
+    <item name="recent_documents" type="id" />
+    <item name="recent_documents_sheet" type="id" />
+    <item name="close_recent_documents" type="id" />
+    <item name="find_field" type="id" />
+    <item name="find_count" type="id" />
+</resources>

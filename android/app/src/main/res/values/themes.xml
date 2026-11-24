@@ -1,0 +1,32 @@
+<resources>
+    <style name="Theme.MarkdownIt" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/reader_surface</item>
+        <item name="android:colorAccent">@color/reader_accent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="Theme.MarkdownIt.RecentDocuments" parent="Theme.Material3.DayNight.BottomSheetDialog">
+        <item name="colorPrimary">@color/reader_accent</item>
+        <item name="colorSurface">@color/reader_surface</item>
+        <item name="colorOnSurface">@color/reader_text</item>
+        <item name="colorOnSurfaceVariant">@color/reader_secondary</item>
+        <item name="bottomSheetStyle">@style/Widget.MarkdownIt.RecentDocuments</item>
+        <item name="enableEdgeToEdge">true</item>
+        <item name="android:backgroundDimAmount">0.28</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+    </style>
+    <style name="Widget.MarkdownIt.RecentDocuments" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">@color/reader_surface</item>
+    </style>
+    <style name="Theme.MarkdownIt.Conversation" parent="Theme.MarkdownIt.RecentDocuments">
+        <item name="colorSurface">@color/conversation_surface</item>
+        <item name="bottomSheetStyle">@style/Widget.MarkdownIt.Conversation</item>
+    </style>
+    <style name="Widget.MarkdownIt.Conversation" parent="Widget.MarkdownIt.RecentDocuments">
+        <item name="backgroundTint">@color/conversation_surface</item>
+    </style>
+</resources>

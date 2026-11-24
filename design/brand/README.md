@@ -22,7 +22,7 @@ python3 scripts/build_native_web.py --check
 
 | 生成位置（仓库根目录下） | 内容 |
 | --- | --- |
-| `design/brand/production/` | 透明标志、完整 App 图标、Icon Composer 图标包及导出清单 |
+| `design/brand/production/` | 透明标志、完整 App 图标、Android 首页标志、Icon Composer 图标包及导出清单 |
 | `MarkdownIt/Assets.xcassets/BrandMark.imageset` | 包含背景的首页矢量与资源描述；保留原始颜色 |
 
 `--check` 重新生成并比较所有资源，遗漏更新、直接修改或遗留文件都会使检查失败。CI 和模拟器验证复用同一入口。

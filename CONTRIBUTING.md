@@ -37,7 +37,27 @@ python3 scripts/build_native_web.py --check
 
 隐私政策正文统一维护在 `docs/privacy.md` 的中英文部分；修改后运行同一资源生成器，提交供原生排版使用的政策内容。正文支持标题、段落、单段落无序列表、两列表格、加粗和链接；未支持的结构会中止生成，避免遗漏内容。应用中的政策入口不依赖网络，确认发送的授权按服务地址保存在设备上。
 
+## Android 手机构建
+
+在 Android Studio 中打开 `android/`，使用 JDK 17 或 21、Android SDK 36 和仓库内的 Gradle Wrapper。最低系统版本为 Android 11。离线阅读需要支持 CSS Custom Highlight API 的 Android System WebView。
+
+```sh
+python3 scripts/build_native_web.py --check
+cd android
+./gradlew :app:assembleDebug :app:lintDebug
+```
+
+APK 位于 `android/app/build/outputs/apk/debug/app-debug.apk`。Android 构建从同一份生成资源打包阅读器和品牌素材。修改共享渲染源文件后，沿用上节的生成步骤并在两端验证。
+
+使用 Android 手机模拟器验证时，可将 `MarkdownItTests/Fixtures/ReadingGuide/` 的内容复制到设备 `Documents` 下的同一文件夹，用系统文件选择器打开 `reading-guide.md`。检查目录跳转、正文查找、目录授权及重新打开后的阅读位置。也应从首页通过系统选择器新建文档，输入文本、撤销和重做、切换预览，再从最近打开中确认文件已原位保存。系统禁止对「下载」根目录授予整目录权限，文档和相对资源可放在可授权的子文件夹中。
+
 ## 版本与发布
+
+### Android
+
+在 `android/app/build.gradle.kts` 维护 `versionName` 和递增的 `versionCode`。运行 `./gradlew :app:assembleRelease`，使用 Android SDK 的 `zipalign` 和 `apksigner` 处理生成的 Release APK。发行密钥和密码保存在仓库外，更新沿用同一签名。验证签名和安装后，将 APK 上传到对应的 `android-v<版本>` GitHub Release。
+
+### iOS
 
 发布版本和构建号统一维护在 [`Configuration/Version.xcconfig`](Configuration/Version.xcconfig)，Debug 与 Release 引用同一份配置。`MARKETING_VERSION` 使用 `主版本.次版本.修订号`：修复增加修订号，兼容的新功能增加次版本，不兼容的变化增加主版本。`CURRENT_PROJECT_VERSION` 是递增的正整数，每次向 App Store Connect 上传新构建前增加，不因普通本地构建或测试自动变化。
 

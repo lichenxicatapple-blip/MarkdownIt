@@ -144,7 +144,9 @@ func generate(_ root: URL) throws -> [String: Data] {
     ])
     let info: [String: Any] = ["author": "xcode", "version": 1]
     let home = "\(assets)/BrandMark.imageset"
-    files["\(home)/BrandMark.svg"] = try svg(master, layers: identifiers, clipPath: brand.homeClipPath)
+    let homeArtwork = try svg(master, layers: identifiers, clipPath: brand.homeClipPath)
+    files["\(home)/BrandMark.svg"] = homeArtwork
+    files["\(production)/home-mark.png"] = try png(homeArtwork)
     files["\(assets)/BrandMark.imageset/Contents.json"] = try json([
         "images": [
             ["filename": "BrandMark.svg", "idiom": "universal"]
@@ -160,8 +162,8 @@ func generate(_ root: URL) throws -> [String: Data] {
         "rasterSize": [1024, 1024],
         "colorSpace": "sRGB",
         "nativeIcon": "\(brand.name).icon",
-        "exports": variants.flatMap { ["\($0.0).svg", "\($0.0).png"] },
-        "masking": "Unmasked squares. The system applies enclosure and appearance through the .icon package.",
+        "exports": variants.flatMap { ["\($0.0).svg", "\($0.0).png"] } + ["home-mark.png"],
+        "masking": "The system masks launcher icons. The homepage artwork uses the SVG master's rounded clip.",
     ])
     return files
 }

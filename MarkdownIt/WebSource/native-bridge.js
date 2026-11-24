@@ -6,6 +6,16 @@
     const annotations = new window.MarkdownItAnnotations({reader,
       context: () => ({token:nativeToken,revision:nativeRevision,enabled:displayedMode==='preview'&&!app.dataset.modeTransition}),
       post: message => postNative({token:nativeToken,revision:nativeRevision,...message})});
+    function localResourceURL(path) {
+      return window.MarkdownItPlatform?.localResourceURL(nativeToken, path) ??
+        `jm-resource://${nativeToken}/image?path=${encodeURIComponent(path)}`;
+    }
+    function localResourceImages() {
+      return [...reader.querySelectorAll('img[data-source-path]')].filter(image => {
+        const path = image.dataset.sourcePath;
+        return path && !/^(https?:|data:|blob:)/i.test(path);
+      });
+    }
     function prepareLocalResources(fragment, documentContent = false) {
       const images = [...fragment.querySelectorAll('img')];
       if (documentContent) {
@@ -25,7 +35,8 @@
         const path = image.getAttribute('data-source-path') || image.getAttribute('src') || '';
         if (!path || /^(https?:|data:|blob:)/i.test(path)) return;
         image.setAttribute('data-source-path', path);
-        image.src = `jm-resource://${nativeToken}/image?path=${encodeURIComponent(path)}`;
+        image.src = localResourceURL(path);
+        image.addEventListener('load', () => image.classList.remove('jm-local-image-error'));
         image.addEventListener('error', () => {
           if (resourceToken !== nativeToken) return;
           image.classList.add('jm-local-image-error');
@@ -217,13 +228,15 @@
         render(); if(!documentFind.restoreCurrent() && reflow && pinnedAnchor)restoreReadingPosition(pinnedAnchor);
       },
       reloadResources() {
-        reader.querySelectorAll('img[src^="jm-resource:"]').forEach(image => { image.src = `jm-resource://${nativeToken}/image?path=${encodeURIComponent(image.dataset.sourcePath)}&revision=${Date.now()}`; });
+        localResourceImages().forEach(image => {
+          image.src = `${localResourceURL(image.dataset.sourcePath)}&revision=${Date.now()}`;
+        });
       },
       theme(theme) { rendering.theme(theme); },
       async ready() { await documentReady; return true; },
       diagnostics() {
         const unsafeTags = Array.from(reader.querySelectorAll('script,iframe,form,style')).filter(node => node.tagName.toLowerCase() !== 'style' || !node.closest('.mdv-mermaid svg')).length;
-        return {mode:displayedMode, targetMode:state.mode,  anchor:captureReadingPosition(), outline:state.outline && headings.length > 0, headings:headings.map(h=>h.textContent), math:reader.querySelectorAll('.katex').length, diagrams:reader.querySelectorAll('.mdv-mermaid svg').length, diagramErrors:reader.querySelectorAll('.mdv-diagram-error').length, localImages:Array.from(reader.querySelectorAll('img[src^="jm-resource:"]')).map(i=>({path:i.dataset.sourcePath,loaded:i.complete&&i.naturalWidth>0})), tables:reader.querySelectorAll('table').length, unsafeTags, source:documentText, questionVisible:false, selectedText:window.getSelection()?.toString() || '', overflow:document.documentElement.scrollWidth>window.innerWidth};
+        return {mode:displayedMode, targetMode:state.mode,  anchor:captureReadingPosition(), outline:state.outline && headings.length > 0, headings:headings.map(h=>h.textContent), math:reader.querySelectorAll('.katex').length, diagrams:reader.querySelectorAll('.mdv-mermaid svg').length, diagramErrors:reader.querySelectorAll('.mdv-diagram-error').length, localImages:localResourceImages().map(i=>({path:i.dataset.sourcePath,loaded:i.complete&&i.naturalWidth>0})), tables:reader.querySelectorAll('table').length, unsafeTags, source:documentText, questionVisible:false, selectedText:window.getSelection()?.toString() || '', overflow:document.documentElement.scrollWidth>window.innerWidth};
       },
       async scrollToSourceLine(line) {
         await documentReady; pinnedAnchor = null; lastPosition = null;

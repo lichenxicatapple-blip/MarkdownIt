@@ -1,0 +1,10 @@
+<resources>
+    <color name="reader_surface">#1B1C1E</color>
+    <color name="reader_text">#F1F0EB</color>
+    <color name="reader_secondary">#B5B4AD</color>
+    <color name="reader_control">#333438</color>
+    <color name="reader_pressed">#2FFFFFFF</color>
+    <color name="reader_accent">#ADBEFF</color>
+    <color name="conversation_surface">#20252E</color>
+    <color name="reader_on_accent">#142047</color>
+</resources>
